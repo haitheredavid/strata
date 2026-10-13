@@ -93,7 +93,7 @@ export function parseDbml(src: string, sidecar?: string | null): Graph {
   const side = sidecar ? parseSidecar(sidecar) : null
   const inputs = [[...notePipelines.values()], ...(side ? [side.pipelines] : [])]
   const workflows = inputs.some((i) => i.length)
-    ? buildWorkflows(inputs, tables.map((t) => t.id), side?.warnings ?? [])
+    ? buildWorkflows(inputs, tables.map((t) => t.id), side?.warnings ?? [], side?.clusters ?? [])
     : { ...EMPTY_WORKFLOWS, warnings: side?.warnings ?? [] }
 
   return { tables, refs, layers, workflows }

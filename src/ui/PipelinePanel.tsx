@@ -12,6 +12,8 @@ export function PipelinePanel() {
   const setLens = useStore((s) => s.setLens)
   const openTimeline = useStore((s) => s.openTimeline)
   const setEdgeLayer = useStore((s) => s.setEdgeLayer)
+  const showCompute = useStore((s) => s.layout.showCompute ?? true)
+  const toggleCompute = useStore((s) => s.toggleCompute)
 
   return (
     <details open>
@@ -52,6 +54,14 @@ export function PipelinePanel() {
           )
         })}
       </ul>
+      {workflows.clusters.length > 0 && (
+        <div className="row">
+          <span title="The clusters jobs run on, drawn under the diagram">Compute · {workflows.clusters.length} clusters</span>
+          <button className={showCompute && lineage ? 'on' : ''} disabled={!lineage} onClick={toggleCompute}>
+            {showCompute ? 'Shown' : 'Hidden'}
+          </button>
+        </div>
+      )}
       {workflows.warnings.length > 0 && (
         <ul className="warnings">
           {workflows.warnings.map((w) => <li key={w}>{w}</li>)}

@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml'
-import type { Pipeline, Source, Task, Trigger, Workflows } from '../model/workflow'
-import { sourceId } from '../model/workflow'
+import type { Cluster, ClusterKind, Pipeline, Source, Task, Trigger, Workflows } from '../model/workflow'
+import { SERVERLESS, sourceId } from '../model/workflow'
 import { runSteps } from '../view/runOrder'
 import { list, parseTriggerText } from './notes'
 
@@ -13,6 +13,8 @@ export interface RawTask {
   dependsOn?: string[]
   emits?: string[]
   duration?: number
+  /** Cluster id: a pipeline's job cluster (`<pipeline>.<key>`), a shared cluster, or `serverless`. */
+  compute?: string
 }
 export interface RawPipeline {
   id: string
@@ -20,6 +22,8 @@ export interface RawPipeline {
   color?: string
   trigger?: Trigger
   tasks: RawTask[]
+  /** Job clusters declared on the pipeline (DAB `job_clusters`), ids already scoped to it. */
+  clusters?: Cluster[]
 }
 
 export const PIPELINE_COLORS = ['#22d3ee', '#f472b6', '#a3e635', '#fb923c', '#a78bfa', '#facc15', '#34d399', '#f87171']
@@ -36,6 +40,50 @@ export function parseDuration(v: unknown): number | undefined {
   const m = /^(?:(\d+(?:\.\d+)?)h)?\s*(?:(\d+(?:\.\d+)?)m)?\s*(?:(\d+(?:\.\d+)?)s)?$/.exec(s)
   if (!m || !(m[1] || m[2] || m[3])) return undefined
   return Math.round(Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)) || undefined
+}
+
+const CORES: Record<string, number> = {
+  'i3.xlarge': 4, 'i3.2xlarge': 8, 'i3.4xlarge': 16, 'm5d.large': 2, 'm5d.xlarge': 4, 'm5d.2xlarge': 8,
+  'm5d.4xlarge': 16, 'r5d.xlarge': 4, 'r5d.2xlarge': 8, Standard_DS3_v2: 4, Standard_DS4_v2: 8, Standard_DS5_v2: 16,
+}
+
+/** vCPUs of a node type: known types, then the AWS size suffix (`4xlarge` → 16), else 4. */
+export function coresOf(nodeType: string) {
+  if (CORES[nodeType]) return CORES[nodeType]
+  const m = /\.(\d*)xlarge$/.exec(nodeType)
+  if (m) return 4 * (Number(m[1]) || 1)
+  return /\.large$/.test(nodeType) ? 2 : 4
+}
+
+export const serverlessCluster = (): Cluster => ({
+  id: SERVERLESS, name: 'Serverless', kind: 'serverless', nodeType: 'serverless', workers: { min: 1, max: 8 }, coresPerNode: 4,
+})
+
+/**
+ * A cluster spec: DAB `new_cluster` fields (`node_type_id`, `num_workers` or `autoscale`,
+ * `spark_version`), directly or under `new_cluster`.
+ */
+function parseCluster(id: string, raw: Record<string, unknown>, kind: ClusterKind): Cluster {
+  const spec = (raw.new_cluster ?? raw) as Record<string, unknown>
+  const auto = spec.autoscale as { min_workers?: number; max_workers?: number } | undefined
+  const fixed = Number(spec.num_workers ?? 2)
+  const nodeType = String(spec.node_type_id ?? 'i3.xlarge')
+  const k = String(raw.kind ?? kind)
+  return {
+    id,
+    name: String(raw.cluster_name ?? raw.name ?? id),
+    kind: k === 'job' || k === 'serverless' ? k : 'all_purpose',
+    nodeType,
+    workers: auto ? { min: Number(auto.min_workers ?? 1), max: Number(auto.max_workers ?? auto.min_workers ?? 1) } : { min: fixed, max: fixed },
+    coresPerNode: coresOf(nodeType),
+    ...(spec.spark_version ? { sparkVersion: String(spec.spark_version) } : {}),
+  }
+}
+
+/** Entries of a YAML map or of a list of objects keyed by `key`. */
+function keyed(v: unknown, key: string): [string, Record<string, unknown>][] {
+  if (Array.isArray(v)) return v.map((x, i) => [String((x as Record<string, unknown>)[key] ?? (x as { name?: string }).name ?? i), x as Record<string, unknown>])
+  return v && typeof v === 'object' ? Object.entries(v as Record<string, Record<string, unknown>>) : []
 }
 
 function parseTrigger(v: unknown): Trigger | undefined {
@@ -56,13 +104,13 @@ function parseTrigger(v: unknown): Trigger | undefined {
  * Sidecar file (YAML or JSON): `{ pipelines: [{ id, name?, trigger?, tasks: [{ id, reads, writes, depends_on, emits }] }] }`.
  * Also accepts a DAB-like `resources.jobs` map. Problems become warnings rather than errors.
  */
-export function parseSidecar(text: string): { pipelines: RawPipeline[]; warnings: string[] } {
+export function parseSidecar(text: string): { pipelines: RawPipeline[]; clusters: Cluster[]; warnings: string[] } {
   const warnings: string[] = []
   let doc: unknown
   try {
     doc = parseYaml(text) // YAML is a superset of JSON
   } catch (e) {
-    return { pipelines: [], warnings: [`Workflow file: ${(e as Error).message.split('\n')[0]}`] }
+    return { pipelines: [], clusters: [], warnings: [`Workflow file: ${(e as Error).message.split('\n')[0]}`] }
   }
   const root = (doc ?? {}) as Record<string, unknown>
   let entries: [string | undefined, Record<string, unknown>][] = []
@@ -74,12 +122,15 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; warnings
     if (jobs) entries = Object.entries(jobs)
   }
   if (!entries.length) warnings.push('Workflow file has no pipelines')
+  // Shared (all-purpose) clusters that tasks name with `existing_cluster_id` or `compute`.
+  const clusters = keyed(root.clusters, 'id').map(([id, c]) => parseCluster(String(c.id ?? id), c, 'all_purpose'))
 
   const pipelines: RawPipeline[] = []
   entries.forEach(([key, p], i) => {
     const id = String(p.id ?? key ?? p.name ?? `pipeline_${i + 1}`)
     const tasks: RawTask[] = []
     const rawTasks = Array.isArray(p.tasks) ? (p.tasks as Record<string, unknown>[]) : []
+    const jobClusters = keyed(p.job_clusters, 'job_cluster_key').map(([key, c]) => parseCluster(`${id}.${key}`, { name: `${id}/${key}`, ...c }, 'job'))
     if (!rawTasks.length) warnings.push(`Pipeline "${id}" has no tasks`)
     rawTasks.forEach((t, j) => {
       const deps = (t.depends_on ?? t.dependsOn) as unknown
@@ -97,6 +148,11 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; warnings
           : strings(deps),
         emits: strings(t.emits),
         duration,
+        compute: t.job_cluster_key
+          ? `${id}.${t.job_cluster_key}`
+          : t.existing_cluster_id ? String(t.existing_cluster_id)
+            : t.environment_key ? SERVERLESS
+              : t.compute ? String(t.compute) : undefined,
       })
     })
     pipelines.push({
@@ -105,9 +161,10 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; warnings
       color: p.color ? String(p.color) : undefined,
       trigger: parseTrigger(p.trigger),
       tasks,
+      ...(jobClusters.length ? { clusters: jobClusters } : {}),
     })
   })
-  return { pipelines, warnings }
+  return { pipelines, clusters, warnings }
 }
 
 /** Resolves a name to a table id: exact, then `catalog.schema.table` suffixes, else an external source. */
@@ -131,8 +188,9 @@ function resolver(tableIds: string[]) {
  * is the same task. Tasks without `depends_on` get it inferred from data: a task depends on the tasks
  * in its pipeline that write what it reads.
  */
-export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warnings: string[] = []): Workflows {
+export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warnings: string[] = [], shared: Cluster[] = []): Workflows {
   const pipelineMeta = new Map<string, Omit<RawPipeline, 'tasks'>>()
+  const declared = new Map(shared.map((c) => [c.id, c]))
   const tasks = new Map<string, RawTask & { pipelineId: string; explicitDeps: boolean }>()
   const union = (a: string[] | undefined, b: string[] | undefined) => [...new Set([...(a ?? []), ...(b ?? [])])]
 
@@ -145,6 +203,7 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
         color: p.color ?? prev?.color,
         trigger: p.trigger ?? prev?.trigger,
       })
+      for (const c of p.clusters ?? []) declared.set(c.id, c)
       for (const t of p.tasks) {
         const old = tasks.get(t.id)
         const explicit = !!t.dependsOn?.length
@@ -156,6 +215,7 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
           writes: union(old?.writes, t.writes),
           emits: union(old?.emits, t.emits),
           duration: t.duration ?? old?.duration,
+          compute: t.compute ?? old?.compute,
           dependsOn: explicit ? t.dependsOn : old?.dependsOn,
           explicitDeps: explicit || !!old?.explicitDeps,
         })
@@ -185,6 +245,27 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
   }))
   const byId = new Map(pipelines.map((p) => [p.id, p]))
 
+  // Compute: what the task names, else a job cluster per pipeline (serverless for streaming).
+  const used = new Map<string, Cluster>()
+  const clusterFor = (t: RawTask, p: Pipeline): string => {
+    if (t.compute === SERVERLESS || (!t.compute && p.trigger?.kind === 'continuous')) {
+      if (!used.has(SERVERLESS)) used.set(SERVERLESS, declared.get(SERVERLESS) ?? serverlessCluster())
+      return SERVERLESS
+    }
+    const named = t.compute && (declared.get(t.compute) ?? declared.get(`${p.id}.${t.compute}`))
+    if (t.compute && !named) warnings.push(`Task "${t.id}" runs on unknown cluster "${t.compute}"`)
+    if (named) {
+      used.set(named.id, named)
+      return named.id
+    }
+    const id = `${p.id}_cluster`
+    if (!used.has(id)) {
+      const n = [...tasks.values()].filter((x) => x.pipelineId === p.id).length
+      used.set(id, { id, name: id, kind: 'job', nodeType: 'i3.xlarge', workers: { min: 2, max: Math.min(8, 2 + n) }, coresPerNode: 4 })
+    }
+    return id
+  }
+
   for (const t of tasks.values()) {
     const task: Task = {
       id: t.id,
@@ -195,6 +276,7 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
       dependsOn: [],
       emits: t.emits ?? [],
       ...(t.duration ? { duration: t.duration } : {}),
+      clusterId: clusterFor(t, byId.get(t.pipelineId)!),
     }
     if (!task.reads.length && !task.writes.length) warnings.push(`Task "${t.id}" reads and writes nothing`)
     byId.get(t.pipelineId)!.tasks.push(task)
@@ -221,5 +303,5 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
       warnings.push(`Pipeline "${p.id}" runs after unknown pipeline "${p.trigger.pipeline}"`)
   }
 
-  return { pipelines: pipelines.filter((p) => p.tasks.length), sources: [...sources.values()], warnings }
+  return { pipelines: pipelines.filter((p) => p.tasks.length), sources: [...sources.values()], clusters: [...used.values()], warnings }
 }

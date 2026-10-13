@@ -69,6 +69,7 @@ interface State {
   setGroupBy: (g: GroupBy) => void
   setEdgeLayer: (e: EdgeLayer) => void
   togglePipeline: (id: string) => void
+  toggleCompute: () => void
   setLens: (id: string | null) => void
   /** Open the day timeline; with a pipeline, light it up and jump to its first run. */
   openTimeline: (pipelineId?: string) => void
@@ -289,6 +290,7 @@ export const useStore = create<State>((set, get) => ({
   setEdgeLayer: (edgeLayer) => set((s) => ({ layout: { ...s.layout, edgeLayer } })),
   togglePipeline: (id) =>
     set((s) => ({ layout: { ...s.layout, hiddenPipelines: toggle(s.layout.hiddenPipelines ?? [], id) } })),
+  toggleCompute: () => set((s) => ({ layout: { ...s.layout, showCompute: !(s.layout.showCompute ?? true) } })),
   setLens: (lensPipeline) => set({ lensPipeline }),
   openTimeline: (pipelineId) =>
     set((s) => {

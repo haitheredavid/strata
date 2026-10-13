@@ -1,5 +1,6 @@
 import type { Column, ColumnDetail, Graph, GroupBy, Layer, RefKind } from '../model/types'
-import type { Medallion, Trigger } from '../model/workflow'
+import type { Cluster, Medallion, Trigger } from '../model/workflow'
+import { clusterNodeId } from '../model/workflow'
 
 export interface ViewNode {
   id: string
@@ -39,11 +40,28 @@ export interface FlowEdge {
   role: 'read' | 'write'
 }
 
+/** Compute a set of visible jobs runs on. Kept apart from `nodes` so layouts and path finding ignore it. */
+export interface ViewCluster {
+  id: string
+  cluster: Cluster
+  /** Job node ids running on it. */
+  jobs: string[]
+}
+
+/** A job running on a cluster. */
+export interface ComputeLink {
+  id: string
+  cluster: string
+  job: string
+}
+
 export interface ViewGraph {
   nodes: ViewNode[]
   edges: ViewEdge[]
   flows: FlowEdge[]
   layers: Layer[]
+  clusters: ViewCluster[]
+  computeLinks: ComputeLink[]
 }
 
 export interface ViewOptions {
@@ -55,6 +73,8 @@ export interface ViewOptions {
   /** Include jobs, sources and lineage flows. */
   lineage?: boolean
   hiddenPipelines?: string[]
+  /** With lineage: the clusters jobs run on. */
+  compute?: boolean
 }
 
 export const SOURCES = '__sources__'
@@ -144,6 +164,7 @@ export function deriveView(graph: Graph, opts: ViewOptions = {}): ViewGraph {
   // Jobs and lineage. A job is shown when at least one table it touches is visible.
   const flows: FlowEdge[] = []
   const seenFlow = new Set<string>()
+  const jobsOn = new Map<string, string[]>() // cluster id -> job node ids
   for (const p of pipelines) {
     const firstStep = new Set(p.tasks.filter((t) => !t.dependsOn.length).map((t) => t.id))
     for (const t of p.tasks) {
@@ -169,10 +190,22 @@ export function deriveView(graph: Graph, opts: ViewOptions = {}): ViewGraph {
       }
       for (const r of reads) add(r, id, 'read')
       for (const w of writes) add(id, w, 'write')
+      jobsOn.set(t.clusterId, [...(jobsOn.get(t.clusterId) ?? []), id])
     }
   }
 
-  return { nodes, edges, flows, layers }
+  const clusters: ViewCluster[] = []
+  const computeLinks: ComputeLink[] = []
+  if (opts.compute)
+    for (const c of wf.clusters) {
+      const jobs = jobsOn.get(c.id)
+      if (!jobs) continue
+      const id = clusterNodeId(c.id)
+      clusters.push({ id, cluster: c, jobs })
+      for (const job of jobs) computeLinks.push({ id: `c:${job}>${id}`, cluster: id, job })
+    }
+
+  return { nodes, edges, flows, layers, clusters, computeLinks }
 }
 
 /** Child (FK holder) and parent (referenced) ends of an edge. */

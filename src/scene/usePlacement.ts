@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { MODES } from '../layout/modes'
 import type { Placement } from '../layout/modes'
 import { placeJobs } from '../layout/modes/jobs'
+import { placeClusters } from '../layout/modes/compute'
 import { deriveView } from '../view/deriveView'
 import type { ViewGraph } from '../view/deriveView'
 import { hops } from '../view/hops'
@@ -59,6 +60,7 @@ export function useView(): ViewGraph {
       groupBy: s.layout.groupBy,
       edgeLayer: s.layout.edgeLayer,
       hiddenPipelines: s.layout.hiddenPipelines,
+      showCompute: s.layout.showCompute,
       hiddenLayers: s.hiddenLayers,
       isolatedLayerId: s.isolatedLayerId,
       collapsedLayers: s.collapsedLayers,
@@ -75,8 +77,9 @@ export function useView(): ViewGraph {
       groupBy: s.groupBy,
       lineage: lineageOn(s.edgeLayer),
       hiddenPipelines: s.hiddenPipelines,
+      compute: s.showCompute ?? true,
     })
-  }, [s.graph, s.groupBy, s.edgeLayer, s.isolatedLayerId, s.hiddenLayers, s.collapsedLayers, s.columnDetail, s.collapsedCards, s.hiddenPipelines])
+  }, [s.showCompute, s.graph, s.groupBy, s.edgeLayer, s.isolatedLayerId, s.hiddenLayers, s.collapsedLayers, s.columnDetail, s.collapsedCards, s.hiddenPipelines])
 }
 
 /** Join paths for the path finder. */
@@ -116,29 +119,44 @@ export function useSceneModel(): SceneModel {
   const { layout } = s
 
   const focusedNode = s.focused ? view.nodes.find((n) => n.id === s.focused) : undefined
-  const focused = focusedNode ? focusedNode.id : null
+  const focusedCluster = s.focused ? view.clusters.find((c) => c.id === s.focused) : undefined
+  const focused = focusedNode?.id ?? focusedCluster?.id ?? null
   const reach = useMemo(() => {
     if (!focused) return null
-    if (focusedNode?.kind !== 'job') return hops(view, focused, s.hopUp, s.hopDown)
-    // A job's neighborhood is what it reads (upstream) and writes (downstream).
     const m = new Map<string, Hop>([[focused, { hop: 0, dir: 0 }]])
+    if (focusedCluster) {
+      // A cluster's neighborhood is the jobs it runs.
+      for (const j of focusedCluster.jobs) m.set(j, { hop: 1, dir: -1 })
+      return m
+    }
+    if (focusedNode?.kind !== 'job') return hops(view, focused, s.hopUp, s.hopDown)
+    // A job's neighborhood is what it reads (upstream), writes (downstream) and the cluster it runs on.
     for (const f of view.flows) {
       if (f.to === focused) m.set(f.from, { hop: 1, dir: -1 })
       if (f.from === focused) m.set(f.to, { hop: 1, dir: 1 })
     }
+    for (const l of view.computeLinks) if (l.job === focused) m.set(l.cluster, { hop: 1, dir: 1 })
     return m
-  }, [view, focused, focusedNode?.kind, s.hopUp, s.hopDown])
+  }, [view, focused, focusedNode?.kind, focusedCluster, s.hopUp, s.hopDown])
 
   const mode = MODES[modeOf(layout)]
   const placement = useMemo(
     () =>
-      placeJobs(
+      placeClusters(
         view,
-        mode.place(view, layout, { focusedId: focused, hops: reach, hopUp: s.hopUp, hopDown: s.hopDown }),
+        placeJobs(
+          view,
+          // Layouts only know diagram nodes; a focused cluster doesn't rearrange them.
+          focusedCluster
+            ? mode.place(view, layout, { focusedId: null, hops: null, hopUp: s.hopUp, hopDown: s.hopDown })
+            : mode.place(view, layout, { focusedId: focused, hops: reach, hopUp: s.hopUp, hopDown: s.hopDown }),
+          mode.id,
+          layout.layerGap,
+        ),
         mode.id,
         layout.layerGap,
       ),
-    [mode, view, layout, focused, reach, s.hopUp, s.hopDown],
+    [mode, view, layout, focused, focusedCluster, reach, s.hopUp, s.hopDown],
   )
 
   const paths = usePaths(view)

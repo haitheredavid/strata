@@ -17,6 +17,10 @@ import type { RunState } from './JobNode'
 import { Lanes } from './Lanes'
 import { Pulses } from './Pulses'
 import { TimeDriver } from './TimeDriver'
+import { ClusterNode } from './ClusterNode'
+import { CLUSTER_COLOR } from './clusterStyle'
+import { ComputeLinks } from './ComputeLinks'
+import type { ComputeLink, ViewCluster } from '../view/deriveView'
 import { TriggerLinks } from './TriggerLinks'
 
 const DIM = 0.1
@@ -76,6 +80,21 @@ function Diagram({ model }: { model: SceneModel }) {
   const runState = (id: string): RunState =>
     !time ? null : time.active.has(id) ? 'active' : time.done.has(id) ? 'done' : 'pending'
   const lineageActive = view.flows.length > 0
+
+  // Clusters follow their jobs: lit when a job they run is lit / running.
+  const clusterById = useMemo(() => new Map(view.clusters.map((c) => [c.id, c])), [view])
+  const clusterOpacity = (c: ViewCluster) => {
+    if (time) return c.jobs.some((j) => time.active.has(j)) ? 1 : c.jobs.some((j) => time.done.has(j)) ? 0.75 : 0.25
+    if (reach?.has(c.id)) return 1
+    if (lens) return c.jobs.some((j) => lens.has(j)) ? 1 : DIM
+    return 0.9
+  }
+  const linkOpacity = (l: ComputeLink) => {
+    if (time) return time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04
+    if (reach) return reach.has(l.job) && reach.has(l.cluster) ? 0.9 : 0.04
+    if (lens) return lens.has(l.job) ? 0.6 : 0.04
+    return l.cluster === hovered || l.job === hovered ? 0.9 : 0.22
+  }
 
   return (
     <>
@@ -160,6 +179,23 @@ function Diagram({ model }: { model: SceneModel }) {
         const strong = opacity === 1 && (!!lit || !!reach || !!time)
         return <FlowWire key={f.id} flow={f} from={a} to={b} color={colorOf(f.pipelineId)} opacity={opacity} width={strong ? 3 : 2} />
       })}
+
+      {view.clusters.map((c) =>
+        placement.nodes[c.id] ? (
+          <ClusterNode
+            key={c.id}
+            cluster={c}
+            opacity={clusterOpacity(c)}
+            highlighted={c.id === hovered || c.id === focused}
+            schedule={time ? scheduleFor(graph) : null}
+          />
+        ) : null,
+      )}
+      <ComputeLinks
+        links={view.computeLinks}
+        colorOf={(id) => CLUSTER_COLOR[clusterById.get(id)?.cluster.kind ?? 'job']}
+        opacityOf={linkOpacity}
+      />
 
       {lineageActive && (
         <>

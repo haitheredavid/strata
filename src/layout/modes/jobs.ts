@@ -35,7 +35,14 @@ export function placeJobs(view: ViewGraph, placement: Placement, mode: ModeId, g
   }
 
   // Push overlapping jobs apart, only along axes that keep them between their layers.
-  const free = mode === 'stack' ? [0, 2] : mode === 'flow' ? [1, 2] : [0, 1, 2]
+  separate(placed, mode === 'stack' ? [0, 2] : mode === 'flow' ? [1, 2] : [0, 1, 2], MIN_GAP)
+
+  for (const { id, p } of placed) nodes[id] = { p, frame: 'billboard' }
+  return { ...placement, nodes }
+}
+
+/** Pushes points apart until none are closer than `gap`, moving them only along the `free` axes. */
+export function separate(placed: { p: V3 }[], free: number[], gap: number) {
   for (let iter = 0; iter < 60; iter++) {
     let moved = false
     for (let i = 0; i < placed.length; i++)
@@ -43,13 +50,13 @@ export function placeJobs(view: ViewGraph, placement: Placement, mode: ModeId, g
         const [pi, pj] = [placed[i].p, placed[j].p]
         const d = free.map((k) => pj[k] - pi[k])
         let len = Math.hypot(...d)
-        if (len >= MIN_GAP) continue
+        if (len >= gap) continue
         moved = true
         if (len < 1e-6) {
           d[d.length - 1] = 1 // coincident: separate along the last free axis, in list order
           len = 1
         }
-        const push = (MIN_GAP - len) / 2 / len
+        const push = (gap - len) / 2 / len
         free.forEach((k, n) => {
           pi[k] -= d[n] * push
           pj[k] += d[n] * push
@@ -57,7 +64,4 @@ export function placeJobs(view: ViewGraph, placement: Placement, mode: ModeId, g
       }
     if (!moved) break
   }
-
-  for (const { id, p } of placed) nodes[id] = { p, frame: 'billboard' }
-  return { ...placement, nodes }
 }

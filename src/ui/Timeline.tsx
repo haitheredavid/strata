@@ -73,6 +73,7 @@ export function Timeline() {
       }),
     [graph, schedule],
   )
+  const clusterName = useMemo(() => new Map(graph.workflows.clusters.map((c) => [c.id, c.name])), [graph])
   const runById = useMemo(() => new Map(schedule.taskRuns.map((r) => [r.id, r])), [schedule])
 
   const pct = (t: number) => ((t - view[0]) / (view[1] - view[0])) * 100
@@ -244,7 +245,7 @@ export function Timeline() {
                 const name = names.get(run.taskId) ?? run.taskId
                 const title = run.continuous
                   ? `${name} · streaming all day`
-                  : `${name} · ${clock(run.start)}–${clock(run.end)} · ${dur(run.end - run.start)} (${dur(run.setup)} queue/start)${run.medallion ? ` · writes ${run.medallion}` : ''}`
+                  : `${name} · ${clock(run.start)}–${clock(run.end)} · ${dur(run.end - run.start)} (${dur(run.setup)} queue/start)${run.medallion ? ` · writes ${run.medallion}` : ''} · on ${clusterName.get(run.clusterId) ?? run.clusterId}`
                 return (
                   <div
                     key={run.id}

@@ -16,6 +16,7 @@ export interface TaskRun {
   start: number
   end: number
   setup: number
+  clusterId: string
   medallion?: Medallion
   /** Streaming task: runs all day in micro-batches. */
   continuous?: boolean
@@ -91,6 +92,7 @@ export function simulateDay(wf: Workflows, tables: Pick<Table, 'id' | 'medallion
   const medallionOf = new Map(tables.map((t) => [t.id, t.medallion]))
   const taskMedallion = (t: Task) => t.writes.map((w) => medallionOf.get(w)).find((m): m is Medallion => !!m)
   const byId = new Map(wf.pipelines.map((p) => [p.id, p]))
+  const clusterKind = new Map(wf.clusters.map((c) => [c.id, c.kind]))
 
   const runs: PipelineRun[] = []
   const taskRuns: TaskRun[] = []
@@ -156,16 +158,21 @@ export function simulateDay(wf: Workflows, tables: Pick<Table, 'id' | 'medallion
   function runBatch(p: Pipeline, n: number, req: Request): PipelineRun {
     const runId = `${p.id}#${n + 1}`
     const ends = new Map<string, number>()
-    for (const [k, step] of runSteps(p).steps.entries())
+    const started = new Set<string>() // job clusters already up in this run
+    for (const step of runSteps(p).steps)
       for (const id of step) {
         const task = byTask(p, id)
         const key = `${seed}:${runId}:${id}`
         const ready = Math.max(req.t, ...task.dependsOn.map((d) => ends.get(d) ?? req.t))
-        // First step waits for the job cluster to start; later steps only queue briefly.
-        const setup = Math.round(k === 0 ? between(`${key}:cold`, 180, 300) : between(`${key}:gap`, 20, 60))
+        // A job cluster starts cold once per run; warm shared clusters and serverless only queue briefly.
+        const kind = clusterKind.get(task.clusterId) ?? 'job'
+        const cold = kind === 'job' && !started.has(task.clusterId)
+        started.add(task.clusterId)
+        const [lo, hi] = cold ? [180, 300] : kind === 'serverless' ? [10, 30] : kind === 'all_purpose' ? [5, 20] : [20, 60]
+        const setup = Math.round(between(`${key}:${cold ? 'cold' : 'gap'}`, lo, hi))
         const medallion = taskMedallion(task)
         const work = task.duration ?? Math.round(BASE[medallion ?? 'none'] * (1 + 0.3 * task.reads.length) * between(`${key}:jitter`, 0.7, 1.4))
-        const r: TaskRun = { id: `${runId}/${id}`, taskId: id, pipelineId: p.id, runId, start: ready, end: ready + setup + work, setup, medallion }
+        const r: TaskRun = { id: `${runId}/${id}`, taskId: id, pipelineId: p.id, runId, start: ready, end: ready + setup + work, setup, clusterId: task.clusterId, medallion }
         ends.set(id, r.end)
         taskRuns.push(r)
         for (const w of task.writes) events.push({ t: r.end, kind: 'write', name: w, pipelineId: p.id, taskRunId: r.id })
@@ -183,7 +190,7 @@ export function simulateDay(wf: Workflows, tables: Pick<Table, 'id' | 'medallion
     events.push({ t: 0, kind: 'trigger', name: 'continuous', pipelineId: p.id })
     for (const task of p.tasks) {
       const r: TaskRun = {
-        id: `${runId}/${task.id}`, taskId: task.id, pipelineId: p.id, runId, start: 0, end: DAY, setup: 0,
+        id: `${runId}/${task.id}`, taskId: task.id, pipelineId: p.id, runId, start: 0, end: DAY, setup: 0, clusterId: task.clusterId,
         medallion: taskMedallion(task), continuous: true,
       }
       taskRuns.push(r)
@@ -235,4 +242,15 @@ export const span = (sec: number) => {
   if (s < 60) return `${s}s`
   const m = Math.round(s / 60)
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`
+}
+
+/** Task runs on a cluster at `t`: still starting (in their setup) or doing work. */
+export function onCluster(s: Schedule, clusterId: string, t: number) {
+  const starting: TaskRun[] = []
+  const working: TaskRun[] = []
+  for (const r of s.taskRuns) {
+    if (r.clusterId !== clusterId || t < r.start || t >= r.end) continue
+    ;(t < r.start + r.setup ? starting : working).push(r)
+  }
+  return { starting, working }
 }
