@@ -3,8 +3,7 @@ import type { PointerEvent } from 'react'
 import { scheduleFor, TIME_SPEEDS, useStore } from '../store'
 import { timeClock, TRIGGER_LABEL } from '../scene/timeClock'
 import { timeWindow } from '../scene/usePlacement'
-import { clock, DAY, eventsIn, layerTotals, span as dur } from '../sim/schedule'
-import type { TaskRun } from '../sim/schedule'
+import { clock, DAY, eventsIn, layerTotals, packLanes, span as dur } from '../sim/schedule'
 import { MEDALLIONS } from '../model/workflow'
 import type { Trigger } from '../model/workflow'
 import { jobNodeId, MEDALLION_LAYERS } from '../view/deriveView'
@@ -26,17 +25,6 @@ const triggerLine = (t?: Trigger) => {
   if (!t) return 'no trigger'
   const d = t.kind === 'schedule' ? t.cron : t.kind === 'file_arrival' ? t.path : t.kind === 'table_update' ? t.tables.join(', ') : t.kind === 'job' ? t.pipeline : ''
   return `${TRIGGER_LABEL[t.kind]} ${d}`.trim()
-}
-
-/** Task runs of one pipeline packed into the fewest lanes without overlap (runs are sorted by start). */
-function packLanes(runs: TaskRun[]) {
-  const ends: number[] = []
-  return runs.map((run) => {
-    let lane = ends.findIndex((e) => e <= run.start)
-    if (lane < 0) lane = ends.length
-    ends[lane] = run.end
-    return { run, lane }
-  })
 }
 
 interface Drag { x: number; t: number; mode: 'new' | 'a' | 'b'; moved: boolean; taskRun?: string }

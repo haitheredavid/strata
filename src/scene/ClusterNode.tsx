@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import type { Group, MeshBasicMaterial } from 'three'
 import type { Schedule } from '../sim/schedule'
 import { onCluster } from '../sim/schedule'
+import { workersFor } from '../sim/spark'
 import type { ViewCluster } from '../view/deriveView'
 import { useStore } from '../store'
 import { syncFromAnim } from './anim'
@@ -52,7 +53,7 @@ export function ClusterNode({ cluster: vc, opacity, highlighted, schedule }: Pro
     const { starting, working } = onCluster(schedule, c.id, timeClock.t)
     const up = starting.length + working.length > 0 || c.kind === 'all_purpose'
     // Busy workers: the minimum, plus autoscaling as more tasks share the cluster.
-    const busy = working.length ? Math.min(c.workers.max, c.workers.min + (working.length - 1) * 2) : 0
+    const busy = working.length ? workersFor(c, working.length) : 0
     const lit = Math.round((busy / c.workers.max) * shown)
     const blink = starting.length && !working.length ? 0.5 + 0.5 * Math.sin(performance.now() / 150) : 1
     driver.current?.color.set(up ? color : OFF).multiplyScalar(blink)

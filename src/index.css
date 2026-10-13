@@ -173,13 +173,22 @@ select.sample {
 .pipelines button { padding: 1px 6px; font-size: 11px; }
 .warnings { margin: 6px 0 0; padding-left: 16px; color: #fbbf24; font-size: 11px; }
 
-.timeline {
+/* Bottom dock: compute drawer above the timeline. */
+.dock {
   position: absolute;
   left: 50%;
   bottom: 16px;
   transform: translateX(-50%);
   width: min(1100px, calc(100% - 320px));
-  max-height: 45%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.dock > * { pointer-events: auto; }
+
+.timeline {
+  max-height: 40vh;
   padding: 10px 14px;
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   border: 1px solid var(--border);
@@ -232,3 +241,34 @@ select.sample {
 .timeline .events .swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .pipelines .swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
 .layers .swatch { flex-shrink: 0; }
+
+.compute {
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+.compute .head { display: flex; align-items: center; gap: 8px; }
+.compute .head .spacer { flex: 1; }
+.compute .head button { padding: 2px 8px; }
+.compute .title { font-weight: 600; font-size: 13px; }
+.compute .kind { font-size: 9px; letter-spacing: 0.08em; border: 1px solid; border-radius: 3px; padding: 0 4px; }
+.compute .spec, .compute .range { color: var(--muted); font-variant-numeric: tabular-nums; }
+.compute .sim { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: #fbbf24; border: 1px dashed #fbbf2499; border-radius: 3px; padding: 0 4px; }
+.compute .stats { display: flex; gap: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
+.compute .stats .advice { color: #34d399; }
+.compute .charts { display: flex; flex-direction: column; gap: 4px; }
+.compute canvas { display: block; }
+.compute .flame { position: relative; max-height: 200px; overflow-y: auto; overflow-x: hidden; }
+.compute .flame canvas { cursor: zoom-in; }
+.compute .empty { color: var(--muted); padding: 8px 0; }
+.compute .tip {
+  position: absolute; z-index: 1; pointer-events: none; width: 230px;
+  background: #0b0e14f2; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+  color: var(--muted); font-size: 11px; line-height: 1.4;
+}
+.compute .tip .first { color: var(--text); font-weight: 600; }

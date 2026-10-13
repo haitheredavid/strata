@@ -254,3 +254,14 @@ export function onCluster(s: Schedule, clusterId: string, t: number) {
   }
   return { starting, working }
 }
+
+/** Runs packed into the fewest lanes without overlap (runs sorted by start). */
+export function packLanes<T extends { start: number; end: number }>(runs: T[]) {
+  const ends: number[] = []
+  return runs.map((run) => {
+    let lane = ends.findIndex((e) => e <= run.start)
+    if (lane < 0) lane = ends.length
+    ends[lane] = run.end
+    return { run, lane }
+  })
+}
