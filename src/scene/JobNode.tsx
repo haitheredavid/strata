@@ -6,7 +6,7 @@ import type { Trigger } from '../model/workflow'
 import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
 import { syncFromAnim } from './anim'
-import { TRIGGER_LABEL } from './runClock'
+import { TRIGGER_LABEL } from './timeClock'
 
 const EVENT = '#fbbf24'
 

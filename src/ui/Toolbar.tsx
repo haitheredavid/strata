@@ -15,6 +15,9 @@ export function Toolbar() {
   const setMode = useStore((s) => s.setMode)
   const pathOpen = useStore((s) => s.pathOpen)
   const openPath = useStore((s) => s.openPath)
+  const timeline = useStore((s) => s.time.open)
+  const openTimeline = useStore((s) => s.openTimeline)
+  const closeTimeline = useStore((s) => s.closeTimeline)
   const dbmlInput = useRef<HTMLInputElement>(null)
   const workflowInput = useRef<HTMLInputElement>(null)
   const hasSchema = graph.tables.length > 0
@@ -91,6 +94,18 @@ export function Toolbar() {
       <TablePicker placeholder="Find table…" onPick={go} />
       <button className={pathOpen ? 'on' : ''} disabled={!graph.tables.length} onClick={() => openPath(!pathOpen)}>
         Path
+      </button>
+      <button
+        className={timeline ? 'on' : ''}
+        disabled={!graph.workflows.pipelines.length}
+        title="Scrub a simulated day of pipeline runs"
+        onClick={() => {
+          if (timeline) return closeTimeline()
+          if ((useStore.getState().layout.edgeLayer ?? 'both') === 'fk') useStore.getState().setEdgeLayer('both')
+          openTimeline()
+        }}
+      >
+        Timeline
       </button>
 
       <div className="spacer" />

@@ -63,8 +63,58 @@ Load the **Lakehouse sample** from the Samples menu, or drop a `.dbml` together 
 - **Pipelines panel**:
   - show / hide each pipeline;
   - ◎ lights up everything a pipeline touches;
-  - ▶ plays a run step by step: tasks that can run in parallel share a step, reads pulse in and then writes pulse out. The timeline has play / pause / step, speed, and an optional camera follow.
+  - ▶ opens the day timeline on that pipeline's first run, with the pipeline lit up.
 - The workflow file is remembered for each schema, so a reload keeps it.
+
+## Day timeline
+
+**Timeline** in the toolbar (or ▶ on a pipeline) opens a simulated day of runs across every pipeline.
+
+- **Start times** come from each pipeline's trigger:
+  - cron schedules fire at their times; file arrivals land three times a day; manual runs at 09:00; continuous runs all day.
+  - `after:` pipelines start when the upstream run ends. Table-update pipelines start 60 s after a watched table is written.
+  - A pipeline that is still running queues at most one more run.
+- **Durations** come from the medallion layer a task writes (silver heaviest), scaled by how many tables it reads. A task's `duration: 12m` in the workflow file overrides this. Job clusters add a cold start once per run.
+- **Rows**: one row per pipeline and one bar per task run.
+  - The hatched start of a bar is queueing or cluster start-up. Its left edge is the medallion layer it writes, and ◆ marks an emitted event.
+  - Hover a bar for times and the cluster it ran on. Click it to focus that job.
+- **Selecting time**: click to move the playhead, drag to select a span (drag its edges to adjust), wheel to zoom, shift-wheel to pan.
+- **3D scene**: lights jobs running at the playhead, plus jobs in the span (or in the last hour). Reads pulse in, then writes pulse out, as each job progresses.
+- **Medallion totals**: the B / S / G chip shows task time per layer in the span, or so far today. It shows where silver outweighs gold.
+
+## Compute
+
+Jobs are linked to the clusters they run on, drawn as racks under the diagram. Toggle them in the Pipelines panel.
+
+- **Workflow file**: declare compute the DAB way.
+  ```yaml
+  clusters:                         # shared all-purpose clusters
+    analytics_shared: { node_type_id: i3.2xlarge, autoscale: { min_workers: 2, max_workers: 6 } }
+  pipelines:
+    - id: sales_refresh
+      job_clusters:
+        - job_cluster_key: etl
+          new_cluster: { node_type_id: i3.xlarge, autoscale: { min_workers: 2, max_workers: 8 } }
+      tasks:
+        - { id: clean_orders, job_cluster_key: etl }
+        - { id: build_ltv, existing_cluster_id: analytics_shared }
+        - { id: ingest_events, environment_key: default }   # serverless
+  ```
+  Tasks that name nothing get a job cluster for their pipeline, or serverless for streaming pipelines.
+- **Racks**: workers light up with the work at the playhead. A warm all-purpose cluster idles grey; a job cluster is dark between runs. Focus a cluster to light the jobs it runs.
+- **Compute drawer**: focus a job or a cluster to open a drawer above the timeline.
+  - It shows the cluster spec, a utilization strip (workers up in grey, cores busy in colour), avg / p95 load, estimated DBUs and a right-sizing hint.
+  - Its flame chart runs task run → Spark jobs → stages (scan, exchange, join, write…) → task waves. A red tail marks a skewed straggler, and a red outline marks a spill.
+  - Hover a bar for details, click to zoom, double-click to reset.
+
+**All compute data is simulated.** It follows the shape of the real sources, so an importer could replace it later:
+
+| Shown | Real source |
+| --- | --- |
+| Task start / end, cluster used | `system.lakeflow.job_task_run_timeline` (`compute_ids`) |
+| Cluster spec | `system.compute.clusters` |
+| Workers up, CPU busy | `system.compute.node_timeline` |
+| Spark jobs, stages, tasks, shuffle, spill | Spark event log (`SparkListenerJobStart`, `SparkListenerStageCompleted`, `SparkListenerTaskEnd`) |
 
 ## Structure
 
@@ -72,7 +122,8 @@ Load the **Lakehouse sample** from the Samples menu, or drop a `.dbml` together 
 
 - `src/view/`: `deriveView` (grouping, collapse, jobs and lineage flows), `hops`, `findPaths` and `runOrder`. All are pure.
 - `src/parse/`: DBML (`dbml.ts`), notes and medallion inference (`notes.ts`), and the workflow file and merge (`workflows.ts`).
-- `src/layout/modes/`: `stack`, `flow` and `orbit`, each turning the view into world-space positions and card orientations. `jobs.ts` then places jobs in any mode.
+- `src/layout/modes/`: `stack`, `flow` and `orbit`, each turning the view into world-space positions and card orientations. `jobs.ts` then places jobs in any mode, and `compute.ts` places clusters under them.
+- `src/sim/`: the simulated day (`schedule.ts`) and Spark execution and utilization (`spark.ts`). Both are pure and deterministic.
 - `src/layout/depth.ts`: FK depth (longest path, with cycles broken) and domain rank.
 - `src/scene/anim.ts`: eases cards and plates toward their placement targets. Wires follow the animated transforms.
 

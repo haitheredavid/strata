@@ -3,7 +3,7 @@ import { Canvas, useThree } from '@react-three/fiber'
 import { Line } from '@react-three/drei'
 import { MODES } from '../layout/modes'
 import type { Ring } from '../layout/modes'
-import { modeOf, useStore } from '../store'
+import { modeOf, scheduleFor, useStore } from '../store'
 import { AnimDriver } from './anim'
 import { CameraRig } from './CameraRig'
 import { LayerPlate } from './LayerPlate'
@@ -16,7 +16,11 @@ import { JobNode } from './JobNode'
 import type { RunState } from './JobNode'
 import { Lanes } from './Lanes'
 import { Pulses } from './Pulses'
-import { RunDriver } from './RunDriver'
+import { TimeDriver } from './TimeDriver'
+import { ClusterNode } from './ClusterNode'
+import { CLUSTER_COLOR } from './clusterStyle'
+import { ComputeLinks } from './ComputeLinks'
+import type { ComputeLink, ViewCluster } from '../view/deriveView'
 import { TriggerLinks } from './TriggerLinks'
 
 const DIM = 0.1
@@ -42,7 +46,8 @@ export function Scene() {
 }
 
 function Diagram({ model }: { model: SceneModel }) {
-  const { view, placement, reach, lit, run } = model
+  const { view, placement, reach, lit, time } = model
+  const graph = useStore((s) => s.graph)
   const hovered = useStore((s) => s.hoveredTableId)
   const focused = useStore((s) => s.focusedTableId)
   const mode = useStore((s) => MODES[modeOf(s.layout)])
@@ -63,18 +68,33 @@ function Diagram({ model }: { model: SceneModel }) {
   const litPipelines = lit?.flows.size ? new Set(view.flows.filter((f) => lit.flows.has(f.id)).map((f) => f.pipelineId)) : null
 
   const nodeOpacity = (id: string) => {
-    if (run) {
-      if (run.active.has(id)) return 1
-      if (run.done.has(id)) return 0.8
-      if (run.reached.has(id)) return 1
+    if (time) {
+      if (time.active.has(id)) return 1
+      if (time.done.has(id)) return 0.8
+      if (time.reached.has(id)) return 1
       return lit?.nodes.has(id) ? 0.35 : DIM
     }
     if (lens) return lens.has(id) ? 1 : DIM
     return placement.nodes[id]?.faded ? FADED : 1
   }
   const runState = (id: string): RunState =>
-    !run ? null : run.active.has(id) ? 'active' : run.done.has(id) ? 'done' : 'pending'
+    !time ? null : time.active.has(id) ? 'active' : time.done.has(id) ? 'done' : 'pending'
   const lineageActive = view.flows.length > 0
+
+  // Clusters follow their jobs: lit when a job they run is lit / running.
+  const clusterById = useMemo(() => new Map(view.clusters.map((c) => [c.id, c])), [view])
+  const clusterOpacity = (c: ViewCluster) => {
+    if (time) return c.jobs.some((j) => time.active.has(j)) ? 1 : c.jobs.some((j) => time.done.has(j)) ? 0.75 : 0.25
+    if (reach?.has(c.id)) return 1
+    if (lens) return c.jobs.some((j) => lens.has(j)) ? 1 : DIM
+    return 0.9
+  }
+  const linkOpacity = (l: ComputeLink) => {
+    if (time) return time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04
+    if (reach) return reach.has(l.job) && reach.has(l.cluster) ? 0.9 : 0.04
+    if (lens) return lens.has(l.job) ? 0.6 : 0.04
+    return l.cluster === hovered || l.job === hovered ? 0.9 : 0.22
+  }
 
   return (
     <>
@@ -106,7 +126,7 @@ function Diagram({ model }: { model: SceneModel }) {
             place={place}
             color={layerById.get(n.layerId)!.color}
             opacity={nodeOpacity(n.id)}
-            highlighted={highlighted || !!run?.reached.has(n.id)}
+            highlighted={highlighted || !!time?.reached.has(n.id)}
             draggable={mode.draggable}
           />
         )
@@ -153,21 +173,39 @@ function Diagram({ model }: { model: SceneModel }) {
         if (!placement.nodes[a.id] || !placement.nodes[b.id]) return null
         const job = f.role === 'read' ? f.to : f.from
         let opacity = 0.75
-        if (run) opacity = run.active.has(job) ? 1 : run.done.has(job) ? 0.55 : lit?.flows.has(f.id) ? 0.15 : 0.03
+        if (time) opacity = time.active.has(job) ? 1 : time.done.has(job) ? 0.55 : lit?.flows.has(f.id) ? 0.15 : 0.03
         else if (lit) opacity = lit.flows.has(f.id) ? 1 : 0.05
         else if (reach) opacity = reach.has(f.from) && reach.has(f.to) ? 1 : 0.06
-        const strong = opacity === 1 && (!!lit || !!reach || !!run)
+        const strong = opacity === 1 && (!!lit || !!reach || !!time)
         return <FlowWire key={f.id} flow={f} from={a} to={b} color={colorOf(f.pipelineId)} opacity={opacity} width={strong ? 3 : 2} />
       })}
+
+      {view.clusters.map((c) =>
+        placement.nodes[c.id] ? (
+          <ClusterNode
+            key={c.id}
+            cluster={c}
+            opacity={clusterOpacity(c)}
+            highlighted={c.id === hovered || c.id === focused}
+            schedule={time ? scheduleFor(graph) : null}
+          />
+        ) : null,
+      )}
+      <ComputeLinks
+        links={view.computeLinks}
+        colorOf={(id) => CLUSTER_COLOR[clusterById.get(id)?.cluster.kind ?? 'job']}
+        opacityOf={linkOpacity}
+      />
 
       {lineageActive && (
         <>
           <Pulses
             flows={view.flows.filter((f) => !lit || lit.flows.has(f.id))}
             colorOf={colorOf}
-            active={run ? run.active : null}
+            schedule={time ? scheduleFor(graph) : null}
+            lens={time ? time.active : null}
           />
-          <TriggerLinks view={view} pipelines={shownPipelines} opacity={lens || run ? 0.3 : 1} />
+          <TriggerLinks view={view} pipelines={shownPipelines} opacity={lens || time ? 0.3 : 1} />
           {mode.id === 'flow' && (
             <Lanes
               view={view}
@@ -178,7 +216,7 @@ function Diagram({ model }: { model: SceneModel }) {
           )}
         </>
       )}
-      <RunDriver run={run} />
+      <TimeDriver time={time} />
     </>
   )
 }

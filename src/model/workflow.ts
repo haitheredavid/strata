@@ -18,6 +18,10 @@ export interface Task {
   writes: string[]
   dependsOn: string[]
   emits: string[]
+  /** Run time in seconds, when the workflow file gives one; otherwise simulated. */
+  duration?: number
+  /** Compute the task runs on (a `Cluster` id). */
+  clusterId: string
 }
 
 export interface Pipeline {
@@ -34,12 +38,32 @@ export interface Source {
   name: string
 }
 
+/**
+ * Compute a task runs on. `job` clusters start fresh for each run, `all_purpose` clusters stay warm and
+ * can be shared across pipelines, `serverless` starts in seconds and scales itself.
+ */
+export type ClusterKind = 'job' | 'all_purpose' | 'serverless'
+
+export interface Cluster {
+  id: string
+  name: string
+  kind: ClusterKind
+  nodeType: string
+  workers: { min: number; max: number }
+  coresPerNode: number
+  sparkVersion?: string
+}
+
 export interface Workflows {
   pipelines: Pipeline[]
   sources: Source[]
+  clusters: Cluster[]
   warnings: string[]
 }
 
-export const EMPTY_WORKFLOWS: Workflows = { pipelines: [], sources: [], warnings: [] }
+export const EMPTY_WORKFLOWS: Workflows = { pipelines: [], sources: [], clusters: [], warnings: [] }
+
+export const SERVERLESS = 'serverless'
+export const clusterNodeId = (clusterId: string) => `cluster:${clusterId}`
 
 export const sourceId = (name: string) => `source:${name}`

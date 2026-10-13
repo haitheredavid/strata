@@ -4,7 +4,9 @@ import { Color, Object3D } from 'three'
 import type { InstancedMesh } from 'three'
 import type { FlowEdge } from '../view/deriveView'
 import { flowCurves } from './curve'
-import { runClock } from './runClock'
+import { activeAt } from '../sim/schedule'
+import type { Schedule } from '../sim/schedule'
+import { timeClock } from './timeClock'
 
 const PER_FLOW = 2
 const SPEED = 0.35 // curve lengths per second
@@ -14,15 +16,17 @@ const tmpColor = new Color()
 interface Props {
   flows: FlowEdge[]
   colorOf: (pipelineId: string) => string
-  /** When a run is playing: job node ids of the active step. Only their flows pulse. */
-  active: Set<string> | null
+  /** While the day timeline is open: only running jobs pulse, paced by their own progress. */
+  schedule: Schedule | null
+  /** Running jobs that pass the timeline's filters. */
+  lens: Set<string> | null
 }
 
 /**
- * Light moving along lineage edges in the data direction. Idle, every visible flow pulses. During a
- * run, the active step's reads pulse in the first half of the step and its writes in the second half.
+ * Light moving along lineage edges in the data direction. Idle, every visible flow pulses. With the
+ * timeline open, a running job's reads pulse in the first half of its run and its writes in the second.
  */
-export function Pulses({ flows, colorOf, active }: Props) {
+export function Pulses({ flows, colorOf, schedule, lens }: Props) {
   const mesh = useRef<InstancedMesh>(null)
   const count = Math.max(1, flows.length * PER_FLOW)
   const offsets = useMemo(() => flows.map((_, i) => (i * 0.37) % 1), [flows])
@@ -31,14 +35,15 @@ export function Pulses({ flows, colorOf, active }: Props) {
     const m = mesh.current
     if (!m) return
     let n = 0
-    const frac = runClock.t % 1
+    const active = schedule ? activeAt(schedule, timeClock.t) : null
     flows.forEach((f, i) => {
       const curve = flowCurves.get(f.id)
       if (!curve) return
       const job = f.role === 'read' ? f.to : f.from
       if (active) {
-        if (!active.has(job)) return
-        // reads flow into the job during the first half of the step, writes out during the second
+        const frac = active.get(job)
+        if (frac === undefined || !lens?.has(job)) return
+        // reads flow into the job during the first half of its run, writes out during the second
         const local = f.role === 'read' ? frac * 2 : frac * 2 - 1
         if (local < 0 || local > 1) return
         for (let k = 0; k < PER_FLOW; k++) {

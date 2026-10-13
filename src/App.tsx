@@ -5,6 +5,7 @@ import { LayerPanel } from './ui/LayerPanel'
 import { useStore } from './store'
 import { loadFiles, loadSample } from './ui/files'
 import { Timeline } from './ui/Timeline'
+import { ComputePanel } from './ui/ComputePanel'
 
 export default function App() {
   const error = useStore((s) => s.error)
@@ -46,7 +47,10 @@ export default function App() {
       <div className="stage">
         <Scene />
         <LayerPanel />
-        <Timeline />
+        <div className="dock">
+          <ComputePanel />
+          <Timeline />
+        </div>
         {error && (
           <div className="error" onClick={() => useStore.setState({ error: null })}>
             {error}

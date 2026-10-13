@@ -1,6 +1,18 @@
 # Pipelines for lakehouse.dbml. Shape follows Databricks Jobs: tasks with depends_on.
 # Tasks for silver/gold tables are also declared in the DBML notes; entries here
 # with the same id are merged (this file wins on conflicts).
+#
+# Compute: tasks name a pipeline job cluster (job_cluster_key), a shared cluster
+# (existing_cluster_id, declared under `clusters`), or serverless (environment_key).
+# Tasks that name nothing get a job cluster per pipeline.
+
+clusters:
+  analytics_shared:
+    cluster_name: analytics-shared
+    node_type_id: i3.2xlarge
+    autoscale: { min_workers: 2, max_workers: 6 }
+    spark_version: 15.4.x-scala2.12
+
 pipelines:
   - id: ingest_sales
     name: Ingest sales files
@@ -30,6 +42,7 @@ pipelines:
     trigger: continuous
     tasks:
       - id: ingest_events
+        environment_key: default
         reads: [kafka.clickstream]
         writes: [bronze.events_raw]
       - id: sessionize
@@ -40,8 +53,26 @@ pipelines:
   - id: sales_refresh
     name: Sales refresh (silver → gold)
     trigger: { table_update: [bronze.orders_raw, bronze.payments_raw] }
+    job_clusters:
+      - job_cluster_key: etl
+        new_cluster:
+          node_type_id: i3.xlarge
+          autoscale: { min_workers: 2, max_workers: 8 }
+          spark_version: 15.4.x-scala2.12
+      - job_cluster_key: small
+        new_cluster: { node_type_id: m5d.xlarge, num_workers: 1, spark_version: 15.4.x-scala2.12 }
     tasks:
+      - id: clean_orders
+        job_cluster_key: etl
+      - id: clean_payments
+        job_cluster_key: etl
+      - id: clean_customers
+        job_cluster_key: etl
+      - id: clean_products
+        job_cluster_key: etl
       - id: build_daily_sales
+        job_cluster_key: small
+        duration: 6m
         depends_on: [clean_orders, clean_payments]
         emits: [sales.daily_ready]
 
@@ -50,12 +81,15 @@ pipelines:
     trigger: { after: sales_refresh }
     tasks:
       - id: build_customer_ltv
+        existing_cluster_id: analytics_shared
         reads: [silver.customers, silver.orders, silver.payments]
         writes: [gold.customer_ltv]
       - id: build_product_performance
         reads: [silver.products, silver.order_lines]
         writes: [gold.product_performance]
+        existing_cluster_id: analytics_shared
       - id: build_funnel
+        existing_cluster_id: analytics_shared
         reads: [silver.sessions, silver.orders]
         writes: [gold.funnel_conversion]
 
@@ -64,9 +98,11 @@ pipelines:
     trigger: { schedule: "0 3 * * 1" }
     tasks:
       - id: build_features
+        existing_cluster_id: analytics_shared
         reads: [gold.customer_ltv, silver.sessions]
         writes: [gold.ml_features_customer]
       - id: score_churn
+        existing_cluster_id: analytics_shared
         reads: [gold.ml_features_customer, models.churn_v3]
         writes: [gold.ml_churn_scores]
         emits: [churn.scored]

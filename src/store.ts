@@ -6,7 +6,10 @@ import { autoLayout } from './layout/autoLayout'
 import { MODES } from './layout/modes'
 import { flowOrder } from './layout/modes/flow'
 import { deriveView } from './view/deriveView'
-import { runClock } from './scene/runClock'
+import { timeClock } from './scene/timeClock'
+import { hash32 } from './sim/rng'
+import { DAY, simulateDay } from './sim/schedule'
+import type { Schedule } from './sim/schedule'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
@@ -37,7 +40,7 @@ interface State {
   sidecar: string | null
   /** Pipeline lit by the lens button. */
   lensPipeline: string | null
-  run: Run | null
+  time: TimeState
 
   /** Load a schema; `sidecar` replaces the saved workflow file for it (null keeps the saved one). */
   loadSchema: (src: string, sidecar?: string | null) => void
@@ -66,30 +69,44 @@ interface State {
   setGroupBy: (g: GroupBy) => void
   setEdgeLayer: (e: EdgeLayer) => void
   togglePipeline: (id: string) => void
+  toggleCompute: () => void
   setLens: (id: string | null) => void
-  startRun: (pipelineId: string) => void
-  updateRun: (patch: Partial<Run>) => void
-  stopRun: () => void
+  /** Open the day timeline; with a pipeline, light it up and jump to its first run. */
+  openTimeline: (pipelineId?: string) => void
+  setTime: (patch: Partial<TimeState>) => void
+  closeTimeline: () => void
 }
 
-/** Playback of one pipeline run; `step` is the active step index of its run order. */
-export interface Run {
-  pipelineId: string
-  step: number
+/**
+ * The simulated day's playhead. `t` (seconds since 00:00) is published when the set of running jobs
+ * changes or on a seek; the per-frame position lives in `timeClock`. A span filters the scene to a window.
+ */
+export interface TimeState {
+  open: boolean
+  t: number
+  span: [number, number] | null
   playing: boolean
+  /** Simulated seconds per real second. */
   speed: number
   follow: boolean
+}
+
+export const TIME_SPEEDS = [600, 1800, 7200]
+const CLOSED: TimeState = { open: false, t: 0, span: null, playing: false, speed: 1800, follow: false }
+
+const schedules = new WeakMap<Graph, Schedule>()
+/** The simulated day for a graph's workflows (cached per graph). */
+export function scheduleFor(graph: Graph): Schedule {
+  let s = schedules.get(graph)
+  if (!s) schedules.set(graph, (s = simulateDay(graph.workflows, graph.tables)))
+  return s
 }
 
 export const modeOf = (layout: Layout): ModeId => layout.mode ?? 'stack'
 
 const EMPTY_GRAPH: Graph = { tables: [], refs: [], layers: [], workflows: EMPTY_WORKFLOWS }
 
-function hash(s: string) {
-  let h = 5381
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
-  return (h >>> 0).toString(36)
-}
+const hash = (s: string) => hash32(s).toString(36)
 
 const storageKey = (schemaKey: string) => `strata:layout:${schemaKey}`
 const sidecarKey = (schemaKey: string) => `strata:workflows:${schemaKey}`
@@ -143,7 +160,7 @@ export const useStore = create<State>((set, get) => ({
   source: '',
   sidecar: null,
   lensPipeline: null,
-  run: null,
+  time: CLOSED,
 
   loadSchema: (src, sidecarText = null) => {
     const schemaKey = hash(src)
@@ -162,7 +179,7 @@ export const useStore = create<State>((set, get) => ({
       source: src,
       sidecar,
       lensPipeline: null,
-      run: null,
+      time: CLOSED,
       collapsedLayers: [],
       pathOpen: false,
       pathEnds: [null, null],
@@ -185,7 +202,7 @@ export const useStore = create<State>((set, get) => ({
     if (!source) return
     const graph = parseDbml(source, text)
     storage((ls) => ls.setItem(sidecarKey(schemaKey), text))
-    set({ graph, sidecar: text, lensPipeline: null, run: null, error: graph.workflows.pipelines.length ? null : 'No pipelines found in workflow file' })
+    set({ graph, sidecar: text, lensPipeline: null, time: CLOSED, error: graph.workflows.pipelines.length ? null : 'No pipelines found in workflow file' })
   },
 
   setLayout: (layout) => {
@@ -273,17 +290,28 @@ export const useStore = create<State>((set, get) => ({
   setEdgeLayer: (edgeLayer) => set((s) => ({ layout: { ...s.layout, edgeLayer } })),
   togglePipeline: (id) =>
     set((s) => ({ layout: { ...s.layout, hiddenPipelines: toggle(s.layout.hiddenPipelines ?? [], id) } })),
+  toggleCompute: () => set((s) => ({ layout: { ...s.layout, showCompute: !(s.layout.showCompute ?? true) } })),
   setLens: (lensPipeline) => set({ lensPipeline }),
-  startRun: (pipelineId) => {
-    runClock.t = 0
-    set((s) => ({
-      run: { pipelineId, step: 0, playing: true, speed: 1, follow: s.run?.follow ?? false },
-      lensPipeline: null,
-      layout: { ...s.layout, hiddenPipelines: (s.layout.hiddenPipelines ?? []).filter((p) => p !== pipelineId) },
-    }))
-  },
-  updateRun: (patch) => set((s) => (s.run ? { run: { ...s.run, ...patch } } : s)),
-  stopRun: () => set({ run: null }),
+  openTimeline: (pipelineId) =>
+    set((s) => {
+      const runs = scheduleFor(s.graph).runs.filter((r) => r.start > 0 || r.end < DAY) // skip all-day streams
+      const first = pipelineId ? runs.find((r) => r.pipelineId === pipelineId) : runs[0]
+      const t = first ? Math.max(0, first.start - 300) : s.time.open ? s.time.t : 0
+      timeClock.t = t
+      return {
+        time: { ...s.time, open: true, t, span: null, playing: !!pipelineId },
+        lensPipeline: pipelineId ?? null,
+        layout: pipelineId
+          ? { ...s.layout, hiddenPipelines: (s.layout.hiddenPipelines ?? []).filter((p) => p !== pipelineId) }
+          : s.layout,
+      }
+    }),
+  setTime: (patch) =>
+    set((s) => {
+      if (patch.t !== undefined) timeClock.t = patch.t
+      return { time: { ...s.time, ...patch } }
+    }),
+  closeTimeline: () => set((s) => ({ time: { ...s.time, open: false, playing: false } })),
 }))
 
 const toggle = (xs: string[], x: string) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x])
