@@ -1,0 +1,307 @@
+// Sample commerce schema: 5 domains, lots of cross-domain refs.
+
+// ---------- auth ----------
+Table users {
+  id int [pk]
+  org_id int
+  email varchar
+  name varchar
+  created_at timestamp
+}
+
+Table orgs {
+  id int [pk]
+  name varchar
+  plan varchar
+}
+
+Table roles {
+  id int [pk]
+  name varchar
+}
+
+Table user_roles {
+  user_id int [pk]
+  role_id int [pk]
+}
+
+Table sessions {
+  id uuid [pk]
+  user_id int
+  expires_at timestamp
+}
+
+Table api_keys {
+  id int [pk]
+  org_id int
+  created_by int
+  hash varchar
+}
+
+// ---------- catalog ----------
+Table products {
+  id int [pk]
+  category_id int
+  brand_id int
+  vendor_org_id int
+  name varchar
+  price decimal
+}
+
+Table categories {
+  id int [pk]
+  parent_id int
+  name varchar
+}
+
+Table brands {
+  id int [pk]
+  name varchar
+}
+
+Table variants {
+  id int [pk]
+  product_id int
+  sku varchar
+  price decimal
+}
+
+Table inventory {
+  variant_id int [pk]
+  warehouse_id int [pk]
+  qty int
+}
+
+Table reviews {
+  id int [pk]
+  product_id int
+  user_id int
+  order_item_id int
+  rating int
+}
+
+// ---------- orders ----------
+Table orders {
+  id int [pk]
+  user_id int
+  org_id int
+  cart_id int
+  status varchar
+  total decimal
+}
+
+Table order_items {
+  id int [pk]
+  order_id int
+  variant_id int
+  qty int
+  price decimal
+}
+
+Table carts {
+  id int [pk]
+  user_id int
+  session_id uuid
+}
+
+Table cart_items {
+  id int [pk]
+  cart_id int
+  variant_id int
+  qty int
+}
+
+Table coupons {
+  id int [pk]
+  code varchar
+  created_by int
+}
+
+Table order_coupons {
+  order_id int [pk]
+  coupon_id int [pk]
+}
+
+// ---------- billing ----------
+Table invoices {
+  id int [pk]
+  order_id int
+  org_id int
+  amount decimal
+}
+
+Table payments {
+  id int [pk]
+  invoice_id int
+  method_id int
+  amount decimal
+  status varchar
+}
+
+Table payment_methods {
+  id int [pk]
+  user_id int
+  kind varchar
+  last4 varchar
+}
+
+Table refunds {
+  id int [pk]
+  payment_id int
+  order_item_id int
+  amount decimal
+}
+
+Table tax_rates {
+  id int [pk]
+  region varchar
+  rate decimal
+}
+
+Table subscriptions {
+  id int [pk]
+  org_id int
+  product_id int
+  status varchar
+}
+
+// ---------- shipping ----------
+Table warehouses {
+  id int [pk]
+  name varchar
+  address_id int
+}
+
+Table addresses {
+  id int [pk]
+  user_id int
+  line1 varchar
+  city varchar
+  region varchar
+}
+
+Table shipments {
+  id int [pk]
+  order_id int
+  warehouse_id int
+  address_id int
+  carrier_id int
+  status varchar
+}
+
+Table shipment_items {
+  shipment_id int [pk]
+  order_item_id int [pk]
+  qty int
+}
+
+Table carriers {
+  id int [pk]
+  name varchar
+}
+
+Table returns {
+  id int [pk]
+  shipment_id int
+  refund_id int
+  reason varchar
+}
+
+// ---------- refs ----------
+Ref: users.org_id > orgs.id
+Ref: user_roles.user_id > users.id
+Ref: user_roles.role_id > roles.id
+Ref: sessions.user_id > users.id
+Ref: api_keys.org_id > orgs.id
+Ref: api_keys.created_by > users.id
+
+Ref: products.category_id > categories.id
+Ref: products.brand_id > brands.id
+Ref: products.vendor_org_id > orgs.id
+Ref: categories.parent_id > categories.id
+Ref: variants.product_id > products.id
+Ref: inventory.variant_id > variants.id
+Ref: inventory.warehouse_id > warehouses.id
+Ref: reviews.product_id > products.id
+Ref: reviews.user_id > users.id
+Ref: reviews.order_item_id - order_items.id
+
+Ref: orders.user_id > users.id
+Ref: orders.org_id > orgs.id
+Ref: orders.cart_id - carts.id
+Ref: order_items.order_id > orders.id
+Ref: order_items.variant_id > variants.id
+Ref: carts.user_id > users.id
+Ref: carts.session_id > sessions.id
+Ref: cart_items.cart_id > carts.id
+Ref: cart_items.variant_id > variants.id
+Ref: coupons.created_by > users.id
+Ref: order_coupons.order_id > orders.id
+Ref: order_coupons.coupon_id > coupons.id
+
+Ref: invoices.order_id > orders.id
+Ref: invoices.org_id > orgs.id
+Ref: payments.invoice_id > invoices.id
+Ref: payments.method_id > payment_methods.id
+Ref: payment_methods.user_id > users.id
+Ref: refunds.payment_id > payments.id
+Ref: refunds.order_item_id > order_items.id
+Ref: subscriptions.org_id > orgs.id
+Ref: subscriptions.product_id > products.id
+
+Ref: warehouses.address_id - addresses.id
+Ref: addresses.user_id > users.id
+Ref: shipments.order_id > orders.id
+Ref: shipments.warehouse_id > warehouses.id
+Ref: shipments.address_id > addresses.id
+Ref: shipments.carrier_id > carriers.id
+Ref: shipment_items.shipment_id > shipments.id
+Ref: shipment_items.order_item_id > order_items.id
+Ref: returns.shipment_id > shipments.id
+Ref: returns.refund_id - refunds.id
+
+// ---------- domains (layers) ----------
+TableGroup auth {
+  users
+  orgs
+  roles
+  user_roles
+  sessions
+  api_keys
+}
+
+TableGroup catalog {
+  products
+  categories
+  brands
+  variants
+  inventory
+  reviews
+}
+
+TableGroup orders {
+  orders
+  order_items
+  carts
+  cart_items
+  coupons
+  order_coupons
+}
+
+TableGroup billing {
+  invoices
+  payments
+  payment_methods
+  refunds
+  tax_rates
+  subscriptions
+}
+
+TableGroup shipping {
+  warehouses
+  addresses
+  shipments
+  shipment_items
+  carriers
+  returns
+}

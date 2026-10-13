@@ -1,0 +1,173 @@
+// Lakehouse sample: bronze / silver / gold schemas, grouped by business domain.
+// Silver and gold tables declare the job that builds them in their notes;
+// ingestion, triggers and the rest live in lakehouse.workflows.yaml.
+
+// ---------- bronze: raw landings ----------
+Table bronze.orders_raw {
+  _ingested_at timestamp
+  _file varchar
+  payload variant
+}
+Table bronze.order_lines_raw {
+  _ingested_at timestamp
+  payload variant
+}
+Table bronze.payments_raw {
+  _ingested_at timestamp
+  payload variant
+}
+Table bronze.customers_raw {
+  _ingested_at timestamp
+  payload variant
+}
+Table bronze.products_raw {
+  _ingested_at timestamp
+  payload variant
+}
+Table bronze.events_raw {
+  _ingested_at timestamp
+  event_type varchar
+  payload variant
+}
+
+// ---------- silver: cleaned, conformed ----------
+Table silver.customers {
+  id bigint [pk]
+  email varchar
+  country varchar
+  created_at timestamp
+  Note: '''
+  job: clean_customers
+  from: bronze.customers_raw
+  pipeline: sales_refresh
+  '''
+}
+Table silver.products {
+  id bigint [pk]
+  sku varchar
+  category varchar
+  price decimal
+  Note: '''
+  job: clean_products
+  from: bronze.products_raw
+  pipeline: sales_refresh
+  '''
+}
+Table silver.orders {
+  id bigint [pk]
+  customer_id bigint
+  status varchar
+  ordered_at timestamp
+  Note: '''
+  job: clean_orders
+  from: bronze.orders_raw, bronze.order_lines_raw
+  emits: orders.cleaned
+  '''
+}
+Table silver.order_lines {
+  id bigint [pk]
+  order_id bigint
+  product_id bigint
+  qty int
+  amount decimal
+  Note: '''
+  job: clean_orders
+  from: bronze.orders_raw, bronze.order_lines_raw
+  '''
+}
+Table silver.payments {
+  id bigint [pk]
+  order_id bigint
+  method varchar
+  amount decimal
+  Note: '''
+  job: clean_payments
+  from: bronze.payments_raw
+  '''
+}
+Table silver.sessions {
+  id varchar [pk]
+  customer_id bigint
+  started_at timestamp
+  pages int
+  converted boolean
+}
+
+// ---------- gold: business-ready ----------
+Table gold.daily_sales {
+  day date [pk]
+  orders int
+  revenue decimal
+  Note: '''
+  job: build_daily_sales
+  from: silver.orders, silver.order_lines, silver.payments
+  '''
+}
+Table gold.customer_ltv {
+  customer_id bigint [pk]
+  orders int
+  ltv decimal
+}
+Table gold.product_performance {
+  product_id bigint [pk]
+  units int
+  revenue decimal
+}
+Table gold.funnel_conversion {
+  day date [pk]
+  sessions int
+  conversion_rate decimal
+}
+Table gold.ml_features_customer {
+  customer_id bigint [pk]
+  recency_days int
+  frequency int
+  monetary decimal
+  sessions_30d int
+}
+Table gold.ml_churn_scores {
+  customer_id bigint [pk]
+  churn_probability decimal
+  scored_at timestamp
+}
+
+Ref: silver.orders.customer_id > silver.customers.id
+Ref: silver.order_lines.order_id > silver.orders.id
+Ref: silver.order_lines.product_id > silver.products.id
+Ref: silver.payments.order_id > silver.orders.id
+Ref: silver.sessions.customer_id > silver.customers.id
+Ref: gold.customer_ltv.customer_id - silver.customers.id
+Ref: gold.product_performance.product_id - silver.products.id
+Ref: gold.ml_features_customer.customer_id - silver.customers.id
+Ref: gold.ml_churn_scores.customer_id - gold.ml_features_customer.customer_id
+
+// ---------- domains ----------
+TableGroup sales {
+  bronze.orders_raw
+  bronze.order_lines_raw
+  bronze.payments_raw
+  silver.orders
+  silver.order_lines
+  silver.payments
+  gold.daily_sales
+  Note: 'pipeline: sales_refresh'
+}
+TableGroup customers {
+  bronze.customers_raw
+  silver.customers
+  gold.customer_ltv
+}
+TableGroup product {
+  bronze.products_raw
+  silver.products
+  gold.product_performance
+}
+TableGroup engagement {
+  bronze.events_raw
+  silver.sessions
+  gold.funnel_conversion
+}
+TableGroup ml {
+  gold.ml_features_customer
+  gold.ml_churn_scores
+}

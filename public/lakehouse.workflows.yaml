@@ -1,0 +1,72 @@
+# Pipelines for lakehouse.dbml. Shape follows Databricks Jobs: tasks with depends_on.
+# Tasks for silver/gold tables are also declared in the DBML notes; entries here
+# with the same id are merged (this file wins on conflicts).
+pipelines:
+  - id: ingest_sales
+    name: Ingest sales files
+    trigger: { file_arrival: /Volumes/main/landing/sales/ }
+    tasks:
+      - id: ingest_orders
+        reads: [sftp.erp_orders]
+        writes: [bronze.orders_raw, bronze.order_lines_raw]
+        emits: [sales.landed]
+      - id: ingest_payments
+        reads: [api.stripe]
+        writes: [bronze.payments_raw]
+
+  - id: ingest_reference
+    name: Ingest reference data
+    trigger: { schedule: "0 1 * * *" }
+    tasks:
+      - id: ingest_customers
+        reads: [crm.salesforce]
+        writes: [bronze.customers_raw]
+      - id: ingest_products
+        reads: [api.pim]
+        writes: [bronze.products_raw]
+
+  - id: stream_events
+    name: Clickstream (streaming)
+    trigger: continuous
+    tasks:
+      - id: ingest_events
+        reads: [kafka.clickstream]
+        writes: [bronze.events_raw]
+      - id: sessionize
+        reads: [bronze.events_raw]
+        writes: [silver.sessions]
+        emits: [sessions.updated]
+
+  - id: sales_refresh
+    name: Sales refresh (silver → gold)
+    trigger: { table_update: [bronze.orders_raw, bronze.payments_raw] }
+    tasks:
+      - id: build_daily_sales
+        depends_on: [clean_orders, clean_payments]
+        emits: [sales.daily_ready]
+
+  - id: gold_analytics
+    name: Gold analytics
+    trigger: { after: sales_refresh }
+    tasks:
+      - id: build_customer_ltv
+        reads: [silver.customers, silver.orders, silver.payments]
+        writes: [gold.customer_ltv]
+      - id: build_product_performance
+        reads: [silver.products, silver.order_lines]
+        writes: [gold.product_performance]
+      - id: build_funnel
+        reads: [silver.sessions, silver.orders]
+        writes: [gold.funnel_conversion]
+
+  - id: ml_churn
+    name: Churn model (weekly)
+    trigger: { schedule: "0 3 * * 1" }
+    tasks:
+      - id: build_features
+        reads: [gold.customer_ltv, silver.sessions]
+        writes: [gold.ml_features_customer]
+      - id: score_churn
+        reads: [gold.ml_features_customer, models.churn_v3]
+        writes: [gold.ml_churn_scores]
+        emits: [churn.scored]
