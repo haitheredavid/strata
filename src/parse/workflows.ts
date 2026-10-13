@@ -12,6 +12,7 @@ export interface RawTask {
   writes?: string[]
   dependsOn?: string[]
   emits?: string[]
+  duration?: number
 }
 export interface RawPipeline {
   id: string
@@ -25,6 +26,17 @@ export const PIPELINE_COLORS = ['#22d3ee', '#f472b6', '#a3e635', '#fb923c', '#a7
 
 const strings = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(String) : typeof v === 'string' ? list(v) : []
+
+/** `90`, `90s`, `12m`, `1h30m` → seconds; undefined when it isn't a duration. */
+export function parseDuration(v: unknown): number | undefined {
+  if (typeof v === 'number') return v > 0 ? v : undefined
+  if (typeof v !== 'string') return undefined
+  const s = v.trim().toLowerCase()
+  if (/^\d+(\.\d+)?$/.test(s)) return Number(s) || undefined
+  const m = /^(?:(\d+(?:\.\d+)?)h)?\s*(?:(\d+(?:\.\d+)?)m)?\s*(?:(\d+(?:\.\d+)?)s)?$/.exec(s)
+  if (!m || !(m[1] || m[2] || m[3])) return undefined
+  return Math.round(Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)) || undefined
+}
 
 function parseTrigger(v: unknown): Trigger | undefined {
   if (!v) return undefined
@@ -71,8 +83,11 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; warnings
     if (!rawTasks.length) warnings.push(`Pipeline "${id}" has no tasks`)
     rawTasks.forEach((t, j) => {
       const deps = (t.depends_on ?? t.dependsOn) as unknown
+      const taskId = String(t.id ?? t.task_key ?? t.name ?? `${id}_task_${j + 1}`)
+      const duration = parseDuration(t.duration)
+      if (t.duration !== undefined && duration === undefined) warnings.push(`Task "${taskId}" has an unreadable duration "${t.duration}"`)
       tasks.push({
-        id: String(t.id ?? t.task_key ?? t.name ?? `${id}_task_${j + 1}`),
+        id: taskId,
         name: t.name ? String(t.name) : undefined,
         reads: strings(t.reads),
         writes: strings(t.writes),
@@ -81,6 +96,7 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; warnings
           ? deps.map((d) => String(typeof d === 'object' && d ? (d as { task_key?: string }).task_key : d))
           : strings(deps),
         emits: strings(t.emits),
+        duration,
       })
     })
     pipelines.push({
@@ -139,6 +155,7 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
           reads: union(old?.reads, t.reads),
           writes: union(old?.writes, t.writes),
           emits: union(old?.emits, t.emits),
+          duration: t.duration ?? old?.duration,
           dependsOn: explicit ? t.dependsOn : old?.dependsOn,
           explicitDeps: explicit || !!old?.explicitDeps,
         })
@@ -177,6 +194,7 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
       writes: ids(t.writes),
       dependsOn: [],
       emits: t.emits ?? [],
+      ...(t.duration ? { duration: t.duration } : {}),
     }
     if (!task.reads.length && !task.writes.length) warnings.push(`Task "${t.id}" reads and writes nothing`)
     byId.get(t.pipelineId)!.tasks.push(task)

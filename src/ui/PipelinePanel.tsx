@@ -1,16 +1,16 @@
 import { useStore } from '../store'
-import { TRIGGER_LABEL } from '../scene/runClock'
+import { TRIGGER_LABEL } from '../scene/timeClock'
 
-/** Pipelines from DBML notes and the workflow file: show / hide, light one up, or play a run. */
+/** Pipelines from DBML notes and the workflow file: show / hide, light one up, or play its day. */
 export function PipelinePanel() {
   const workflows = useStore((s) => s.graph.workflows)
   const hidden = useStore((s) => s.layout.hiddenPipelines) ?? []
   const lineage = useStore((s) => (s.layout.edgeLayer ?? 'both') !== 'fk')
   const lens = useStore((s) => s.lensPipeline)
-  const runId = useStore((s) => s.run?.pipelineId ?? null)
+  const timeline = useStore((s) => s.time.open)
   const togglePipeline = useStore((s) => s.togglePipeline)
   const setLens = useStore((s) => s.setLens)
-  const startRun = useStore((s) => s.startRun)
+  const openTimeline = useStore((s) => s.openTimeline)
   const setEdgeLayer = useStore((s) => s.setEdgeLayer)
 
   return (
@@ -39,11 +39,11 @@ export function PipelinePanel() {
                 ◎
               </button>
               <button
-                title="Play a run"
-                className={runId === p.id ? 'on' : ''}
+                title="Play its day on the timeline"
+                className={timeline && lens === p.id ? 'on' : ''}
                 onClick={() => {
                   if (!lineage) setEdgeLayer('both')
-                  startRun(p.id)
+                  openTimeline(p.id)
                 }}
               >
                 ▶

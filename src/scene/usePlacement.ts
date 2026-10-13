@@ -9,8 +9,10 @@ import { hops } from '../view/hops'
 import type { Hop } from '../view/hops'
 import { findPaths } from '../view/paths'
 import type { Path } from '../view/paths'
-import { runSteps } from '../view/runOrder'
-import { modeOf, useStore } from '../store'
+import { taskRunsIn } from '../sim/schedule'
+import type { Window } from '../sim/schedule'
+import { jobNodeId } from '../view/deriveView'
+import { modeOf, scheduleFor, useStore } from '../store'
 
 export interface Lit {
   nodes: Set<string>
@@ -18,14 +20,21 @@ export interface Lit {
   flows: Set<string>
 }
 
-/** Run playback highlight: jobs of finished steps, of the active step, and the step list. */
-export interface RunView {
-  steps: string[][] // job node ids per step
-  done: Set<string>
+/** Day timeline highlight for the current window. */
+export interface TimeView {
+  /** Jobs running at the playhead. */
   active: Set<string>
-  /** Tables / sources touched by finished or active jobs. */
+  /** Other jobs that ran in the window. */
+  done: Set<string>
+  /** Tables / sources touched by active or done jobs. */
   reached: Set<string>
+  pipelines: Set<string>
 }
+
+/** Without a span, the playhead looks back this far for recently finished jobs. */
+export const RECENT = 3600
+
+export const timeWindow = (t: number, span: [number, number] | null): Window => span ?? [Math.max(0, t - RECENT), t]
 
 export interface SceneModel {
   view: ViewGraph
@@ -33,9 +42,9 @@ export interface SceneModel {
   /** Focus neighborhood, when a visible node is focused. */
   reach: Map<string, Hop> | null
   paths: Path[]
-  /** Nodes / edges / flows to light up (run > pipeline lens > path finder); null when none applies. */
+  /** Nodes / edges / flows to light up (timeline > pipeline lens > path finder); null when none applies. */
   lit: Lit | null
-  run: RunView | null
+  time: TimeView | null
 }
 
 export const lineageOn = (edgeLayer: string | undefined) => edgeLayer !== 'fk'
@@ -80,9 +89,9 @@ export function usePaths(view: ViewGraph): Path[] {
   )
 }
 
-/** Everything a pipeline touches: its jobs, their reads / writes, and the flows between them. */
-function pipelineLit(view: ViewGraph, pipelineId: string): Lit {
-  const flows = view.flows.filter((f) => f.pipelineId === pipelineId)
+/** Everything the pipelines touch: their jobs, their reads / writes, and the flows between them. */
+function pipelineLit(view: ViewGraph, pipelineIds: Set<string>): Lit {
+  const flows = view.flows.filter((f) => pipelineIds.has(f.pipelineId))
   const nodes = new Set(flows.flatMap((f) => [f.from, f.to]))
   return { nodes, edges: new Set(), flows: new Set(flows.map((f) => f.id)) }
 }
@@ -98,8 +107,9 @@ export function useSceneModel(): SceneModel {
       hopUp: s.hopUp,
       hopDown: s.hopDown,
       lens: s.lensPipeline,
-      runPipeline: s.run?.pipelineId ?? null,
-      runStep: s.run?.step ?? 0,
+      timeOpen: s.time.open,
+      t: s.time.t,
+      span: s.time.span,
       activePath: s.activePath,
     })),
   )
@@ -133,25 +143,26 @@ export function useSceneModel(): SceneModel {
 
   const paths = usePaths(view)
 
-  const run = useMemo<RunView | null>(() => {
-    const p = s.runPipeline ? s.graph.workflows.pipelines.find((x) => x.id === s.runPipeline) : undefined
-    if (!p) return null
-    const steps = runSteps(p).steps.map((ids) => ids.map((id) => `job:${id}`))
-    const done = new Set(steps.slice(0, s.runStep).flat())
-    const active = new Set(steps[s.runStep] ?? [])
+  const time = useMemo<TimeView | null>(() => {
+    if (!s.timeOpen) return null
+    const schedule = scheduleFor(s.graph)
+    const lens = (id: string) => !s.lens || id === s.lens
+    const active = new Set(taskRunsIn(schedule, [s.t, s.t]).filter((r) => lens(r.pipelineId)).map((r) => jobNodeId(r.taskId)))
+    const inWindow = taskRunsIn(schedule, timeWindow(s.t, s.span)).filter((r) => lens(r.pipelineId))
+    const done = new Set(inWindow.map((r) => jobNodeId(r.taskId)).filter((id) => !active.has(id)))
     const reached = new Set(
-      view.flows.filter((f) => done.has(f.from) || done.has(f.to) || active.has(f.from) || active.has(f.to)).flatMap((f) => [f.from, f.to]),
+      view.flows.filter((f) => [f.from, f.to].some((id) => active.has(id) || done.has(id))).flatMap((f) => [f.from, f.to]),
     )
-    return { steps, done, active, reached }
-  }, [s.graph, s.runPipeline, s.runStep, view])
+    return { active, done, reached, pipelines: new Set(inWindow.map((r) => r.pipelineId)) }
+  }, [s.timeOpen, s.graph, s.t, s.span, s.lens, view])
 
   const lit = useMemo<Lit | null>(() => {
-    if (run && s.runPipeline) return pipelineLit(view, s.runPipeline)
-    if (s.lens) return pipelineLit(view, s.lens)
+    if (time) return pipelineLit(view, time.pipelines)
+    if (s.lens) return pipelineLit(view, new Set([s.lens]))
     if (!paths.length) return null
     const shown = s.activePath !== null && paths[s.activePath] ? [paths[s.activePath]] : paths
     return { nodes: new Set(shown.flatMap((p) => p.nodes)), edges: new Set(shown.flatMap((p) => p.edges)), flows: new Set() }
-  }, [run, s.runPipeline, s.lens, view, paths, s.activePath])
+  }, [time, s.lens, view, paths, s.activePath])
 
-  return { view, placement, reach, paths, lit, run }
+  return { view, placement, reach, paths, lit, time }
 }

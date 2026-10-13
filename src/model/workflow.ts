@@ -18,6 +18,8 @@ export interface Task {
   writes: string[]
   dependsOn: string[]
   emits: string[]
+  /** Run time in seconds, when the workflow file gives one; otherwise simulated. */
+  duration?: number
 }
 
 export interface Pipeline {
