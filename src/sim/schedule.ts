@@ -4,6 +4,7 @@ import { jobNodeId } from '../view/deriveView'
 import { runSteps } from '../view/runOrder'
 import { between } from './rng'
 import { MinHeap } from './heap'
+import { activeRuns } from './runIndex'
 
 /** Seconds in the simulated day. Times below are seconds since 00:00. */
 export const DAY = 86_400
@@ -227,8 +228,7 @@ export const eventsIn = (s: Schedule, [a, b]: Window) => s.events.filter((e) => 
  */
 export function activeAt(s: Schedule, t: number): Map<string, number> {
   const out = new Map<string, number>()
-  for (const r of s.taskRuns) {
-    if (r.start > t || t >= r.end) continue
+  for (const r of activeRuns(s, t)) {
     out.set(jobNodeId(r.taskId), r.continuous ? (t % MICRO_BATCH) / MICRO_BATCH : (t - r.start) / (r.end - r.start))
   }
   return out
@@ -262,8 +262,8 @@ export const span = (sec: number) => {
 export function onCluster(s: Schedule, clusterId: string, t: number) {
   const starting: TaskRun[] = []
   const working: TaskRun[] = []
-  for (const r of s.taskRuns) {
-    if (r.clusterId !== clusterId || t < r.start || t >= r.end) continue
+  for (const r of activeRuns(s, t)) {
+    if (r.clusterId !== clusterId) continue
     ;(t < r.start + r.setup ? starting : working).push(r)
   }
   return { starting, working }

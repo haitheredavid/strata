@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { scheduleFor, useStore } from '../store'
-import { DAY, taskRunsIn } from '../sim/schedule'
+import { DAY } from '../sim/schedule'
+import { windowKey } from '../sim/runIndex'
 import { timeWindow } from './usePlacement'
 import type { TimeView } from './usePlacement'
 import { timeClock } from './timeClock'
@@ -27,8 +28,7 @@ export function TimeDriver({ time }: { time: TimeView | null }) {
     // The window matters too: a finished run must stop counting as done once it slides out, even if
     // nothing starts or stops for hours.
     const schedule = scheduleFor(s.graph)
-    const ids = (w: [number, number]) => taskRunsIn(schedule, w).map((r) => r.id).join()
-    const key = `${ids([timeClock.t, timeClock.t])}|${ids(timeWindow(timeClock.t, s.time.span))}`
+    const key = `${windowKey(schedule, [timeClock.t, timeClock.t])}|${windowKey(schedule, timeWindow(timeClock.t, s.time.span))}`
     if (key !== lastKey.current) {
       lastKey.current = key
       if (s.time.t !== timeClock.t) s.setTime({ t: timeClock.t })
