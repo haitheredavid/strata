@@ -7,6 +7,9 @@ import {
   cameraProjectionMatrix,
   cross,
   float,
+  fwidth,
+  int,
+  ivec2,
   length,
   max,
   min,
@@ -14,12 +17,18 @@ import {
   normalize,
   positionGeometry,
   select,
+  smoothstep,
+  texture,
+  textureLoad,
   uniform,
+  uv,
   vec2,
   vec3,
   vec4,
 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
+import type { Texture } from 'three'
+import { ANCHOR_TEX_W as ANCHOR_W } from '../text/anchors'
 import { HEADER_H } from '../../layout/geometry'
 
 /**
@@ -211,4 +220,37 @@ export function curveMaterial(segments: number) {
   mat.side = DoubleSide
   mat.forceSinglePass = true
   return { material: mat, uniforms: u as unknown as Uniforms }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scene text: glyph quads hung off an anchor texture, sampled from an SDF atlas.
+
+export function textMaterial(atlas: { texture: Texture; cols: number; rows: number }, anchors: Texture) {
+  const g0 = attribute('g0', 'vec4') // anchor, x, y, z
+  const g1 = attribute('g1', 'vec4') // atlas cell, quad side, opacity
+  const g2 = attribute('g2', 'vec4') // rgb
+  const corner = uv()
+
+  const mat = new MeshBasicNodeMaterial()
+  mat.vertexNode = Fn(() => {
+    const a = int(g0.x.add(0.5)).mul(2)
+    const at = (i: Node<'int'>): V4 => textureLoad(anchors, ivec2(i.mod(ANCHOR_W), i.div(ANCHOR_W)))
+    const apos = at(a).xyz
+    const aquat = at(a.add(1))
+    const local = vec3(g0.y.add(corner.x.mul(g1.y)), g0.z.add(corner.y.mul(g1.y)), g0.w)
+    return cameraProjectionMatrix.mul(modelViewMatrix.mul(vec4(apos.add(rotate(aquat, local)), 1)))
+  })()
+  const col = g1.x.mod(atlas.cols)
+  const row = g1.x.div(atlas.cols).floor()
+  const auv = vec2(col.add(corner.x), row.add(float(1).sub(corner.y))).div(vec2(atlas.cols, atlas.rows))
+  const d = texture(atlas.texture, auv).r
+  const w = max(fwidth(d).mul(0.7), 0.001)
+  mat.colorNode = g2.xyz
+  mat.opacityNode = smoothstep(float(0.5).sub(w), float(0.5).add(w), d).mul(g1.z)
+  mat.alphaTest = 0.01
+  mat.transparent = true
+  mat.depthWrite = false
+  mat.side = DoubleSide
+  mat.forceSinglePass = true
+  return mat
 }

@@ -12,13 +12,14 @@ import { syncFromAnim } from './anim'
 import { timeClock } from './timeClock'
 import { clusterSpec, KIND_LABEL } from './clusterStyle'
 import { usePalette } from '../theme/palette'
+import { RACK_GAP, RACK_MAX_SHOWN, RACK_ROW } from './labels'
 
 const OFF = '#242b3a'
 const IDLE = '#334155'
-const MAX_SHOWN = 8
+const MAX_SHOWN = RACK_MAX_SHOWN
 const W = 2.4
-const ROW = 0.22
-const GAP = 0.08
+const ROW = RACK_ROW
+const GAP = RACK_GAP
 
 interface Props {
   cluster: ViewCluster

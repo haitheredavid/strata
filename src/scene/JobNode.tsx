@@ -1,15 +1,12 @@
 import { memo, useLayoutEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { Group, Mesh } from 'three'
-import type { Trigger } from '../model/workflow'
 import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
 import { Label } from './Label'
 import { useReleaseHover } from './hover'
 import { syncFromAnim } from './anim'
-import { TRIGGER_LABEL } from './timeClock'
-
-const EVENT = '#fbbf24'
+import { EVENT, triggerText } from './labels'
 
 export type RunState = 'active' | 'done' | 'pending' | null
 
@@ -21,16 +18,6 @@ interface Props {
   runState: RunState
   /** Bytes in / out per run and runs a day, shown while highlighted. */
   volume?: string
-}
-
-function triggerText(t: Trigger) {
-  const detail =
-    t.kind === 'schedule' ? t.cron
-      : t.kind === 'file_arrival' ? t.path
-        : t.kind === 'table_update' ? t.tables.join(', ')
-          : t.kind === 'job' ? t.pipeline
-            : ''
-  return `${TRIGGER_LABEL[t.kind]}${detail ? `  ${detail}` : ''}`
 }
 
 /**
