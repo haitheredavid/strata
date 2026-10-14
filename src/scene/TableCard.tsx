@@ -8,6 +8,7 @@ import { MEDALLION_LAYERS } from '../view/deriveView'
 import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
 import { Label } from './Label'
+import { useReleaseHover } from './hover'
 import { syncFromAnim, animState } from './anim'
 
 const DRAG_THRESHOLD = 0.15
@@ -29,6 +30,7 @@ interface Props {
 /** A table (or collapsed domain) card, drawn in its local frame: faces +Z, header on top. */
 export function TableCard({ node, place, color, opacity, highlighted, draggable }: Props) {
   const hover = useStore((s) => s.hover)
+  useReleaseHover(node.id)
   const focus = useStore((s) => s.focus)
   const dragNode = useStore((s) => s.dragNode)
   const setDragging = useStore((s) => s.setDragging)

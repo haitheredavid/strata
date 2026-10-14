@@ -5,6 +5,7 @@ import type { Trigger } from '../model/workflow'
 import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
 import { Label } from './Label'
+import { useReleaseHover } from './hover'
 import { syncFromAnim } from './anim'
 import { TRIGGER_LABEL } from './timeClock'
 
@@ -38,6 +39,7 @@ function triggerText(t: Trigger) {
  */
 export function JobNode({ node, color, opacity, highlighted, runState, volume }: Props) {
   const hover = useStore((s) => s.hover)
+  useReleaseHover(node.id)
   const focus = useStore((s) => s.focus)
   const group = useRef<Group>(null)
   const ring = useRef<Mesh>(null)

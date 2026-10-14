@@ -7,6 +7,7 @@ import { workersFor } from '../sim/spark'
 import type { ViewCluster } from '../view/deriveView'
 import { useStore } from '../store'
 import { Label } from './Label'
+import { useReleaseHover } from './hover'
 import { syncFromAnim } from './anim'
 import { timeClock } from './timeClock'
 import { CLUSTER_COLOR, clusterSpec, KIND_LABEL } from './clusterStyle'
@@ -34,6 +35,7 @@ interface Props {
 export function ClusterNode({ cluster: vc, opacity, highlighted, schedule }: Props) {
   const c = vc.cluster
   const hover = useStore((s) => s.hover)
+  useReleaseHover(vc.id)
   const focus = useStore((s) => s.focus)
   const group = useRef<Group>(null)
   const driver = useRef<MeshBasicMaterial>(null)

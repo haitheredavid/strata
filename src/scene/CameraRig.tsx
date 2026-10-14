@@ -5,6 +5,7 @@ import CameraControlsImpl from 'camera-controls'
 import { MathUtils, Vector3 } from 'three'
 import type { PerspectiveCamera } from 'three'
 import { CARD_W, cardDepth } from '../layout/geometry'
+import { MODES } from '../layout/modes'
 import type { Frame, Placement } from '../layout/modes'
 import type { ViewGraph } from '../view/deriveView'
 import { modeOf, useStore } from '../store'
@@ -33,22 +34,26 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
   const controls = useRef<CameraControlsImpl>(null)
   const camera = useThree((s) => s.camera)
   const cmd = useStore((s) => s.cameraCommand)
-  const overCard = useStore((s) => s.hoveredTableId !== null || s.dragging)
   const flat = useStore((s) => modeOf(s.layout) === 'diagram')
+  const draggable = useStore((s) => MODES[modeOf(s.layout)].draggable)
+  const hovered = useStore((s) => s.hoveredTableId)
+  const dragging = useStore((s) => s.dragging)
   // Commands run against the placement of the render that issued them.
   const latest = useRef({ view, placement })
   useLayoutEffect(() => {
     latest.current = { view, placement }
   }, [view, placement])
 
-  // Left-drag on a card moves the card, so stop it from also orbiting the camera. Diagram cards don't drag.
+  // Left-drag on a card moves the card, so stop it from also orbiting the camera. Only cards that can
+  // actually drag block it: jobs, racks, domain summaries and cards in non-draggable modes still orbit.
+  const kind = hovered ? view.nodes.find((n) => n.id === hovered)?.kind : undefined
+  const block = dragging || (draggable && (kind === 'table' || kind === 'source') && placement.nodes[hovered!]?.frame !== 'billboard')
   useEffect(() => {
     const c = controls.current
     if (!c) return
-    const block = overCard && !flat
     c.mouseButtons.left = block ? ACTION.NONE : ACTION.ROTATE
     c.touches.one = block ? ACTION.NONE : ACTION.TOUCH_ROTATE
-  }, [overCard, flat])
+  }, [block])
 
   // Dolly zoom: ease the lens toward its mode's fov and scale the orbit radius with it, so the framing
   // holds while perspective flattens out (or comes back). Clip planes follow the distance.
