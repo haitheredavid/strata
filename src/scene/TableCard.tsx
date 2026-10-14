@@ -9,7 +9,7 @@ import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
 import { Label } from './Label'
 import { useReleaseHover } from './hover'
-import { syncFromAnim, animState } from './anim'
+import { anim, syncFromAnim, animState } from './anim'
 
 const DRAG_THRESHOLD = 0.15
 const MEDALLION_COLOR = Object.fromEntries(MEDALLION_LAYERS.map((l) => [l.id, l.color])) as Record<string, string>
@@ -40,7 +40,7 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
   const toggleCard = useStore((s) => s.toggleCard)
 
   const group = useRef<Group>(null)
-  const drag = useRef<{ offset: Vector3; start: Vector3; moved: boolean; plane: Plane | null } | null>(null)
+  const drag = useRef<{ offset: Vector3; start: Vector3; moved: boolean; plane: Plane | null; at: Vector3 } | null>(null)
   const depth = cardDepth(node)
   const top = depth / 2
   const isDomain = node.kind === 'domain'
@@ -63,7 +63,7 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
       ? new Plane().setFromNormalAndCoplanarPoint(NORMALS[place.frame], p)
       : null
     const h = plane && hit(e, plane)
-    drag.current = { offset: h ? p.clone().sub(h) : new Vector3(), start: h ?? p, moved: false, plane }
+    drag.current = { offset: h ? p.clone().sub(h) : new Vector3(), start: h ?? p, moved: false, plane, at: p.clone() }
     setDragging(true)
   }
 
@@ -74,9 +74,11 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
     if (!h) return
     if (!d.moved && h.distanceTo(d.start) < DRAG_THRESHOLD) return
     d.moved = true
+    // Move the card (and the wires reading its transform) directly; the layout is committed once on
+    // release, so a drag doesn't re-run placement and autosave on every pointermove.
     animState.snapId = node.id
-    const p = h.add(d.offset)
-    dragNode(node.id, [p.x, p.y, p.z])
+    d.at.copy(h).add(d.offset)
+    anim.get(node.id)?.target.copy(d.at)
   }
 
   // Up, cancel (touch gesture, palm rejection) and lost capture (alt-tab) all end the drag; otherwise
@@ -85,6 +87,7 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
     const d = drag.current
     drag.current = null
     if (!d) return null
+    if (d.moved) dragNode(node.id, [d.at.x, d.at.y, d.at.z])
     animState.snapId = null
     setDragging(false)
     return d
