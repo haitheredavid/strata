@@ -5,8 +5,8 @@ import type { World } from './world'
 
 /**
  * FK wire curves as data: four bezier control points per edge (12 floats) plus a label anchor at
- * each end (6 floats), the same curves `Wire` builds per component. Only edges with an end that
- * moved since the last pass are recomputed.
+ * each end (6 floats), matching the per-wire reference in fkEdges.reference.ts. Only edges with an
+ * end that moved since the last pass are recomputed.
  *
  * - same plate: arc out sideways, lifted slightly off the plate
  * - across stacked plates: S-curve along the plate normal

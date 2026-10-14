@@ -1,17 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import {
-  BufferAttribute,
-  DoubleSide,
-  InstancedBufferAttribute,
-  InstancedBufferGeometry,
-  InstancedInterleavedBuffer,
-  InterleavedBufferAttribute,
-  ShaderMaterial,
-  Vector2,
-} from 'three'
+import { BufferAttribute, InstancedBufferAttribute, InstancedBufferGeometry, InstancedInterleavedBuffer, InterleavedBufferAttribute, Vector2 } from 'three'
 import type { Material, Mesh } from 'three'
-import { nodeRenderer } from '../gpu/renderer'
 import { curveMaterial } from '../gpu/materials'
 import type { Uniforms } from '../gpu/materials'
 import type { CurveBatch } from './CurveBatch'
@@ -23,51 +13,6 @@ export const CURVE_SEGMENTS = 24
  * uploads (0). Positive priorities would take over rendering from r3f, so stay negative.
  */
 export const CURVE_WRITE = -0.5
-
-const vertexShader = /* glsl */ `
-  #define SEG ${CURVE_SEGMENTS}.0
-  uniform vec2 resolution;
-  attribute float seg;
-  attribute float side;
-  attribute vec3 c0;
-  attribute vec3 c1;
-  attribute vec3 c2;
-  attribute vec3 c3;
-  attribute vec4 istyle; // rgb, opacity
-  attribute vec4 iline;  // width px (negative: taper), dash, gap, length
-  varying vec4 vStyle;
-  varying vec3 vDash;    // dash, gap, distance along
-  vec3 bez(float t) {
-    float u = 1.0 - t;
-    return u * u * u * c0 + 3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t * c3;
-  }
-  vec2 screen(vec4 clip) { return clip.xy / clip.w * resolution * 0.5; }
-  void main() {
-    float t = seg / SEG;
-    mat4 mvp = projectionMatrix * modelViewMatrix;
-    vec4 clip = mvp * vec4(bez(t), 1.0);
-    vec2 a = screen(mvp * vec4(bez(max(t - 1.0 / SEG, 0.0)), 1.0));
-    vec2 b = screen(mvp * vec4(bez(min(t + 1.0 / SEG, 1.0)), 1.0));
-    vec2 dir = b - a;
-    dir = length(dir) > 1e-5 ? normalize(dir) : vec2(1.0, 0.0);
-    float width = iline.x < 0.0 ? -iline.x * (1.0 - t) : iline.x;
-    clip.xy += vec2(-dir.y, dir.x) * side * width / resolution * clip.w;
-    gl_Position = clip;
-    vStyle = istyle;
-    vDash = vec3(iline.y, iline.z, t * iline.w);
-  }
-`
-
-const fragmentShader = /* glsl */ `
-  uniform float fade;
-  varying vec4 vStyle;
-  varying vec3 vDash;
-  void main() {
-    if (vDash.x > 0.0 && mod(vDash.z, vDash.x + vDash.y) > vDash.x) discard;
-    gl_FragColor = vec4(vStyle.rgb, vStyle.a * fade);
-    #include <colorspace_fragment>
-  }
-`
 
 function ribbon(g: InstancedBufferGeometry) {
   const n = CURVE_SEGMENTS + 1
@@ -124,21 +69,9 @@ export function Curves({ batch, fade = () => 1, renderOrder = 0 }: { batch: Curv
   useEffect(() => () => geometry.dispose(), [geometry])
 
   const material = useMemo<Material>(() => {
-    if (nodeRenderer) {
-      const { material, uniforms } = curveMaterial(CURVE_SEGMENTS)
-      material.userData.u = uniforms
-      return material
-    }
-    const m = new ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms: { resolution: { value: new Vector2(1, 1) }, fade: { value: 1 } },
-      transparent: true,
-      depthWrite: false,
-      side: DoubleSide,
-    })
-    m.userData.u = m.uniforms
-    return m
+    const { material, uniforms } = curveMaterial(CURVE_SEGMENTS)
+    material.userData.u = uniforms
+    return material
   }, [])
   useEffect(() => () => material.dispose(), [material])
 

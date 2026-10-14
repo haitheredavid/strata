@@ -1,8 +1,12 @@
+/**
+ * Reference implementation of one FK wire's curve, as the per-wire components built it before the
+ * instanced renderer. Kept only so fkEdges.test.ts can check the batched system against it.
+ */
 import { CubicBezierCurve3, Vector3 } from 'three'
 import { CARD_W } from '../layout/geometry'
 import type { NodePlace } from '../layout/modes'
 import type { ViewEdge, ViewNode } from '../view/deriveView'
-import { anim } from './anim'
+import { anim } from '../scene/anim'
 
 export interface End {
   node: ViewNode

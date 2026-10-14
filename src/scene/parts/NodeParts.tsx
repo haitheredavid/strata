@@ -10,7 +10,7 @@ import { useStore } from '../../store'
 import { EVENT, RACK_GAP, RACK_MAX_SHOWN, RACK_ROW } from '../labels'
 import type { AnchorTable } from '../text/anchors'
 import { timeClock } from '../timeClock'
-import type { RunState } from '../JobNode'
+import type { RunState } from '../labels'
 import { PartBatch } from './PartBatch'
 import { Parts } from './parts'
 
@@ -49,7 +49,7 @@ const rgb = (css: string) => {
 /**
  * Every job (hexagon, rim, trigger ring, event marker) and cluster rack (driver, worker rows,
  * frame) in five instanced draws. Layout is built when the world changes; colors, opacity, run
- * state pulses and rack lights are written per frame. Pointer events stay on JobNode/ClusterNode.
+ * state pulses and rack lights are written per frame. Picking is Interaction's.
  */
 export function NodeParts(p: Props) {
   const { world } = p

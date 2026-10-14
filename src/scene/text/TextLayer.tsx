@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { Color, DoubleSide, InstancedBufferAttribute, InstancedBufferGeometry, PlaneGeometry, ShaderMaterial } from 'three'
+import { Color, InstancedBufferAttribute, InstancedBufferGeometry, PlaneGeometry } from 'three'
 import type { Material, Mesh } from 'three'
-import { nodeRenderer } from '../gpu/renderer'
 import { textMaterial } from '../gpu/materials'
-import { ANCHOR_TEX_W } from './anchors'
 import type { AnchorTable } from './anchors'
 import type { Atlas } from './atlas'
 import { layoutLine } from './layout'
@@ -24,45 +22,6 @@ export interface TextItem {
   anchorY: AnchorY
   maxWidth?: number
 }
-
-const vertexShader = /* glsl */ `
-  uniform sampler2D anchors;
-  attribute vec4 g0; // anchor, x, y, z (quad lower-left in the anchor frame)
-  attribute vec4 g1; // atlas cell, quad side, opacity
-  attribute vec4 g2; // rgb
-  uniform vec2 grid;  // atlas cols, rows
-  varying vec2 vUv;
-  varying vec3 vColor;
-  varying float vOpacity;
-  vec3 rotate(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
-  void main() {
-    int a = int(g0.x + 0.5) * 2;
-    vec3 apos = texelFetch(anchors, ivec2(a % ${ANCHOR_TEX_W}, a / ${ANCHOR_TEX_W}), 0).xyz;
-    vec4 aquat = texelFetch(anchors, ivec2((a + 1) % ${ANCHOR_TEX_W}, (a + 1) / ${ANCHOR_TEX_W}), 0);
-    vec3 local = vec3(g0.y + uv.x * g1.y, g0.z + uv.y * g1.y, g0.w);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(apos + rotate(aquat, local), 1.0);
-    float col = mod(g1.x, grid.x);
-    float row = floor(g1.x / grid.x);
-    vUv = vec2(col + uv.x, row + 1.0 - uv.y) / grid;
-    vColor = g2.rgb;
-    vOpacity = g1.z;
-  }
-`
-
-const fragmentShader = /* glsl */ `
-  uniform sampler2D atlas;
-  varying vec2 vUv;
-  varying vec3 vColor;
-  varying float vOpacity;
-  void main() {
-    float d = texture2D(atlas, vUv).r;
-    float w = max(fwidth(d) * 0.7, 0.001);
-    float a = smoothstep(0.5 - w, 0.5 + w, d) * vOpacity;
-    if (a < 0.01) discard;
-    gl_FragColor = vec4(vColor, a);
-    #include <colorspace_fragment>
-  }
-`
 
 const tmp = new Color()
 
@@ -114,21 +73,7 @@ export function TextLayer({ atlas, anchors, items, renderOrder = 2 }: { atlas: A
     if (mesh.current) mesh.current.visible = n > 0
   }, [geometry, atlas, items])
 
-  const material = useMemo<Material>(() => {
-    if (nodeRenderer) return textMaterial(atlas, anchors.texture)
-    return new ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        anchors: { value: anchors.texture },
-        atlas: { value: atlas.texture },
-        grid: { value: [atlas.cols, atlas.rows] },
-      },
-      transparent: true,
-      depthWrite: false,
-      side: DoubleSide,
-    })
-  }, [atlas, anchors])
+  const material = useMemo<Material>(() => textMaterial(atlas, anchors.texture), [atlas, anchors])
   useEffect(() => () => material.dispose(), [material])
 
   return <mesh ref={mesh} visible={false} geometry={geometry} material={material} frustumCulled={false} raycast={() => null} renderOrder={renderOrder} />

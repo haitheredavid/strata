@@ -6,7 +6,7 @@ import { MODES, MODE_IDS } from '../layout/modes'
 import { anchorY } from '../layout/geometry'
 import { deriveView } from '../view/deriveView'
 import { anim } from '../scene/anim'
-import { update } from '../scene/wireCurve'
+import { update } from './fkEdges.reference'
 import { buildWorld, pack } from './world'
 import { fkCurves, updateFkCurves } from './fkEdges'
 
@@ -17,7 +17,7 @@ const ctx = { focusedId: null, hops: null, hopUp: 1, hopDown: 1 }
 
 describe('fk curves', () => {
   for (const mode of MODE_IDS)
-    it(`match Wire's curves in ${mode} mode`, () => {
+    it(`match the per-wire reference in ${mode} mode`, () => {
       const placement = MODES[mode].place(view, layout, ctx)
       anim.clear()
       // Tilt billboards so orientation-dependent branches get exercised.

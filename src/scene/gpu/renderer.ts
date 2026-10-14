@@ -1,37 +1,34 @@
 import { WebGPURenderer } from 'three/webgpu'
 
 /**
- * Which renderer the canvas uses, from the URL while the WebGPU path reaches parity:
- * - `?renderer=webgpu`: three's WebGPURenderer (WebGPU, falling back to its WebGL2 backend)
- * - `?renderer=webgl`: WebGPURenderer forced onto its WebGL2 backend
- * - otherwise: the classic WebGLRenderer (drei lines, troika text)
+ * The canvas renders with three's WebGPURenderer: WebGPU where the browser has it, else its WebGL2
+ * backend. `?renderer=webgl` forces the WebGL2 backend (to compare, or to work around a driver).
  */
-export type RendererKind = 'classic' | 'webgpu' | 'webgl'
+export const forceWebGL = /[?&]renderer=webgl\b/.test(location.search)
 
-export const rendererKind: RendererKind = (() => {
-  const v = new URLSearchParams(location.search).get('renderer')
-  return v === 'webgpu' || v === 'webgl' ? v : 'classic'
-})()
+/** r3f `gl` factory. */
+export async function createRenderer(props: { canvas: unknown }) {
+  const r = new WebGPURenderer({ canvas: props.canvas as HTMLCanvasElement, antialias: true, forceWebGL })
+  await r.init()
+  return r
+}
 
-export const nodeRenderer = rendererKind !== 'classic'
-
-/** Scene text from the SDF TextLayer; `?text=legacy` keeps troika on the classic renderer. */
-export const sdfText = nodeRenderer || !/[?&]text=legacy\b/.test(location.search)
-
-/** r3f `gl` factory for the node renderers (undefined keeps r3f's default WebGLRenderer). */
-export const createRenderer = nodeRenderer
-  ? async (props: { canvas: unknown }) => {
-      const r = new WebGPURenderer({
-        canvas: props.canvas as HTMLCanvasElement,
-        antialias: true,
-        forceWebGL: rendererKind === 'webgl',
-      })
-      await r.init()
-      return r
+/**
+ * WebGPURenderer's draw call counter runs across frames; this turns it into draws in the last frame
+ * (call once per frame, e.g. from the HUD's timer, which reads the latest completed frame).
+ */
+export function drawCallsCounter() {
+  let lastTotal = 0
+  let lastFrame = -1
+  let perFrame = 0
+  return (info: { render: { drawCalls: number; frame: number } }) => {
+    const { drawCalls, frame } = info.render
+    if (frame !== lastFrame) {
+      const frames = Math.max(1, frame - lastFrame)
+      perFrame = lastFrame < 0 ? 0 : Math.round((drawCalls - lastTotal) / frames)
+      lastTotal = drawCalls
+      lastFrame = frame
     }
-  : undefined
-
-/** Draw calls in the last frame, whichever renderer is running. */
-export function lastDrawCalls(info: { render: { calls: number; drawCalls?: number } }) {
-  return info.render.drawCalls ?? info.render.calls
+    return perFrame
+  }
 }

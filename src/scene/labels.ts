@@ -1,6 +1,9 @@
 import type { Trigger } from '../model/workflow'
 import { TRIGGER_LABEL } from './timeClock'
 
+/** A job's state at the timeline playhead (null with the timeline closed). */
+export type RunState = 'active' | 'done' | 'pending' | null
+
 /** Event marker color on jobs that emit events. */
 export const EVENT = '#fbbf24'
 

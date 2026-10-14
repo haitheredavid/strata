@@ -34,10 +34,9 @@ import { ANCHOR_TEX_W as ANCHOR_W } from '../text/anchors'
 import { HEADER_H } from '../../layout/geometry'
 
 /**
- * TSL (node material) versions of the instanced renderers' shaders, for three's WebGPURenderer on
- * either of its backends. They read the same geometry attributes as the GLSL versions in
- * FkEdges / CardBodies, and expose uniforms with the same names and `.value` shape, so each
- * component only swaps the material.
+ * TSL node materials for the instanced renderers, for three's WebGPURenderer on either of its
+ * backends. Each returns its material plus its uniforms (`.value` to set), which the components keep
+ * on `material.userData.u`.
  */
 export interface Uniforms {
   [name: string]: { value: unknown }

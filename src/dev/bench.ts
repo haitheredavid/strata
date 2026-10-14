@@ -1,5 +1,5 @@
 import type CameraControlsImpl from 'camera-controls'
-import type { WebGLRenderer } from 'three'
+import type { WebGPURenderer } from 'three/webgpu'
 import { MODE_IDS } from '../layout/modes'
 import type { ModeId } from '../model/types'
 import { useStore } from '../store'
@@ -11,7 +11,7 @@ import type { SynthOptions } from './synth'
 
 export interface BenchCtx {
   controls: () => CameraControlsImpl | null
-  gl: WebGLRenderer
+  gl: WebGPURenderer
 }
 
 export interface BenchOptions {
@@ -138,13 +138,16 @@ export async function runBench(ctx: BenchCtx, opts: Partial<BenchOptions> = {}):
     })
 
   lt.stop()
-  await frames(1)
-  const info = ctx.gl.info
+  // WebGPURenderer's counters run across frames: sample draws and triangles as a per-frame average.
+  const info = ctx.gl.info as unknown as { render: { drawCalls: number; triangles: number; frame: number }; memory: { geometries: number } }
+  const before = { calls: info.render.drawCalls, frame: info.render.frame }
+  await frames(10)
+  const sampled = Math.max(1, info.render.frame - before.frame)
   const g = store.getState().graph
   const result: BenchResult = {
     graph: { tables: g.tables.length, refs: g.refs.length, pipelines: g.workflows.pipelines.length },
     loadToFrameMs,
-    drawCalls: info.render.calls,
+    drawCalls: Math.round((info.render.drawCalls - before.calls) / sampled),
     triangles: info.render.triangles,
     geometries: info.memory.geometries,
     phases,

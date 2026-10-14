@@ -1,17 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import {
-  InstancedBufferAttribute,
-  InstancedBufferGeometry,
-  InstancedInterleavedBuffer,
-  InterleavedBufferAttribute,
-  BufferAttribute,
-  DoubleSide,
-  ShaderMaterial,
-  Vector2,
-} from 'three'
+import { InstancedBufferAttribute, InstancedBufferGeometry, InstancedInterleavedBuffer, InterleavedBufferAttribute, BufferAttribute, Vector2 } from 'three'
 import type { Material, Mesh } from 'three'
-import { nodeRenderer } from './gpu/renderer'
 import { fkEdgeMaterial } from './gpu/materials'
 import type { Uniforms } from './gpu/materials'
 import { useStore } from '../store'
@@ -28,63 +18,6 @@ import { animState } from './anim'
  * screen space, like Line2. Hover is a uniform: the shader compares it with each edge's ends.
  */
 const SEGMENTS = 32
-
-const vertexShader = /* glsl */ `
-  #define SEG ${SEGMENTS}.0
-  uniform vec2 resolution;
-  uniform float hovered;
-  uniform float hoverable;
-  attribute float seg;
-  attribute float side;
-  attribute vec3 c0;
-  attribute vec3 c1;
-  attribute vec3 c2;
-  attribute vec3 c3;
-  attribute vec3 icolor;
-  attribute vec2 istyle; // opacity, width (px)
-  attribute vec2 ends;   // node indices
-  varying vec3 vColor;
-  varying float vAlpha;
-
-  vec3 bez(float t) {
-    float u = 1.0 - t;
-    return u * u * u * c0 + 3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t * c3;
-  }
-  vec2 screen(vec4 clip) { return clip.xy / clip.w * resolution * 0.5; }
-
-  void main() {
-    float t = seg / SEG;
-    mat4 vp = projectionMatrix * viewMatrix;
-    vec4 clip = vp * vec4(bez(t), 1.0);
-    vec2 a = screen(vp * vec4(bez(max(t - 1.0 / SEG, 0.0)), 1.0));
-    vec2 b = screen(vp * vec4(bez(min(t + 1.0 / SEG, 1.0)), 1.0));
-    vec2 dir = b - a;
-    dir = length(dir) > 1e-5 ? normalize(dir) : vec2(1.0, 0.0);
-
-    float opacity = istyle.x;
-    float width = istyle.y;
-    // hovered: -1 nothing, -2 something that isn't a node here, else that node's index
-    if (hoverable > 0.5 && hovered > -1.5) {
-      bool touch = abs(ends.x - hovered) < 0.5 || abs(ends.y - hovered) < 0.5;
-      opacity = touch ? 1.0 : 0.3;
-      width = touch ? 3.0 : width;
-    }
-    clip.xy += vec2(-dir.y, dir.x) * side * width / resolution * clip.w;
-    gl_Position = clip;
-    vColor = icolor;
-    vAlpha = opacity;
-  }
-`
-
-const fragmentShader = /* glsl */ `
-  uniform float fade;
-  varying vec3 vColor;
-  varying float vAlpha;
-  void main() {
-    gl_FragColor = vec4(vColor, vAlpha * fade);
-    #include <colorspace_fragment>
-  }
-`
 
 /** Ribbon template shared by every edge: SEGMENTS + 1 pairs of vertices, two triangles per step. */
 function ribbon(geometry: InstancedBufferGeometry) {
@@ -147,28 +80,10 @@ export function FkEdges({ world, curves, fkStyle }: { world: World; curves: FkCu
 
   useEffect(() => () => geometry.dispose(), [geometry])
 
-  // GLSL for the classic renderer, TSL for WebGPURenderer; uniforms ride on userData.u either way.
   const material = useMemo<Material>(() => {
-    if (nodeRenderer) {
-      const { material, uniforms } = fkEdgeMaterial(SEGMENTS)
-      material.userData.u = uniforms
-      return material
-    }
-    const m = new ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        resolution: { value: new Vector2(1, 1) },
-        hovered: { value: -1 },
-        hoverable: { value: 1 },
-        fade: { value: 1 },
-      },
-      transparent: true,
-      depthWrite: false,
-      side: DoubleSide, // ribbon winding flips with the curve's screen direction
-    })
-    m.userData.u = m.uniforms
-    return m
+    const { material, uniforms } = fkEdgeMaterial(SEGMENTS)
+    material.userData.u = uniforms
+    return material
   }, [])
   useEffect(() => () => material.dispose(), [material])
   const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)

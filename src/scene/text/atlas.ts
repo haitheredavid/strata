@@ -1,5 +1,5 @@
 import { DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, UnsignedByteType } from 'three'
-// troika reads woff/ttf/otf, and so does FontFace. Bundled so scene text never waits on a font CDN.
+// FontFace reads woff/ttf/otf (not woff2). Bundled so scene text never waits on a font CDN.
 import INTER from '@fontsource/inter/files/inter-latin-400-normal.woff?url'
 import type { FontMetrics } from './layout'
 

@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { anim } from './anim'
 
 /**
- * Column labels are most of the scene's text (two per row), and only legible up close. Cards register
- * here; a driver ranks them by camera distance a few times a second and tells each whether to show
- * its rows. A card shows rows when its row text would be at least MIN_PX tall and it is among the
+ * Column labels are most of the scene's text (two per row), and only legible up close. A driver ranks
+ * the cards by camera distance a few times a second and keeps the set of cards near enough to show
+ * their rows. A card shows rows when its row text would be at least MIN_PX tall and it is among the
  * MAX_NEAR nearest; it hides them again only past a margin, so cards don't flicker at the edge.
  * Graphs with at most MAX_NEAR cards always show every row.
  */
@@ -16,19 +16,9 @@ const MAX_NEAR = 300
 const HYSTERESIS = 1.25
 const PERIOD = 0.25 // seconds between updates
 
-const listeners = new Map<string, (near: boolean) => void>()
 const near = new Set<string>()
-let dirty = true // a card registered since the last pass
+let dirty = true // the card list changed since the last pass
 let since = 0
-
-function subscribe(id: string, fn: (near: boolean) => void) {
-  listeners.set(id, fn)
-  dirty = true
-  return () => {
-    if (listeners.get(id) === fn) listeners.delete(id)
-    near.delete(id)
-  }
-}
 
 const setListeners = new Set<() => void>()
 /** Called after any card enters or leaves the near set. */
@@ -38,21 +28,12 @@ export function onNearChange(fn: () => void) {
 }
 export const isNear = (id: string) => near.has(id)
 
-/** Whether this card is close enough to draw its rows. */
-export function useNear(id: string): boolean {
-  const [isNear, setNear] = useState(() => near.has(id))
-  useEffect(() => subscribe(id, setNear), [id])
-  return isNear
-}
-
 const tmp = new Vector3()
 
 /**
- * Ranks cards by distance and flips the ones that crossed the threshold. Mount once. Ranks `cards`
- * when given (the instanced scene, which has no per-card components), else the cards registered
- * through useNear.
+ * Ranks `cards` by distance and updates the near set when cards cross the threshold. Mount once.
  */
-export function LodDriver({ cards }: { cards?: readonly string[] }) {
+export function LodDriver({ cards }: { cards: readonly string[] }) {
   useEffect(() => {
     dirty = true
   }, [cards])
@@ -61,8 +42,8 @@ export function LodDriver({ cards }: { cards?: readonly string[] }) {
     if (since < PERIOD && !dirty) return
     since = 0
     dirty = false
-    const ids: Iterable<string> = cards ?? listeners.keys()
-    const total = cards ? cards.length : listeners.size
+    const ids: Iterable<string> = cards
+    const total = cards.length
     let next: Set<string>
     if (total <= MAX_NEAR) {
       next = new Set(ids)
@@ -85,8 +66,6 @@ export function LodDriver({ cards }: { cards?: readonly string[] }) {
         if (was ? i < MAX_NEAR * HYSTERESIS : i < MAX_NEAR && d < maxDist) next.add(id)
       })
     }
-    for (const id of near) if (!next.has(id)) listeners.get(id)?.(false)
-    for (const id of next) if (!near.has(id)) listeners.get(id)?.(true)
     const changed = next.size !== near.size || [...next].some((id) => !near.has(id))
     near.clear()
     for (const id of next) near.add(id)

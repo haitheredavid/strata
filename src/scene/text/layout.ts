@@ -43,7 +43,7 @@ function measure(m: FontMetrics, text: string) {
 
 /**
  * Lay out one line. `anchorX` / `anchorY` say which point of the text block sits on the anchor (as
- * troika does: middle is half the cap height). Text wider than `maxWidth` is cut with an ellipsis.
+ * troika did: middle is half the cap height). Text wider than `maxWidth` is cut with an ellipsis.
  */
 export function layoutLine(m: FontMetrics, text: string, size: number, anchorX: AnchorX, anchorY: AnchorY, maxWidth?: number): Laid {
   let s = text
