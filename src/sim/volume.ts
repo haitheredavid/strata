@@ -19,6 +19,7 @@ const RANGE: Record<Medallion | 'source' | 'none', [number, number]> = {
   bronze: [2 * GB, 20 * GB],
   silver: [0.5 * GB, 5 * GB],
   gold: [0.02 * GB, 0.5 * GB],
+  platinum: [0.01 * GB, 0.2 * GB],
   none: [0.2 * GB, 5 * GB],
 }
 

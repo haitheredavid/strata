@@ -38,6 +38,7 @@ export function Timeline() {
   const time = useStore((s) => s.time)
   const graph = useStore((s) => s.graph)
   const palette = usePalette()
+  const hidden = useStore((s) => s.layout.hiddenPipelines)
   const lens = useStore((s) => s.lensPipeline)
   const setTime = useStore((s) => s.setTime)
   const closeTimeline = useStore((s) => s.closeTimeline)
@@ -54,13 +55,14 @@ export function Timeline() {
   const names = useMemo(() => new Map(graph.workflows.pipelines.flatMap((p) => p.tasks).map((t) => [t.id, t.name])), [graph])
   const rows = useMemo(
     () =>
-      graph.workflows.pipelines.map((p) => {
+      // Hidden pipelines get no row, so a solo'd pipeline isn't lost among the rest.
+      graph.workflows.pipelines.filter((p) => !hidden?.includes(p.id)).map((p) => {
         const placed = packLanes(schedule.taskRuns.filter((r) => r.pipelineId === p.id))
         const lanes = Math.max(1, ...placed.map((x) => x.lane + 1))
         const emits = schedule.events.filter((e) => e.kind === 'emit' && e.pipelineId === p.id)
         return { p, placed, emits, height: lanes * (LANE + LANE_GAP) + 6 }
       }),
-    [graph, schedule],
+    [graph, schedule, hidden],
   )
   const clusterName = useMemo(() => new Map(graph.workflows.clusters.map((c) => [c.id, c.name])), [graph])
   const runById = useMemo(() => new Map(schedule.taskRuns.map((r) => [r.id, r])), [schedule])
@@ -138,12 +140,12 @@ export function Timeline() {
                 const name = names.get(run.taskId) ?? run.taskId
                 const title = run.continuous
                   ? `${name} · streaming all day`
-                  : `${name} · ${clock(run.start)}–${clock(run.end)} · ${dur(run.end - run.start)} (${dur(run.setup)} queue/start)${run.medallion ? ` · writes ${run.medallion}` : ''} · on ${clusterName.get(run.clusterId) ?? run.clusterId}`
+                  : `${name} · ${clock(run.start)}–${clock(run.end)} · ${dur(run.end - run.start)} (${dur(run.setup)} queue/start)${run.medallion ? ` · writes ${run.medallion}` : ''} · on ${clusterName.get(run.clusterId) ?? run.clusterId}${run.state && run.state !== 'success' ? ` · ${run.state}` : ''}${run.attempt ? ` (retry ${run.attempt})` : ''}`
                 return (
                   <div
                     key={run.id}
                     data-run={run.id}
-                    className={`bar ${run.continuous ? 'stream' : ''}`}
+                    className={`bar ${run.continuous ? 'stream' : ''} ${run.state && run.state !== 'success' ? run.state : ''}`}
                     title={title}
                     style={{
                       left: `${left}%`,
@@ -244,6 +246,9 @@ export function Timeline() {
           Follow
         </button>
         <span className="clock" ref={readout}>{clock(time.t)}</span>
+        {schedule.origin === 'snapshot' && (
+          <span className="origin" title="Real job runs from a workspace snapshot">{schedule.day} · {schedule.tz}</span>
+        )}
         {span && <span className="range">{clock(span[0])}–{clock(span[1])} · {dur(span[1] - span[0])}</span>}
         <span className="totals" title="Task run time by the medallion layer each task writes (streaming excluded)">
           {MEDALLIONS.map((m) => (

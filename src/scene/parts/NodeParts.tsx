@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { BoxGeometry, Color, CylinderGeometry, OctahedronGeometry, TorusGeometry } from 'three'
 import type { Schedule } from '../../sim/schedule'
 import { onCluster } from '../../sim/schedule'
-import { workersFor } from '../../sim/spark'
+import { measured, usageAt, workersFor } from '../../sim/spark'
 import type { ViewCluster, ViewNode } from '../../view/deriveView'
 import type { World } from '../../world/world'
 import { useStore } from '../../store'
@@ -126,9 +126,10 @@ export function NodeParts(p: Props) {
       let up = true
       if (p.schedule) {
         const { starting, working } = onCluster(p.schedule, c.id, timeClock.t)
-        up = starting.length + working.length > 0 || c.kind === 'all_purpose'
-        // Busy workers: the minimum, plus autoscaling as more tasks share the cluster.
-        const busy = working.length ? workersFor(c, working.length) : 0
+        // Measured node use when the snapshot has it; else the minimum, plus autoscaling as tasks share the cluster.
+        const real = measured(p.schedule, c.id) ? usageAt(p.schedule, c.id, timeClock.t) ?? null : undefined
+        up = real !== undefined ? !!real : starting.length + working.length > 0 || c.kind === 'all_purpose'
+        const busy = real !== undefined ? Math.min(c.workers.max, real?.workers ?? 0) : working.length ? workersFor(c, working.length) : 0
         lit = Math.round((busy / c.workers.max) * shown)
         blink = starting.length && !working.length ? 0.5 + 0.5 * Math.sin(performance.now() / 150) : 1
         driver = rgb(up ? color : OFF)

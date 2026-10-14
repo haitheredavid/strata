@@ -3,7 +3,7 @@ import { Scene } from './scene/Scene'
 import { Toolbar } from './ui/Toolbar'
 import { LayerPanel } from './ui/LayerPanel'
 import { useStore } from './store'
-import { loadFiles, loadSample, loadSynth } from './ui/files'
+import { loadFiles, loadLast, loadSynth } from './ui/files'
 import { Timeline } from './ui/Timeline'
 import { Profiled } from './dev/Profiled'
 import { ComputePanel } from './ui/ComputePanel'
@@ -27,7 +27,7 @@ export default function App() {
     } catch {
       /* first sample */
     }
-    loadSample(last ?? 'commerce')
+    loadLast(last)
   }, [])
 
   useEffect(() => {

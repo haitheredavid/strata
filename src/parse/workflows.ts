@@ -73,7 +73,7 @@ export const serverlessCluster = (): Cluster => ({
 
 /**
  * A cluster spec: DAB `new_cluster` fields (`node_type_id`, `num_workers` or `autoscale`,
- * `spark_version`), directly or under `new_cluster`.
+ * `spark_version`), directly or under `new_cluster`. `cores_per_node` overrides the node-type guess.
  */
 function parseCluster(id: string, raw: Record<string, unknown>, kind: ClusterKind): Cluster {
   const spec = (raw.new_cluster ?? raw) as Record<string, unknown>
@@ -87,7 +87,7 @@ function parseCluster(id: string, raw: Record<string, unknown>, kind: ClusterKin
     kind: k === 'job' || k === 'serverless' ? k : 'all_purpose',
     nodeType,
     workers: auto ? { min: Number(auto.min_workers ?? 1), max: Number(auto.max_workers ?? auto.min_workers ?? 1) } : { min: fixed, max: fixed },
-    coresPerNode: coresOf(nodeType),
+    coresPerNode: Number(raw.cores_per_node ?? spec.cores_per_node) || coresOf(nodeType),
     ...(spec.spark_version ? { sparkVersion: String(spec.spark_version) } : {}),
   }
 }
@@ -98,17 +98,52 @@ function keyed(v: unknown, key: string): [string, Record<string, unknown>][] {
   return v && typeof v === 'object' ? Object.entries(v as Record<string, Record<string, unknown>>) : []
 }
 
+const PERIODIC_CRON: Record<string, (n: number) => string> = {
+  HOURS: (n) => `0 */${n} * * *`,
+  DAYS: () => '0 0 * * *',
+  WEEKS: () => '0 0 * * 0',
+}
+
+/** A cron string from `{ cron }`, a DAB `{ quartz_cron_expression }`, or the value itself. */
+const cronOf = (v: unknown) => {
+  const o = (v ?? {}) as { cron?: string; quartz_cron_expression?: string }
+  return String(o.cron ?? o.quartz_cron_expression ?? v)
+}
+
+const paused = (v: unknown) => (v as { pause_status?: string } | undefined)?.pause_status === 'PAUSED'
+
 function parseTrigger(v: unknown): Trigger | undefined {
   if (!v) return undefined
   if (typeof v === 'string') return parseTriggerText(v)
   if (typeof v !== 'object') return undefined
   const o = v as Record<string, unknown>
-  if (o.schedule) return { kind: 'schedule', cron: String((o.schedule as { cron?: string }).cron ?? o.schedule) }
+  // A paused DAB trigger never fires on its own.
+  if (paused(o)) return { kind: 'manual' }
+  if (o.schedule) return { kind: 'schedule', cron: cronOf(o.schedule) }
+  if (o.periodic) {
+    const { interval = 1, unit = 'DAYS' } = o.periodic as { interval?: number; unit?: string }
+    const cron = PERIODIC_CRON[unit.toUpperCase()]
+    return cron ? { kind: 'schedule', cron: cron(Number(interval) || 1) } : undefined
+  }
   if (o.file_arrival) return { kind: 'file_arrival', path: String((o.file_arrival as { url?: string }).url ?? o.file_arrival) }
-  if (o.table_update) return { kind: 'table_update', tables: strings((o.table_update as { tables?: unknown }).tables ?? o.table_update) }
+  if (o.table_update) {
+    const tu = o.table_update as { tables?: unknown; table_names?: unknown }
+    return { kind: 'table_update', tables: strings(tu.tables ?? tu.table_names ?? o.table_update) }
+  }
   if (o.after || o.job) return { kind: 'job', pipeline: String(o.after ?? o.job) }
   if (o.continuous) return { kind: 'continuous' }
   if (o.manual) return { kind: 'manual' }
+  return undefined
+}
+
+/**
+ * A pipeline's trigger: `trigger`, else DAB job-level `schedule` (`quartz_cron_expression`) or
+ * `continuous`. A paused schedule or trigger becomes manual.
+ */
+function jobTrigger(p: Record<string, unknown>): Trigger | undefined {
+  if (p.trigger) return parseTrigger(p.trigger)
+  if (p.continuous) return paused(p.continuous) ? { kind: 'manual' } : { kind: 'continuous' }
+  if (p.schedule) return paused(p.schedule) ? { kind: 'manual' } : { kind: 'schedule', cron: cronOf(p.schedule) }
   return undefined
 }
 
@@ -158,7 +193,10 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; clusters
         writes: strings(t.writes),
         // DAB style: depends_on: [{ task_key: x }]
         dependsOn: Array.isArray(deps)
-          ? deps.map((d) => String(typeof d === 'object' && d ? (d as { task_key?: string }).task_key : d))
+          ? deps
+            .map((d) => (typeof d === 'object' && d ? (d as { task_key?: string }).task_key : d))
+            .filter((d) => d !== undefined && d !== null)
+            .map(String)
           : strings(deps),
         emits: strings(t.emits),
         duration,
@@ -174,7 +212,7 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; clusters
       id,
       name: p.name ? String(p.name) : undefined,
       color: p.color ? String(p.color) : undefined,
-      trigger: parseTrigger(p.trigger),
+      trigger: jobTrigger(p),
       tasks,
       ...(jobClusters.length ? { clusters: jobClusters } : {}),
     })

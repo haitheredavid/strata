@@ -5,8 +5,8 @@ import { clusterNodeId } from '../model/workflow'
 import type { Cluster, Task } from '../model/workflow'
 import { clock, packLanes, span as dur } from '../sim/schedule'
 import type { Schedule, TaskRun, Window } from '../sim/schedule'
-import { sizingHint, sparkRunsOn, utilization } from '../sim/spark'
-import type { SparkRun } from '../sim/spark'
+import { measured, sizingHint, sparkRunsOn, utilization } from '../sim/spark'
+import type { SparkRun, StageOp } from '../sim/spark'
 import { clusterSpec, KIND_LABEL } from '../scene/clusterStyle'
 import { timeClock } from '../scene/timeClock'
 import { usePalette } from '../theme/palette'
@@ -14,6 +14,15 @@ import type { Palette } from '../theme/palette'
 
 const ROW = 15
 const UTIL_H = 34
+
+/** A statement's colour by what it does, in the stage palette. */
+const statementOp = (type: string): StageOp =>
+  /^(INSERT|MERGE|CREATE|REPLACE|COPY|UPDATE|DELETE|WRITE)/.test(type) ? 'write'
+    : /^(OPTIMIZE|VACUUM|ANALYZE)/.test(type) ? 'optimize'
+      : /^(SELECT|SHOW|DESCRIBE)/.test(type) ? 'scan' : 'aggregate'
+
+const PHASE_COLOR = { waiting: '#334155', compiling: '#64748b' }
+const rows = (n: number) => n.toLocaleString('en-US')
 
 interface Rect { x0: number; x1: number; y: number; t0: number; t1: number; lines: string[] }
 
@@ -50,6 +59,35 @@ function flameRects(spark: SparkRun[], names: Map<string, string>, palette: Pale
       depth: 0, y: y0, t0: r.start, t1: r.end, x0: 0, x1: 0, color: palette.pipeline(r.pipelineId), label: name,
       lines: [name, `${clock(r.start)}–${clock(r.end)} · ${dur(r.end - r.start)}`, `${dur(r.setup)} queue / cluster start`, `${sr.workers} workers · ${sr.cores} cores`],
     })
+    for (const st of sr.statements ?? []) {
+      const label = `${st.type} ${st.text}`
+      const parallel = st.executing > 0 ? st.taskTime / st.executing : 0
+      out.push({
+        depth: 1, y: y0 + ROW, t0: st.start, t1: st.end, x0: 0, x1: 0, color: '#475569', label,
+        spill: st.spillMB > 0,
+        lines: [
+          `${st.type}${st.status && st.status !== 'FINISHED' ? ` · ${st.status.toLowerCase()}` : ''}`,
+          st.text.length > 90 ? `${st.text.slice(0, 90)}…` : st.text,
+          `${dur(st.end - st.start)}: ${dur(st.waiting)} waiting · ${dur(st.compiling)} compiling · ${dur(st.executing)} executing`,
+          ...(parallel ? [`${parallel.toFixed(1)} tasks in parallel on average`] : []),
+          ...(st.readMB || st.readRows ? [`read ${st.readMB} MB · ${rows(st.readRows)} rows`] : []),
+          ...(st.writtenMB || st.writtenRows ? [`wrote ${st.writtenMB} MB · ${rows(st.writtenRows)} rows`] : []),
+          ...(st.shuffleMB ? [`shuffle read ${st.shuffleMB} MB`] : []),
+          ...(st.spillMB ? [`spill ${st.spillMB} MB to disk`] : []),
+        ],
+      })
+      // Phases in order: queued for compute, compiling, executing.
+      let t = st.start
+      for (const [phase, secs, color] of [
+        ['waiting', st.waiting, PHASE_COLOR.waiting],
+        ['compiling', st.compiling, PHASE_COLOR.compiling],
+        ['executing', st.executing, palette.op(statementOp(st.type))],
+      ] as const) {
+        const t1 = Math.min(st.end, t + secs)
+        if (t1 > t) out.push({ depth: 2, y: y0 + 2 * ROW, t0: t, t1, x0: 0, x1: 0, color, label: phase, lines: [`${phase} ${dur(t1 - t)}`, label.slice(0, 90)] })
+        t = t1
+      }
+    }
     for (const j of sr.jobs) {
       out.push({
         depth: 1, y: y0 + ROW, t0: j.start, t1: j.end, x0: 0, x1: 0, color: '#475569', label: `job ${j.id} ${j.desc}`,
@@ -112,6 +150,7 @@ export function ComputePanel() {
     [schedule, tasks, target, win],
   )
   const flame = useMemo(() => flameRects(spark, names, palette), [spark, names, palette])
+  const realStatements = spark.some((sr) => sr.statements)
   const streaming = runs.some((r) => r.continuous)
 
   // Zoom belongs to the window it was made in; a new window starts unzoomed.
@@ -252,7 +291,21 @@ export function ComputePanel() {
         <span className="title">{c.name}</span>
         <span className="spec">{clusterSpec(c)}{c.sparkVersion ? ` · DBR ${c.sparkVersion.split('.x')[0]}` : ''}</span>
         {target.taskId && <span className="spec">· running {names.get(target.taskId)}</span>}
-        <span className="sim" title="Generated from the workflow shape, not measured">simulated</span>
+        {schedule.origin === 'snapshot' ? (
+          <span className="sim" title={[
+            'Task run times: Jobs API',
+            measured(schedule, c.id) ? 'Utilization: system.compute.node_timeline' : realStatements ? 'Utilization: from statement parallelism' : 'Utilization: generated',
+            realStatements ? 'Statements: system.query.history' : 'Spark jobs and stages: generated',
+          ].join('\n')}>
+            {[
+              'runs',
+              ...(measured(schedule, c.id) ? ['utilization'] : []),
+              ...(realStatements ? ['statements'] : []),
+            ].join(', ')} real{realStatements ? '' : ' · Spark simulated'}
+          </span>
+        ) : (
+          <span className="sim" title="Generated from the workflow shape, not measured">simulated</span>
+        )}
         <span className="spacer" />
         <span className="range">{clock(view[0])}–{clock(view[1])}</span>
         <button title="Close" onClick={() => focus(null)}>✕</button>

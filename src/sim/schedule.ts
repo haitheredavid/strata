@@ -22,7 +22,42 @@ export interface TaskRun {
   medallion?: Medallion
   /** Streaming task: runs all day in micro-batches. */
   continuous?: boolean
+  /** How a real run ended (snapshots only; simulated runs always succeed). */
+  state?: RunState
+  /** Retry number, 0 for the first attempt (snapshots only). */
+  attempt?: number
 }
+
+/** A SQL / DataFrame statement a task ran (serverless and warehouse compute record these). Times in day seconds. */
+export interface Statement {
+  id: string
+  type: string
+  text: string
+  status: string
+  start: number
+  end: number
+  /** Phases, in seconds: queued for compute, compiling, executing. */
+  waiting: number
+  compiling: number
+  executing: number
+  /** Summed task time across all cores, in seconds: `taskTime / executing` is the average parallelism. */
+  taskTime: number
+  readMB: number
+  writtenMB: number
+  shuffleMB: number
+  spillMB: number
+  readRows: number
+  writtenRows: number
+}
+
+/** One minute of a cluster's nodes: workers up, and the share of CPU busy on them (the driver's, with no workers). */
+export interface UsageSample {
+  t: number
+  workers: number
+  busy: number
+}
+
+export type RunState = 'success' | 'failed' | 'canceled' | 'skipped' | 'running'
 
 export interface PipelineRun {
   id: string
@@ -30,6 +65,7 @@ export interface PipelineRun {
   start: number
   end: number
   cause: string
+  state?: RunState
 }
 
 export interface SimEvent {
@@ -44,12 +80,20 @@ export interface Schedule {
   runs: PipelineRun[]
   taskRuns: TaskRun[]
   events: SimEvent[]
+  /** Statements each task run executed, by task run id, from `system.query.history` (snapshots only). */
+  statements?: Record<string, Statement[]>
+  /** Measured node use per cluster id, sorted by time (snapshots only). */
+  usage?: Record<string, UsageSample[]>
+  /** Where the runs come from: the simulator (default) or a workspace snapshot of `day` in `tz`. */
+  origin?: 'sim' | 'snapshot'
+  day?: string
+  tz?: string
 }
 
 export type Window = [number, number]
 
 /** Base run time by the medallion layer a task writes: silver does the heavy cleaning and joining. */
-const BASE: Record<Medallion | 'none', number> = { bronze: 240, silver: 720, gold: 300, none: 180 }
+const BASE: Record<Medallion | 'none', number> = { bronze: 240, silver: 720, gold: 300, platinum: 240, none: 180 }
 const MAX_RUNS = 24
 export const MICRO_BATCH = 600
 const TABLE_UPDATE_WAIT = 60 // Databricks waits for writes to settle before a table-update trigger fires
@@ -236,7 +280,7 @@ export function activeAt(s: Schedule, t: number): Map<string, number> {
 
 /** Task run seconds inside a window, by the medallion layer each task writes; optionally one pipeline's. */
 export function layerTotals(s: Schedule, [a, b]: Window, pipelineId?: string | null): Record<Medallion, number> {
-  const out: Record<Medallion, number> = { bronze: 0, silver: 0, gold: 0 }
+  const out: Record<Medallion, number> = { bronze: 0, silver: 0, gold: 0, platinum: 0 }
   for (const r of s.taskRuns) {
     if (!r.medallion || r.continuous || (pipelineId && r.pipelineId !== pipelineId)) continue
     out[r.medallion] += Math.max(0, Math.min(b, r.end) - Math.max(a, r.start))

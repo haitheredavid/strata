@@ -82,6 +82,40 @@ resources:
     expect(pipelines[0].tasks[1].dependsOn).toEqual(['x'])
   })
 
+  it('reads Databricks job-level schedule, continuous and trigger fields', () => {
+    const dab = `
+resources:
+  jobs:
+    cron:
+      schedule: { quartz_cron_expression: "0 30 2 * * ?", timezone_id: UTC }
+      tasks: [{ task_key: a }]
+    paused:
+      schedule: { quartz_cron_expression: "0 0 1 * * ?", pause_status: PAUSED }
+      tasks: [{ task_key: b }]
+    stream:
+      continuous: { pause_status: UNPAUSED }
+      tasks: [{ task_key: c }]
+    watch:
+      trigger: { table_update: { table_names: [bronze.x.y] } }
+      tasks: [{ task_key: d }]
+    hourly:
+      trigger: { periodic: { interval: 4, unit: HOURS } }
+      tasks: [{ task_key: e, depends_on: [{ outcome: "true" }] }]
+`
+    const by = Object.fromEntries(parseSidecar(dab).pipelines.map((p) => [p.id, p]))
+    expect(by.cron.trigger).toEqual({ kind: 'schedule', cron: '0 30 2 * * ?' })
+    expect(by.paused.trigger).toEqual({ kind: 'manual' })
+    expect(by.stream.trigger).toEqual({ kind: 'continuous' })
+    expect(by.watch.trigger).toEqual({ kind: 'table_update', tables: ['bronze.x.y'] })
+    expect(by.hourly.trigger).toEqual({ kind: 'schedule', cron: '0 */4 * * *' })
+    expect(by.hourly.tasks[0].dependsOn).toEqual([]) // no task_key: not the string "undefined"
+  })
+
+  it('takes cores_per_node over the node-type guess', () => {
+    const { clusters } = parseSidecar('clusters: { shared: { node_type_id: r6id.xlarge, cores_per_node: 6 } }\npipelines: []')
+    expect(clusters[0].coresPerNode).toBe(6)
+  })
+
   it('reports problems as warnings', () => {
     expect(parseSidecar('pipelines: [').warnings[0]).toMatch(/Workflow file/)
     expect(parseSidecar('foo: 1').warnings).toContain('Workflow file has no pipelines')

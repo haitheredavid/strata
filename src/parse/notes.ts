@@ -1,3 +1,4 @@
+import { MEDALLIONS } from '../model/workflow'
 import type { Medallion, Trigger } from '../model/workflow'
 
 /** `key: value` lines from a DBML note. Keys are lower-cased; other lines are ignored. */
@@ -16,17 +17,19 @@ const SCHEMA_MEDALLION: Record<string, Medallion> = {
   bronze: 'bronze', raw: 'bronze', landing: 'bronze',
   silver: 'silver', clean: 'silver', cleansed: 'silver', refined: 'silver',
   gold: 'gold', curated: 'gold', mart: 'gold', marts: 'gold',
+  platinum: 'platinum',
 }
 const PREFIXES: [RegExp, Medallion][] = [
   [/^(brz|bronze|raw)_/i, 'bronze'],
   [/^(slv|silver)_/i, 'silver'],
   [/^(gld|gold)_/i, 'gold'],
+  [/^(plt|platinum)_/i, 'platinum'],
 ]
 
 /** Medallion layer: explicit `medallion:` note, then schema name, then table-name prefix. */
 export function inferMedallion(schema: string | null, name: string, fields: Record<string, string>): Medallion | undefined {
   const explicit = fields.medallion?.toLowerCase()
-  if (explicit === 'bronze' || explicit === 'silver' || explicit === 'gold') return explicit
+  if (MEDALLIONS.includes(explicit as Medallion)) return explicit as Medallion
   const bySchema = schema ? SCHEMA_MEDALLION[schema.toLowerCase()] : undefined
   if (bySchema) return bySchema
   return PREFIXES.find(([re]) => re.test(name))?.[1]

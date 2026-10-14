@@ -71,6 +71,8 @@ export interface Layout {
   /** Stack mode with medallion grouping: dragged card centers. */
   medallionPositions?: Record<string, Vec2>
   hiddenPipelines?: string[]
+  /** With lineage: show only tables the visible pipelines read or write. */
+  pipelineTablesOnly?: boolean
   /** With lineage: show the clusters jobs run on (default on). */
   showCompute?: boolean
 }

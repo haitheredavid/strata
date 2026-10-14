@@ -7,6 +7,7 @@ import { layoutAsync } from './layout/layoutClient'
 import { seedLayout } from './layout/seedLayout'
 import { MODES } from './layout/modes'
 import { flowOrder } from './layout/modes/flow'
+import { derivedStack } from './layout/modes/stack'
 import { deriveView } from './view/deriveView'
 import { timeClock } from './scene/timeClock'
 import { hash32 } from './sim/rng'
@@ -15,6 +16,7 @@ import type { Schedule } from './sim/schedule'
 import { isScheme } from './theme/schemes'
 import { record, span } from './dev/perf'
 import type { SchemeId } from './theme/schemes'
+import type { Snapshot } from './ingest/snapshot'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
@@ -53,6 +55,8 @@ interface State {
   /** Load an already-built graph (e.g. a synthetic one); `key` names its saved layout. */
   loadGraph: (graph: Graph, key: string) => void
   loadSidecar: (text: string) => void
+  /** Load a workspace snapshot: its schema and jobs, with its real runs in place of the simulated day. */
+  loadSnapshot: (snap: Snapshot) => void
   setLayout: (layout: Layout) => void
   resetLayout: () => void
   setLayerGap: (gap: number) => void
@@ -77,6 +81,10 @@ interface State {
   setGroupBy: (g: GroupBy) => void
   setEdgeLayer: (e: EdgeLayer) => void
   togglePipeline: (id: string) => void
+  /** Show only this pipeline; again to show them all. */
+  soloPipeline: (id: string) => void
+  setHiddenPipelines: (ids: string[]) => void
+  togglePipelineTablesOnly: () => void
   toggleCompute: () => void
   setLens: (id: string | null) => void
   /** Open the day timeline; with a pipeline, light it up and jump to its first run. */
@@ -104,7 +112,7 @@ export const TIME_SPEEDS = [600, 1800, 7200]
 const CLOSED: TimeState = { open: false, t: 0, span: null, playing: false, speed: 1800, follow: false }
 
 const schedules = new WeakMap<Graph, Schedule>()
-/** The simulated day for a graph's workflows (cached per graph). */
+/** The day of runs for a graph: a snapshot's real runs, else the simulated day (cached per graph). */
 export function scheduleFor(graph: Graph): Schedule {
   let s = schedules.get(graph)
   if (!s) schedules.set(graph, (s = span('simulateDay', () => simulateDay(graph.workflows, graph.tables))))
@@ -112,6 +120,24 @@ export function scheduleFor(graph: Graph): Schedule {
 }
 
 export const modeOf = (layout: Layout): ModeId => layout.mode ?? 'stack'
+
+/** A layout change, re-framing the camera when the pipeline table filter changes which tables show. */
+function reframed(layout: Layout, force = false) {
+  if (!layout.pipelineTablesOnly && !force) return { layout }
+  return { layout, cameraCommand: { kind: 'preset' as const, preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() } }
+}
+
+/** The view's tables and layers under the current grouping and pipeline filter (enough to size a layout). */
+const viewOf = (s: { graph: Graph; layout: Layout }) =>
+  deriveView(s.graph, { groupBy: s.layout.groupBy, lineage: s.layout.edgeLayer !== 'fk', hiddenPipelines: s.layout.hiddenPipelines, pipelineTablesOnly: s.layout.pipelineTablesOnly })
+
+/** Tables above which a fresh layout starts with header-only cards and only the tables pipelines touch. */
+export const LARGE_GRAPH = 150
+
+function largeDefaults(graph: Graph, layout: Layout): Layout {
+  if (graph.tables.length <= LARGE_GRAPH) return layout
+  return { ...layout, columnDetail: 'header', pipelineTablesOnly: graph.workflows.pipelines.length > 0 }
+}
 
 const EMPTY_GRAPH: Graph = { tables: [], refs: [], layers: [], workflows: EMPTY_WORKFLOWS }
 
@@ -177,7 +203,7 @@ function freshLayout(graph: Graph, schemaKey: string, layerGap = 8): Layout {
 
 /** State for a freshly loaded graph: its saved layout (or a new one) and every per-schema setting reset. */
 function installGraph(graph: Graph, schemaKey: string, source: string, sidecar: string | null): Partial<State> {
-  const layout = loadSavedLayout(schemaKey, graph) ?? freshLayout(graph, schemaKey)
+  const layout = loadSavedLayout(schemaKey, graph) ?? largeDefaults(graph, freshLayout(graph, schemaKey))
   return {
     source,
     sidecar,
@@ -241,6 +267,15 @@ export const useStore = create<State>((set, get) => ({
 
   loadGraph: (graph, key) => set(installGraph(graph, hash(key), '', null)),
 
+  loadSnapshot: (snap) => {
+    get().loadSchema(snap.dbml, snap.workflows)
+    const { graph, error } = get()
+    if (error) return
+    const withRuns: Graph = { ...graph, workflows: { ...graph.workflows, warnings: [...snap.warnings, ...graph.workflows.warnings] } }
+    schedules.set(withRuns, { ...snap.runs, origin: 'snapshot', day: snap.day, tz: snap.tz })
+    set({ graph: withRuns })
+  },
+
   loadSidecar: (text) => {
     const { source, schemaKey } = get()
     if (!source) return
@@ -294,7 +329,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       const mode = modeOf(s.layout)
       if (id.startsWith('job:')) return s
-      if (mode === 'stack' && (s.layout.groupBy === 'medallion' || !s.layout.positions[id]))
+      if (mode === 'stack' && (!s.layout.positions[id] || derivedStack(s.layout, viewOf(s))))
         return { layout: { ...s.layout, medallionPositions: { ...s.layout.medallionPositions, [id]: { x: p[0], z: p[2] } } } }
       if (mode === 'stack')
         return { layout: { ...s.layout, positions: { ...s.layout.positions, [id]: { x: p[0], z: p[2] } } } }
@@ -332,6 +367,14 @@ export const useStore = create<State>((set, get) => ({
   setEdgeLayer: (edgeLayer) => set((s) => ({ layout: { ...s.layout, edgeLayer } })),
   togglePipeline: (id) =>
     set((s) => ({ layout: { ...s.layout, hiddenPipelines: toggle(s.layout.hiddenPipelines ?? [], id) } })),
+  soloPipeline: (id) =>
+    set((s) => {
+      const others = s.graph.workflows.pipelines.map((p) => p.id).filter((p) => p !== id)
+      const solo = others.every((p) => s.layout.hiddenPipelines?.includes(p)) && !s.layout.hiddenPipelines?.includes(id)
+      return reframed({ ...s.layout, hiddenPipelines: solo ? [] : others })
+    }),
+  setHiddenPipelines: (hiddenPipelines) => set((s) => reframed({ ...s.layout, hiddenPipelines })),
+  togglePipelineTablesOnly: () => set((s) => reframed({ ...s.layout, pipelineTablesOnly: !s.layout.pipelineTablesOnly }, true)),
   toggleCompute: () => set((s) => ({ layout: { ...s.layout, showCompute: !(s.layout.showCompute ?? true) } })),
   setLens: (lensPipeline) => set({ lensPipeline }),
   openTimeline: (pipelineId) =>

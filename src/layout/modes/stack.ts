@@ -8,10 +8,25 @@ import type { Mode, NodePlace, Placement, PlatePlace } from './types'
 const PAD = 1.5
 const LABEL_ROOM = 1
 
-/** Layer heights: `layerOrder` for domains, fixed bronze → gold for medallions; sources sit below. */
+/** Above this many tables a filtered view keeps the stored positions (re-laying it out would stall). */
+const MAX_DERIVED = 150
+
+/**
+ * True when the stack lays out the view itself instead of using the stored positions: medallion
+ * grouping, or a pipeline table filter leaving few enough tables that the full layout would scatter them.
+ */
+export function derivedStack(layout: Layout, view?: ViewGraph) {
+  if (layout.groupBy === 'medallion') return true
+  return !!layout.pipelineTablesOnly && !!view && view.nodes.filter((n) => n.kind === 'table').length <= MAX_DERIVED
+}
+
+/** Layer heights: `layerOrder` for domains, fixed bronze → gold for medallions; sources sit below. Derived layouts close gaps. */
 export const layerY = (layout: Layout, layerId: string, view?: ViewGraph) => {
   if (layerId === SOURCES) return -layout.layerGap
-  const order = layout.groupBy === 'medallion' && view ? view.layers.map((l) => l.id).filter((id) => id !== SOURCES) : layout.layerOrder
+  const shown = view && derivedStack(layout, view) ? new Set(view.layers.map((l) => l.id)) : null
+  const order = layout.groupBy === 'medallion' && view
+    ? view.layers.map((l) => l.id).filter((id) => id !== SOURCES)
+    : shown ? layout.layerOrder.filter((id) => shown.has(id)) : layout.layerOrder
   const i = order.indexOf(layerId)
   return (i < 0 ? 0 : i) * layout.layerGap
 }
@@ -21,8 +36,7 @@ export const layerY = (layout: Layout, layerId: string, view?: ViewGraph) => {
  * (and anything without a stored position, like external sources) uses an auto layout of the view.
  * Collapsed domains sit at the centroid of their tables.
  */
-function stackPos(n: ViewNode, layout: Layout, auto: () => Record<string, Vec2>): Vec2 {
-  const medallion = layout.groupBy === 'medallion'
+function stackPos(n: ViewNode, layout: Layout, medallion: boolean, auto: () => Record<string, Vec2>): Vec2 {
   const stored = medallion ? layout.medallionPositions ?? {} : layout.positions
   // Nodes with no stored position (sources, medallion grouping) keep drags in `medallionPositions`.
   const at = (id: string) => stored[id] ?? layout.medallionPositions?.[id] ?? auto()[id]
@@ -38,13 +52,14 @@ export function placeStack(view: ViewGraph, layout: Layout): Placement {
   const plates: PlatePlace[] = []
   const membersOf = new Map<string, ViewNode[]>(view.layers.map((l) => [l.id, []]))
   for (const n of view.nodes) membersOf.get(n.layerId)?.push(n)
+  const derived = derivedStack(layout, view)
 
-  // Auto layout only what has no stored position: everything under medallion grouping, else the
+  // Auto layout only what has no stored position: everything in a derived stack, else the
   // layers holding such nodes (external sources). Computed on first use.
   let auto: Record<string, Vec2> | null = null
   const autoPos = () => {
     if (auto) return auto
-    const stored = layout.groupBy === 'medallion' ? null : layout.positions
+    const stored = derived ? null : layout.positions
     const missing = stored
       ? view.layers.filter((l) => membersOf.get(l.id)!.some((n) => !n.members && !stored[n.id] && !layout.medallionPositions?.[n.id])).map((l) => l.id)
       : undefined
@@ -60,7 +75,7 @@ export function placeStack(view: ViewGraph, layout: Layout): Placement {
     let z0 = Infinity
     let z1 = -Infinity
     for (const n of members) {
-      const p = stackPos(n, layout, autoPos)
+      const p = stackPos(n, layout, derived, autoPos)
       nodes[n.id] = { p: [p.x, y, p.z], frame: 'flat', plateId: l.id }
       const r = cardRect(n, p)
       x0 = Math.min(x0, r.x0)

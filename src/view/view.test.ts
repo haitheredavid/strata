@@ -57,6 +57,23 @@ describe('deriveView', () => {
     const ids = new Set(v.nodes.map((n) => n.id))
     expect(v.edges.every((e) => ids.has(e.from) && ids.has(e.to))).toBe(true)
   })
+
+  it('keeps only tables the visible pipelines touch, dropping emptied domains', () => {
+    const wf = parseDbml(`
+Table a { id int }
+Table b { id int }
+Table c { id int }
+TableGroup one { a
+  b }
+TableGroup two { c }
+`, 'pipelines: [{ id: p, tasks: [{ id: t, reads: [a], writes: [b] }] }, { id: q, tasks: [{ id: u, writes: [c] }] }]')
+    const tables = (o: object) => deriveView(wf, { lineage: true, pipelineTablesOnly: true, ...o }).nodes.filter((n) => n.kind === 'table').map((n) => n.id)
+    expect(tables({})).toEqual(['a', 'b', 'c'])
+    expect(tables({ hiddenPipelines: ['q'] })).toEqual(['a', 'b'])
+    expect(deriveView(wf, { lineage: true, pipelineTablesOnly: true, hiddenPipelines: ['q'] }).layers.map((l) => l.id)).toEqual(['one'])
+    // Off without lineage: FK-only views keep every table.
+    expect(deriveView(wf, { pipelineTablesOnly: true, hiddenPipelines: ['p', 'q'] }).nodes).toHaveLength(3)
+  })
 })
 
 describe('hops', () => {

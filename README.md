@@ -118,6 +118,35 @@ Jobs are linked to the clusters they run on, drawn as racks under the diagram. T
 | Workers up, CPU busy | `system.compute.node_timeline` |
 | Spark jobs, stages, tasks, shuffle, spill | Spark event log (`SparkListenerJobStart`, `SparkListenerStageCompleted`, `SparkListenerTaskEnd`) |
 
+## Databricks snapshots
+
+A snapshot is a slice of a real workspace in one file. It holds Unity Catalog tables, the jobs whose lineage touches them, and one day of those jobs' runs. To make one, run the export locally with the `databricks` CLI's auth. It is read-only.
+
+```sh
+pnpm export:databricks --profile prod --catalogs bronze,silver,gold,platinum \
+  --schemas 'procore*,!*archive*' --day 2026-10-12 --tz America/New_York
+```
+
+Then drop `snapshots/<host>-<day>.snapshot.json` onto the app. `snapshots/` is gitignored because it holds real workspace metadata. Keep it out of `public/`.
+
+| strata | Comes from |
+| --- | --- |
+| Tables, columns | `system.information_schema.tables` / `columns`. The id is the full UC name. The catalog sets the medallion layer, and the schema is the domain. |
+| PKs, FK refs | Informational constraints (`table_constraints`, `key_column_usage`, `referential_constraints`) |
+| Pipelines, tasks, triggers, clusters | Jobs API (`jobs list --expand-tasks`), `pipelines get`, `clusters get`, `instance-pools get`, `clusters list-node-types`. Task ids are `<job>/<task_key>`. |
+| Task reads / writes, sources | `system.access.table_lineage`. Lineage only names the job run, so each edge goes to the task that was running when it was written. If that can't be found, the edge goes to a task whose key or notebook path names the layer, and failing that to the job's last task. |
+| Day timeline | `jobs list-runs --expand-tasks`. Each task's queue + setup becomes the hatched start of its bar. Failed runs get a red outline, and canceled or skipped runs are faded. |
+| Cluster utilization, worker racks | `system.compute.node_timeline` per minute, for classic clusters. Each run's job cluster folds into its job-cluster key. Serverless has no node timeline. |
+| Flame chart | `system.query.history` statements per task run (waiting / compiling / executing, bytes, rows, shuffle, spill) on serverless and warehouses. Classic clusters keep simulated Spark jobs, since they deliver no event logs. |
+
+The compute drawer's badge says which of these are real for the cluster in view.
+
+Drop the snapshot onto the app; it's kept in IndexedDB, so a reload brings it back.
+
+Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ solos a pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches. A filtered view of 150 tables or fewer gets its own layout, and the timeline only lists visible pipelines.
+
+The export also writes its raw payloads to `snapshots/.raw/`, so `--from-raw <file>` can redo the mapping offline. Anything it can't map shows up as a warning in the Pipelines panel. One example is lineage from `dbutils.notebook.run` runs, which carry no link to their job.
+
 ## Structure
 
 `graph → deriveView (hide / collapse / detail) → mode.place → Placement → scene`
@@ -125,6 +154,7 @@ Jobs are linked to the clusters they run on, drawn as racks under the diagram. T
 - `src/view/`: `deriveView` (grouping, collapse, jobs and lineage flows), `hops`, `findPaths` and `runOrder`. All are pure.
 - `src/parse/`: DBML (`dbml.ts`), notes and medallion inference (`notes.ts`), and the workflow file and merge (`workflows.ts`).
 - `src/layout/modes/`: `stack`, `flow` and `orbit`, each turning the view into world-space positions and card orientations. `jobs.ts` then places jobs in any mode, and `compute.ts` places clusters under them.
+- `src/ingest/`: the snapshot format, and in `databricks/` the pure mapping from workspace payloads to DBML, a workflow file and a `Schedule`. `scripts/export-databricks.ts` fetches them.
 - `src/sim/`: the simulated day (`schedule.ts`) and Spark execution and utilization (`spark.ts`). Both are pure and deterministic.
 - `src/layout/depth.ts`: FK depth (longest path, with cycles broken) and domain rank.
 - `src/scene/anim.ts`: eases cards and plates toward their placement targets. Wires follow the animated transforms.

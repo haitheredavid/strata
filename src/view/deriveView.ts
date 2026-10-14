@@ -75,6 +75,8 @@ export interface ViewOptions {
   hiddenPipelines?: string[]
   /** With lineage: the clusters jobs run on. */
   compute?: boolean
+  /** With lineage: drop tables no visible pipeline reads or writes (and domains left empty). */
+  pipelineTablesOnly?: boolean
 }
 
 export const SOURCES = '__sources__'
@@ -83,6 +85,7 @@ export const MEDALLION_LAYERS: Layer[] = [
   { id: 'bronze', name: 'bronze', color: '#cd7f32' },
   { id: 'silver', name: 'silver', color: '#c0c7d1' },
   { id: 'gold', name: 'gold', color: '#f5c542' },
+  { id: 'platinum', name: 'platinum', color: '#9fd3e6' },
   { id: UNASSIGNED, name: 'unassigned', color: '#6b7280' },
 ]
 export const SOURCES_LAYER: Layer = { id: SOURCES, name: 'sources', color: '#94a3b8' }
@@ -106,16 +109,19 @@ export function deriveView(graph: Graph, opts: ViewOptions = {}): ViewGraph {
   const pipelines = opts.lineage ? wf.pipelines.filter((p) => !hiddenPipelines.has(p.id)) : []
   const usedSources = new Set(pipelines.flatMap((p) => p.tasks.flatMap((t) => [...t.reads, ...t.writes])))
   const sources = wf.sources.filter((s) => usedSources.has(s.id))
+  const allTables = opts.lineage && opts.pipelineTablesOnly ? graph.tables.filter((t) => usedSources.has(t.id)) : graph.tables
 
   // Tables by group, once, rather than a scan of every table per layer.
   const tablesOf = new Map<string, Graph['tables']>()
-  for (const t of graph.tables) {
+  for (const t of allTables) {
     const g = groupOf(t)
     const list = tablesOf.get(g)
     if (list) list.push(t)
     else tablesOf.set(g, [t])
   }
-  const baseLayers = byMedallion ? MEDALLION_LAYERS.filter((l) => tablesOf.has(l.id)) : graph.layers
+  const baseLayers = byMedallion
+    ? MEDALLION_LAYERS.filter((l) => tablesOf.has(l.id))
+    : opts.lineage && opts.pipelineTablesOnly ? graph.layers.filter((l) => tablesOf.has(l.id)) : graph.layers
   const layers = [...(sources.length ? [SOURCES_LAYER] : []), ...baseLayers].filter((l) => !hidden.has(l.id))
 
   const nodes: ViewNode[] = []

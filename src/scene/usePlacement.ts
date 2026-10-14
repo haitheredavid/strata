@@ -61,6 +61,7 @@ export function useView(): ViewGraph {
       groupBy: s.layout.groupBy,
       edgeLayer: s.layout.edgeLayer,
       hiddenPipelines: s.layout.hiddenPipelines,
+      pipelineTablesOnly: s.layout.pipelineTablesOnly,
       showCompute: s.layout.showCompute,
       hiddenLayers: s.hiddenLayers,
       isolatedLayerId: s.isolatedLayerId,
@@ -78,9 +79,10 @@ export function useView(): ViewGraph {
       groupBy: s.groupBy,
       lineage: lineageOn(s.edgeLayer),
       hiddenPipelines: s.hiddenPipelines,
+      pipelineTablesOnly: s.pipelineTablesOnly,
       compute: s.showCompute ?? true,
     }))
-  }, [s.showCompute, s.graph, s.groupBy, s.edgeLayer, s.isolatedLayerId, s.hiddenLayers, s.collapsedLayers, s.columnDetail, s.collapsedCards, s.hiddenPipelines])
+  }, [s.showCompute, s.graph, s.groupBy, s.edgeLayer, s.isolatedLayerId, s.hiddenLayers, s.collapsedLayers, s.columnDetail, s.collapsedCards, s.hiddenPipelines, s.pipelineTablesOnly])
 }
 
 /** Join paths for the path finder. */

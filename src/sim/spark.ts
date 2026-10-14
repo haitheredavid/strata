@@ -1,6 +1,6 @@
 import type { Cluster, Task } from '../model/workflow'
 import { between, rand } from './rng'
-import type { Schedule, TaskRun, Window } from './schedule'
+import type { Schedule, Statement, TaskRun, UsageSample, Window } from './schedule'
 
 /**
  * Simulated Spark execution inside task runs, shaped like what the Spark event log records
@@ -38,6 +38,8 @@ export interface SparkJob {
 }
 
 export interface SparkRun {
+  /** Real statements from query history, in place of simulated jobs (then `jobs` is empty). */
+  statements?: Statement[]
   run: TaskRun
   workers: number
   cores: number
@@ -134,7 +136,11 @@ export function sparkRunsOn(s: Schedule, tasks: Map<string, Task>, cluster: Clus
     let sr = m!.get(r.id)
     if (!sr) {
       const concurrent = s.taskRuns.filter((o) => o.clusterId === cluster.id && o.start < r.end && o.end > r.start).length
-      sr = simulateSpark(r, tasks.get(r.taskId)!, cluster, workersFor(cluster, concurrent))
+      const workers = workersFor(cluster, concurrent)
+      const real = s.statements?.[r.id]
+      sr = real?.length
+        ? { run: r, workers, cores: Math.max(1, workers * cluster.coresPerNode), jobs: [], statements: real }
+        : simulateSpark(r, tasks.get(r.taskId)!, cluster, workers)
       m!.set(r.id, sr)
     }
     return sr
@@ -143,11 +149,49 @@ export function sparkRunsOn(s: Schedule, tasks: Map<string, Task>, cluster: Clus
 
 export interface UtilSample { t: number; workers: number; busy: number; up: boolean }
 
+/** True when the schedule carries measured node use for this cluster (a snapshot with `node_timeline`). */
+export const measured = (s: Schedule, clusterId: string) => !!s.usage?.[clusterId]?.length
+
+/** The measured minute covering `t`, if the cluster was up then. */
+export function usageAt(s: Schedule, clusterId: string, t: number): UsageSample | undefined {
+  const xs = s.usage?.[clusterId]
+  if (!xs?.length) return undefined
+  let lo = 0
+  let hi = xs.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (xs[mid].t <= t) lo = mid
+    else hi = mid - 1
+  }
+  return xs[lo].t <= t && t < xs[lo].t + 60 ? xs[lo] : undefined
+}
+
+/** Measured samples averaged into `n` buckets; a bucket with no minute up is down. */
+function measuredUtilization(xs: UsageSample[], [a, b]: Window, n: number): UtilSample[] {
+  const out: UtilSample[] = []
+  const w = (b - a) / n
+  for (let i = 0; i < n; i++) {
+    const lo = a + i * w
+    // Buckets narrower than a minute take the minute they fall in.
+    const inside = xs.filter((x) => x.t < lo + Math.max(w, 1) && x.t + 60 > lo)
+    const t = lo + w / 2
+    if (!inside.length) {
+      out.push({ t, workers: 0, busy: 0, up: false })
+      continue
+    }
+    const mean = (f: (x: UsageSample) => number) => inside.reduce((s, x) => s + f(x), 0) / inside.length
+    out.push({ t, workers: mean((x) => x.workers), busy: mean((x) => x.busy), up: true })
+  }
+  return out
+}
+
 /**
  * Cluster utilization over a window, in `n` buckets: workers up and the share of their cores busy.
  * Task runs sharing a cluster split its cores. Streaming tasks keep a steady ~half load.
  */
 export function utilization(s: Schedule, tasks: Map<string, Task>, cluster: Cluster, [a, b]: Window, n: number): UtilSample[] {
+  const real = s.usage?.[cluster.id]
+  if (real?.length) return measuredUtilization(real, [a, b], n)
   const spark = sparkRunsOn(s, tasks, cluster, [a, b])
   const streams = s.taskRuns.filter((r) => r.clusterId === cluster.id && r.continuous)
   const out: UtilSample[] = []
@@ -161,6 +205,12 @@ export function utilization(s: Schedule, tasks: Map<string, Task>, cluster: Clus
     let busy = streaming * 0.45 * (0.8 + 0.4 * rand(`${cluster.id}:${Math.floor(t / 60)}`))
     for (const sr of live) {
       if (t < sr.run.start + sr.run.setup) continue
+      if (sr.statements) {
+        // Average parallelism while executing, as a share of the cores.
+        const st = sr.statements.find((x) => x.start <= t && t < x.end)
+        busy += st && st.executing > 0 ? Math.min(1, st.taskTime / st.executing / sr.cores) : 0.03
+        continue
+      }
       const stage = sr.jobs.flatMap((j) => j.stages).find((st) => st.start <= t && t < st.end)
       busy += stage ? stage.occupancy : 0.03
     }

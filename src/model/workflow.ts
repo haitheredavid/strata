@@ -1,5 +1,5 @@
-export type Medallion = 'bronze' | 'silver' | 'gold'
-export const MEDALLIONS: Medallion[] = ['bronze', 'silver', 'gold']
+export type Medallion = 'bronze' | 'silver' | 'gold' | 'platinum'
+export const MEDALLIONS: Medallion[] = ['bronze', 'silver', 'gold', 'platinum']
 
 export type Trigger =
   | { kind: 'schedule'; cron: string }

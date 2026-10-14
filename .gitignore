@@ -29,3 +29,6 @@ skills-lock.json
 
 # DBML schemas
 *.dbml
+
+# Workspace exports (real metadata): never commit or deploy
+snapshots/

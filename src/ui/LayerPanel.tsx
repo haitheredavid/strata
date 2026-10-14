@@ -57,8 +57,8 @@ export function LayerPanel() {
   const hasPipelines = graph.workflows.pipelines.length > 0
   // Every layer that exists for the current grouping (ignoring hide / isolate), with node counts.
   const fullView = useMemo(
-    () => deriveView(graph, { groupBy, lineage: lineageOn(layout.edgeLayer), hiddenPipelines: layout.hiddenPipelines }),
-    [graph, groupBy, layout.edgeLayer, layout.hiddenPipelines],
+    () => deriveView(graph, { groupBy, lineage: lineageOn(layout.edgeLayer), hiddenPipelines: layout.hiddenPipelines, pipelineTablesOnly: layout.pipelineTablesOnly }),
+    [graph, groupBy, layout.edgeLayer, layout.hiddenPipelines, layout.pipelineTablesOnly],
   )
   const layerById = useMemo(() => new Map(fullView.layers.map((l) => [l.id, l])), [fullView])
   // Node count per layer, once per view (not a scan of every node per row).

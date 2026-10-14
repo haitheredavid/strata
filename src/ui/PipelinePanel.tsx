@@ -1,8 +1,12 @@
+import { useState } from 'react'
 import { useStore } from '../store'
 import { TRIGGER_LABEL } from '../scene/timeClock'
 import { usePalette } from '../theme/palette'
 
-/** Pipelines from DBML notes and the workflow file: show / hide, light one up, or play its day. */
+/** Lists longer than this get a filter box. */
+const FILTER_AT = 12
+
+/** Pipelines from DBML notes and the workflow file: show / hide / solo, light one up, or play its day. */
 export function PipelinePanel() {
   const workflows = useStore((s) => s.graph.workflows)
   const hidden = useStore((s) => s.layout.hiddenPipelines) ?? []
@@ -10,6 +14,14 @@ export function PipelinePanel() {
   const lens = useStore((s) => s.lensPipeline)
   const timeline = useStore((s) => s.time.open)
   const togglePipeline = useStore((s) => s.togglePipeline)
+  const soloPipeline = useStore((s) => s.soloPipeline)
+  const tablesOnly = useStore((s) => s.layout.pipelineTablesOnly ?? false)
+  const toggleTablesOnly = useStore((s) => s.togglePipelineTablesOnly)
+  const setHidden = useStore((s) => s.setHiddenPipelines)
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const listed = q ? workflows.pipelines.filter((p) => p.name.toLowerCase().includes(q) || p.id.includes(q)) : workflows.pipelines
+  const solo = (id: string) => hidden.length === workflows.pipelines.length - 1 && !hidden.includes(id)
   const setLens = useStore((s) => s.setLens)
   const openTimeline = useStore((s) => s.openTimeline)
   const setEdgeLayer = useStore((s) => s.setEdgeLayer)
@@ -20,8 +32,22 @@ export function PipelinePanel() {
   return (
     <details open>
       <summary>Pipelines</summary>
+      {workflows.pipelines.length > FILTER_AT && (
+        <div className="row">
+          <input className="filter" placeholder={`Filter ${workflows.pipelines.length} pipelines…`} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <button title="Show these" onClick={() => setHidden(hidden.filter((id) => !listed.some((p) => p.id === id)))}>All</button>
+          <button title="Hide these" onClick={() => setHidden([...new Set([...hidden, ...listed.map((p) => p.id)])])}>None</button>
+        </div>
+      )}
+      {workflows.pipelines.length > 0 && (
+        <div className="row">
+          <span title="Leave out tables that no visible pipeline reads or writes">Tables</span>
+          <button className={tablesOnly ? '' : 'on'} disabled={!lineage} onClick={() => tablesOnly && toggleTablesOnly()}>All</button>
+          <button className={tablesOnly ? 'on' : ''} disabled={!lineage} onClick={() => !tablesOnly && toggleTablesOnly()}>In visible pipelines</button>
+        </div>
+      )}
       <ul className="pipelines">
-        {workflows.pipelines.map((p) => {
+        {listed.map((p) => {
           const off = hidden.includes(p.id) || !lineage
           return (
             <li key={p.id} className={off ? 'off' : ''} title={p.tasks.map((t) => t.name).join(' → ')}>
@@ -31,6 +57,9 @@ export function PipelinePanel() {
               <span className="count">{p.tasks.length}</span>
               <button title={hidden.includes(p.id) ? 'Show' : 'Hide'} onClick={() => togglePipeline(p.id)}>
                 {hidden.includes(p.id) ? '○' : '●'}
+              </button>
+              <button title={solo(p.id) ? 'Show all pipelines' : 'Show only this pipeline'} className={solo(p.id) ? 'on' : ''} onClick={() => soloPipeline(p.id)}>
+                ◐
               </button>
               <button
                 title="Light up this pipeline"
