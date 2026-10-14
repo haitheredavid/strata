@@ -47,41 +47,44 @@ export function useNear(id: string): boolean {
 
 const tmp = new Vector3()
 
-/** Ranks registered cards by distance and flips the ones that crossed the threshold. Mount once. */
-export function LodDriver() {
+/**
+ * Ranks cards by distance and flips the ones that crossed the threshold. Mount once. Ranks `cards`
+ * when given (the instanced scene, which has no per-card components), else the cards registered
+ * through useNear.
+ */
+export function LodDriver({ cards }: { cards?: readonly string[] }) {
+  useEffect(() => {
+    dirty = true
+  }, [cards])
   useFrame(({ camera, size }, dt) => {
     since += dt
     if (since < PERIOD && !dirty) return
     since = 0
     dirty = false
-    if (listeners.size <= MAX_NEAR) {
-      let changed = false
-      for (const [id, fn] of listeners) {
-        if (near.has(id)) continue
-        near.add(id)
-        fn(true)
-        changed = true
+    const ids: Iterable<string> = cards ?? listeners.keys()
+    const total = cards ? cards.length : listeners.size
+    let next: Set<string>
+    if (total <= MAX_NEAR) {
+      next = new Set(ids)
+    } else {
+      // Distance at which ROW_FONT world units project to MIN_PX pixels.
+      const fov = camera instanceof PerspectiveCamera ? camera.fov : 45
+      const maxDist = (ROW_FONT * size.height) / (2 * Math.tan(((fov / 2) * Math.PI) / 180) * MIN_PX)
+      const ranked: { id: string; d: number }[] = []
+      for (const id of ids) {
+        const e = anim.get(id)
+        if (!e) continue
+        const d = tmp.copy(e.pos).distanceTo(camera.position)
+        if (d < maxDist * HYSTERESIS) ranked.push({ id, d })
       }
-      if (changed) for (const fn of setListeners) fn()
-      return
+      ranked.sort((a, b) => a.d - b.d)
+      next = new Set<string>()
+      ranked.forEach(({ id, d }, i) => {
+        const was = near.has(id)
+        // Entering needs the strict bounds; staying only the looser ones.
+        if (was ? i < MAX_NEAR * HYSTERESIS : i < MAX_NEAR && d < maxDist) next.add(id)
+      })
     }
-    // Distance at which ROW_FONT world units project to MIN_PX pixels.
-    const fov = camera instanceof PerspectiveCamera ? camera.fov : 45
-    const maxDist = (ROW_FONT * size.height) / (2 * Math.tan(((fov / 2) * Math.PI) / 180) * MIN_PX)
-    const ranked: { id: string; d: number }[] = []
-    for (const id of listeners.keys()) {
-      const e = anim.get(id)
-      if (!e) continue
-      const d = tmp.copy(e.pos).distanceTo(camera.position)
-      if (d < maxDist * HYSTERESIS) ranked.push({ id, d })
-    }
-    ranked.sort((a, b) => a.d - b.d)
-    const next = new Set<string>()
-    ranked.forEach(({ id, d }, i) => {
-      const was = near.has(id)
-      // Entering needs the strict bounds; staying only the looser ones.
-      if (was ? i < MAX_NEAR * HYSTERESIS : i < MAX_NEAR && d < maxDist) next.add(id)
-    })
     for (const id of near) if (!next.has(id)) listeners.get(id)?.(false)
     for (const id of next) if (!near.has(id)) listeners.get(id)?.(true)
     const changed = next.size !== near.size || [...next].some((id) => !near.has(id))

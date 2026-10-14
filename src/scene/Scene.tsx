@@ -4,6 +4,7 @@ import { MODES } from '../layout/modes'
 import { modeOf, scheduleFor, useStore } from '../store'
 import { AnimDriver } from './anim'
 import { LodDriver } from './lod'
+import { Interaction } from '../world/Interaction'
 import { CameraRig } from './CameraRig'
 import { LayerPlate } from './LayerPlate'
 import { TableCard } from './TableCard'
@@ -70,12 +71,12 @@ export function Scene() {
       flat={nodeRenderer}
       camera={{ position: [30, 30, 40], fov: 45, near: 0.5, far: 2000 }}
       dpr={[1, 2]}
-      onPointerMissed={() => !useStore.getState().dragging && focus(null)}
+      // The instanced scene picks in Interaction, which also clears focus on empty clicks.
+      onPointerMissed={legacyCards ? () => !useStore.getState().dragging && focus(null) : undefined}
     >
       <color attach="background" args={['#0b0e14']} />
       <CameraRig view={model.view} placement={model.placement} />
       <AnimDriver placement={model.placement} />
-      <LodDriver />
       {/* Scene text suspends on its font; keep that inside the canvas so the DOM UI never blanks. */}
       <Suspense fallback={null}>
         <Diagram model={model} />
@@ -191,6 +192,7 @@ function Diagram({ model }: { model: SceneModel }) {
     return { color: packColors(colors), style, hoverable: !lit && !reach }
   }, [fkEdges, placement, lit, reach, lineageActive, palette, nodeById])
 
+  const lodCards = useMemo(() => view.nodes.filter((n) => n.kind !== 'job').map((n) => n.id), [view])
   const fkOpacity = useCallback((k: number) => fkStyle.style[2 * k], [fkStyle])
   const showFk = edgeLayer !== 'lineage' && !legacyWires
   const anchors = useSceneAnchors(world, placement.plates)
@@ -232,6 +234,8 @@ function Diagram({ model }: { model: SceneModel }) {
 
   return (
     <>
+      <LodDriver cards={legacyCards ? undefined : lodCards} />
+      {!legacyCards && <Interaction world={world} placement={placement} nodeById={nodeById} draggable={mode.draggable} />}
       {!legacyCards && <CardBodies world={world} style={cardStyle} />}
       {!legacyCards && (
         <NodeParts
@@ -276,7 +280,8 @@ function Diagram({ model }: { model: SceneModel }) {
       <PlateOutlines plates={placement.plates} colorOf={palette.layer} opacity={lens ? 0.4 : 1} />
       {placement.rings && <RingLines rings={placement.rings} />}
 
-      {view.nodes.map((n) => {
+      {/* Per-node components only on the legacy path; the instanced scene draws and picks from the world. */}
+      {legacyCards && view.nodes.map((n) => {
         const place = placement.nodes[n.id]
         if (!place) return null
         // Hover highlighting is read in each node, so it doesn't re-render the whole diagram.
@@ -291,7 +296,6 @@ function Diagram({ model }: { model: SceneModel }) {
               highlighted={highlighted}
               runState={runState(n.id)}
               volume={jobVolume(n.id)}
-              instanced={!legacyCards}
             />
           )
         return (
@@ -303,7 +307,6 @@ function Diagram({ model }: { model: SceneModel }) {
             opacity={nodeOpacity(n.id)}
             highlighted={highlighted || !!time?.reached.has(n.id)}
             draggable={mode.draggable}
-            instanced={!legacyCards}
           />
         )
       })}
@@ -350,7 +353,7 @@ function Diagram({ model }: { model: SceneModel }) {
 
       {flowWires.length > 0 && <FlowWires wires={flowWires} />}
 
-      {view.clusters.map((c) =>
+      {legacyCards && view.clusters.map((c) =>
         placement.nodes[c.id] ? (
           <ClusterNode
             key={c.id}
@@ -358,7 +361,6 @@ function Diagram({ model }: { model: SceneModel }) {
             opacity={clusterOpacity(c)}
             highlighted={c.id === focused}
             schedule={time ? scheduleFor(graph) : null}
-            instanced={!legacyCards}
           />
         ) : null,
       )}
