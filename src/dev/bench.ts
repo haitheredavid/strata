@@ -139,15 +139,16 @@ export async function runBench(ctx: BenchCtx, opts: Partial<BenchOptions> = {}):
 
   lt.stop()
   // WebGPURenderer's counters run across frames: sample draws and triangles as a per-frame average.
-  const info = ctx.gl.info as unknown as { render: { drawCalls: number; triangles: number; frame: number }; memory: { geometries: number } }
-  const before = { calls: info.render.drawCalls, frame: info.render.frame }
+  const info = ctx.gl.info as unknown as { render: { drawCalls?: number; calls: number; triangles: number; frame?: number }; memory: { geometries: number } }
+  const total = () => info.render.drawCalls ?? info.render.calls
+  const before = { calls: total(), frame: info.render.frame ?? 0 }
   await frames(10)
-  const sampled = Math.max(1, info.render.frame - before.frame)
+  const sampled = Math.max(1, (info.render.frame ?? 10) - before.frame)
   const g = store.getState().graph
   const result: BenchResult = {
     graph: { tables: g.tables.length, refs: g.refs.length, pipelines: g.workflows.pipelines.length },
     loadToFrameMs,
-    drawCalls: Math.round((info.render.drawCalls - before.calls) / sampled),
+    drawCalls: Math.round((total() - before.calls) / sampled),
     triangles: info.render.triangles,
     geometries: info.memory.geometries,
     phases,

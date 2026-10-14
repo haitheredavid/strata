@@ -9,11 +9,10 @@ import { CameraRig } from './CameraRig'
 import { useSceneModel } from './usePlacement'
 import type { SceneModel } from './usePlacement'
 import { FkEdges } from './FkEdges'
-import { packColors } from './colors'
+import { packColors, rgb } from './colors'
 import type { FkStyle } from './FkEdges'
 import { CardBodies } from './CardBodies'
 import type { CardStyle } from './CardBodies'
-import { Color } from 'three'
 import { buildWorld, replace } from '../world/world'
 import type { World } from '../world/world'
 import type { ViewGraph } from '../view/deriveView'
@@ -43,7 +42,6 @@ import { allSpans, lastSpans, span } from '../dev/perf'
 import type CameraControlsImpl from 'camera-controls'
 import type { WebGPURenderer } from 'three/webgpu'
 
-const tmpColor = new Color()
 /** Last world built per view, reused across placements (see `replace`). */
 const worlds = new WeakMap<ViewGraph, World>()
 
@@ -206,9 +204,6 @@ function Diagram({ model }: { model: SceneModel }) {
     const n = world.nodes.count
     const color = new Float32Array(n * 4)
     const medal = new Float32Array(n * 4)
-    // A handful of distinct colors across thousands of cards: parse each once.
-    const parsed = new Map<string, Color>()
-    const rgb = (css: string) => parsed.get(css) ?? parsed.set(css, tmpColor.clone().set(css)).get(css)!
     world.nodes.ids.forEach((id, i) => {
       const node = nodeById.get(id)
       if (!node || node.kind === 'job') return

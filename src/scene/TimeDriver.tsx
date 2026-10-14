@@ -12,9 +12,13 @@ import { timeClock } from './timeClock'
  * store whenever the running jobs or the recent-runs window change, and (optionally) follows them with
  * the camera.
  */
+/** Shortest gap between published playhead updates while playing. */
+const PUBLISH_MS = 120
+
 export function TimeDriver({ time }: { time: TimeView | null }) {
   const follow = useStore((s) => s.time.follow)
   const lastKey = useRef('')
+  const lastPublish = useRef(0)
 
   useFrame((_, dt) => {
     const s = useStore.getState()
@@ -29,8 +33,13 @@ export function TimeDriver({ time }: { time: TimeView | null }) {
     // nothing starts or stops for hours.
     const schedule = scheduleFor(s.graph)
     const key = `${windowKey(schedule, [timeClock.t, timeClock.t])}|${windowKey(schedule, timeWindow(timeClock.t, s.time.span))}`
-    if (key !== lastKey.current) {
+    // While playing, a big day crosses a run boundary nearly every frame, and each publish restyles
+    // the whole diagram; publish at most every PUBLISH_MS then. A paused or scrubbed playhead (the
+    // store's t already moved) publishes right away.
+    const now = performance.now()
+    if (key !== lastKey.current && (!s.time.playing || now - lastPublish.current >= PUBLISH_MS)) {
       lastKey.current = key
+      lastPublish.current = now
       if (s.time.t !== timeClock.t) s.setTime({ t: timeClock.t })
     }
   })
