@@ -26,17 +26,24 @@ let latest = 0
 
 /**
  * `autoLayout` positions computed in a worker. Resolves with null when a newer request superseded
- * this one before it finished (only the latest load matters). Falls back to the main thread when
- * workers are unavailable (tests, old browsers).
+ * this one (only the latest load matters); a superseded job still running is stopped by replacing
+ * the worker, so a quick second load doesn't wait behind the first. Falls back to the main thread
+ * when workers are unavailable (tests, old browsers).
  */
 export function layoutAsync(graph: Graph, layerGap: number): Promise<Record<string, Vec2> | null> {
   const id = nextId++
   latest = id
+  if (worker && waiting.size) {
+    worker.terminate()
+    worker = null
+    for (const settle of waiting.values()) settle({ id: -1, xz: new Float32Array(0) })
+    waiting.clear()
+  }
   const w = getWorker()
   if (!w) return Promise.resolve(autoLayout(graph, layerGap).positions)
   return new Promise((resolve) => {
-    waiting.set(id, ({ xz }) => {
-      if (id !== latest) return resolve(null)
+    waiting.set(id, ({ id: done, xz }) => {
+      if (done !== id || id !== latest) return resolve(null)
       const positions: Record<string, Vec2> = {}
       graph.tables.forEach((t, i) => (positions[t.id] = { x: xz[2 * i], z: xz[2 * i + 1] }))
       resolve(positions)
