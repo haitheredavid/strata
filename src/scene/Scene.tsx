@@ -52,7 +52,6 @@ export function Scene() {
 function Diagram({ model }: { model: SceneModel }) {
   const { view, placement, reach, lit, time } = model
   const graph = useStore((s) => s.graph)
-  const hovered = useStore((s) => s.hoveredTableId)
   const focused = useStore((s) => s.focusedTableId)
   const mode = useStore((s) => MODES[modeOf(s.layout)])
   const edgeLayer = useStore((s) => s.layout.edgeLayer ?? 'both')
@@ -115,7 +114,7 @@ function Diagram({ model }: { model: SceneModel }) {
     if (time) return time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04
     if (reach) return reach.has(l.job) && reach.has(l.cluster) ? 0.9 : 0.04
     if (lens) return lens.has(l.job) ? 0.6 : 0.04
-    return l.cluster === hovered || l.job === hovered ? 0.9 : 0.22
+    return 0.22 // hover brightens it in ComputeLine
   }
 
   return (
@@ -129,7 +128,8 @@ function Diagram({ model }: { model: SceneModel }) {
       {view.nodes.map((n) => {
         const place = placement.nodes[n.id]
         if (!place) return null
-        const highlighted = n.id === hovered || n.id === focused
+        // Hover highlighting is read in each node, so it doesn't re-render the whole diagram.
+        const highlighted = n.id === focused
         if (n.kind === 'job')
           return (
             <JobNode
@@ -162,9 +162,8 @@ function Diagram({ model }: { model: SceneModel }) {
           const pa = placement.nodes[a.id]
           const pb = placement.nodes[b.id]
           if (!pa || !pb) return null
-          const touches = (id: string | null) => id !== null && (e.from === id || e.to === id)
           let opacity: number
-          let active: boolean
+          let active = false
           if (lit) {
             active = lit.edges.has(e.id)
             opacity = active ? 1 : 0.04
@@ -172,10 +171,8 @@ function Diagram({ model }: { model: SceneModel }) {
             active = reach.has(e.from) && reach.has(e.to)
             opacity = active ? 1 : 0.05
           } else {
-            active = touches(hovered)
-            // Step FK refs back when lineage is on so data flow reads first.
-            const base = lineageActive ? 0.3 : 0.65
-            opacity = hovered ? (active ? 1 : 0.3) : pa.faded || pb.faded ? 0.25 : base
+            // Step FK refs back when lineage is on so data flow reads first. Wire applies hover on top.
+            opacity = pa.faded || pb.faded ? 0.25 : lineageActive ? 0.3 : 0.65
           }
           return (
             <Wire
@@ -186,6 +183,7 @@ function Diagram({ model }: { model: SceneModel }) {
               color={layerById.get(a.layerId)!.color}
               opacity={opacity}
               width={active ? 3 : 1.5}
+              hoverable={!lit && !reach}
             />
           )
         })}
@@ -209,7 +207,7 @@ function Diagram({ model }: { model: SceneModel }) {
             key={c.id}
             cluster={c}
             opacity={clusterOpacity(c)}
-            highlighted={c.id === hovered || c.id === focused}
+            highlighted={c.id === focused}
             schedule={time ? scheduleFor(graph) : null}
           />
         ) : null,
@@ -218,6 +216,7 @@ function Diagram({ model }: { model: SceneModel }) {
         links={view.computeLinks}
         colorOf={(id) => CLUSTER_COLOR[clusterById.get(id)?.cluster.kind ?? 'job']}
         opacityOf={linkOpacity}
+        hoverable={!time && !reach && !lens}
       />
 
       {lineageActive && (

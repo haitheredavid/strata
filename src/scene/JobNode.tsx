@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { memo, useLayoutEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { Group, Mesh } from 'three'
 import type { Trigger } from '../model/workflow'
@@ -37,9 +37,10 @@ function triggerText(t: Trigger) {
  * A job: hexagon in its pipeline's color, facing the camera. Jobs that start a pipeline carry a
  * spinning trigger ring and label; jobs that emit events carry an amber event marker above.
  */
-export function JobNode({ node, color, opacity, highlighted, runState, volume }: Props) {
+export const JobNode = memo(function JobNode({ node, color, opacity, highlighted: selected, runState, volume }: Props) {
   const hover = useStore((s) => s.hover)
   useReleaseHover(node.id)
+  const highlighted = useStore((s) => s.hoveredTableId === node.id) || selected
   const focus = useStore((s) => s.focus)
   const group = useRef<Group>(null)
   const ring = useRef<Mesh>(null)
@@ -109,4 +110,4 @@ export function JobNode({ node, color, opacity, highlighted, runState, volume }:
       )}
     </group>
   )
-}
+})

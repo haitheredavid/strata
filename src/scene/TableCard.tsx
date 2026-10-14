@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { memo, useLayoutEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
 import { Group, Plane, Vector3 } from 'three'
@@ -23,14 +23,17 @@ interface Props {
   place: NodePlace
   color: string
   opacity: number
+  /** Focused or reached by the timeline; hover is added here. */
   highlighted: boolean
   draggable: boolean
 }
 
 /** A table (or collapsed domain) card, drawn in its local frame: faces +Z, header on top. */
-export function TableCard({ node, place, color, opacity, highlighted, draggable }: Props) {
+export const TableCard = memo(function TableCard({ node, place, color, opacity, highlighted: selected, draggable }: Props) {
   const hover = useStore((s) => s.hover)
   useReleaseHover(node.id)
+  // Hover is read here, not passed down, so moving the pointer re-renders only the cards it enters and leaves.
+  const highlighted = useStore((s) => s.hoveredTableId === node.id) || selected
   const focus = useStore((s) => s.focus)
   const dragNode = useStore((s) => s.dragNode)
   const setDragging = useStore((s) => s.setDragging)
@@ -200,4 +203,4 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
       </group>
     </group>
   )
-}
+})

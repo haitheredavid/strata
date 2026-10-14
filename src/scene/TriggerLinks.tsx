@@ -57,7 +57,8 @@ function TriggerLine({ link, opacity }: { link: Link; opacity: number }) {
     const b = nodeCenter(link.to, v.b)
     line.current.visible = !!(a && b)
     if (!a || !b) return
-    v.buf.set([a.x, a.y, a.z, b.x, b.y, b.z])
+    a.toArray(v.buf, 0)
+    b.toArray(v.buf, 3)
     writeLine(line.current, v.buf, true)
   })
   return (

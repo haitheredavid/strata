@@ -1,13 +1,14 @@
-import { useMemo, useRef } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import { Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { CubicBezierCurve3, Vector3 } from 'three'
-import type { Mesh } from 'three'
+import type { Mesh, Quaternion } from 'three'
 import type { Line2 } from 'three-stdlib'
 import { localAnchor } from '../layout/geometry'
 import type { NodePlace } from '../layout/modes'
 import type { ViewEdge, ViewNode } from '../view/deriveView'
 import { Label } from './Label'
+import { useStore } from '../store'
 import { anim, animState } from './anim'
 import { writeLine } from './lineBuffer'
 
@@ -22,9 +23,15 @@ interface Props {
   from: End
   to: End
   color: string
+  /** Opacity and width with nothing hovered. */
   opacity: number
   width: number
+  /** Whether hover restyles this wire (off while a lens, focus or path drives the styling). */
+  hoverable: boolean
 }
+
+/** Hover state relative to this wire: touching one of its ends, elsewhere, or nothing hovered. */
+type Hover = 'touch' | 'other' | 'none'
 
 const SEGMENTS = 32
 const LIFT = 0.06
@@ -93,8 +100,24 @@ function update(e: Props, out: Float32Array, labels: [Vector3, Vector3]) {
   return true
 }
 
-export function Wire(props: Props) {
-  const { edge, color, opacity, width } = props
+function place(label: Mesh | null, at: Vector3, facing: Quaternion) {
+  if (!label) return
+  label.position.copy(at)
+  label.quaternion.copy(facing)
+}
+
+const sameEnd = (a: End, b: End) => a.node === b.node && a.place === b.place && a.column === b.column
+
+export const Wire = memo(function Wire(props: Props) {
+  const { edge, color, hoverable } = props
+  // A 3-state selector: hover moving between unrelated cards doesn't re-render this wire.
+  const hover = useStore((s): Hover => {
+    const id = s.hoveredTableId
+    if (!hoverable || !id) return 'none'
+    return id === edge.from || id === edge.to ? 'touch' : 'other'
+  })
+  const opacity = hover === 'touch' ? 1 : hover === 'other' ? 0.3 : props.opacity
+  const width = hover === 'touch' ? 3 : props.width
   const line = useRef<Line2>(null)
   const labelA = useRef<Mesh>(null)
   const labelB = useRef<Mesh>(null)
@@ -110,11 +133,8 @@ export function Wire(props: Props) {
     writeLine(line.current, buf)
     const fade = 1 - 0.75 * animState.moving
     line.current.material.opacity = opacity * fade
-    for (const [ref, at] of [[labelA, anchors[0]], [labelB, anchors[1]]] as const) {
-      if (!ref.current) continue
-      ref.current.position.copy(at)
-      ref.current.quaternion.copy(camera.quaternion)
-    }
+    place(labelA.current, anchors[0], camera.quaternion)
+    place(labelB.current, anchors[1], camera.quaternion)
   })
 
   const [fromCard, , toCard] = edge.kind
@@ -130,4 +150,9 @@ export function Wire(props: Props) {
       </Label>
     </group>
   )
-}
+},
+// Ends arrive as fresh objects each render; compare what's in them.
+(a, b) =>
+  a.edge === b.edge && sameEnd(a.from, b.from) && sameEnd(a.to, b.to) && a.color === b.color &&
+  a.opacity === b.opacity && a.width === b.width && a.hoverable === b.hoverable,
+)

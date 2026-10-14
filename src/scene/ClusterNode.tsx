@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { Group, MeshBasicMaterial } from 'three'
 import type { Schedule } from '../sim/schedule'
@@ -32,10 +32,11 @@ interface Props {
  * timeline every worker shows its kind color; with it, workers light as tasks run on the cluster, a
  * warm all-purpose cluster idles grey, and a job cluster is dark between runs.
  */
-export function ClusterNode({ cluster: vc, opacity, highlighted, schedule }: Props) {
+export const ClusterNode = memo(function ClusterNode({ cluster: vc, opacity, highlighted: selected, schedule }: Props) {
   const c = vc.cluster
   const hover = useStore((s) => s.hover)
   useReleaseHover(vc.id)
+  const highlighted = useStore((s) => s.hoveredTableId === vc.id) || selected
   const focus = useStore((s) => s.focus)
   const group = useRef<Group>(null)
   const driver = useRef<MeshBasicMaterial>(null)
@@ -99,4 +100,4 @@ export function ClusterNode({ cluster: vc, opacity, highlighted, schedule }: Pro
       </Label>
     </group>
   )
-}
+})

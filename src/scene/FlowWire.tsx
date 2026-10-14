@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import { Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { CubicBezierCurve3, Quaternion, Vector3 } from 'three'
@@ -32,7 +32,7 @@ interface Props {
 }
 
 /** Lineage edge: dashed arch in the pipeline color with an arrowhead in the data direction. */
-export function FlowWire({ flow, from, to, color, opacity, width }: Props) {
+export const FlowWire = memo(function FlowWire({ flow, from, to, color, opacity, width }: Props) {
   const line = useRef<Line2>(null)
   const head = useRef<Mesh>(null)
   const curve = useMemo(() => new CubicBezierCurve3(new Vector3(), new Vector3(), new Vector3(), new Vector3()), [])
@@ -84,4 +84,4 @@ export function FlowWire({ flow, from, to, color, opacity, width }: Props) {
       </mesh>
     </group>
   )
-}
+})

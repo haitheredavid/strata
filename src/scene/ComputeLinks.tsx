@@ -1,9 +1,10 @@
-import { useMemo, useRef } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import { Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { Vector3 } from 'three'
 import type { Line2 } from 'three-stdlib'
 import type { ComputeLink } from '../view/deriveView'
+import { useStore } from '../store'
 import { nodeCenter } from './curve'
 import { writeLine } from './lineBuffer'
 
@@ -14,20 +15,24 @@ interface Props {
   links: ComputeLink[]
   colorOf: (clusterId: string) => string
   opacityOf: (link: ComputeLink) => number
+  /** Whether hovering a link's job or cluster brightens it. */
+  hoverable: boolean
 }
 
 /** Jobs to the cluster they run on: thin dotted lines from the job down to the top of the rack. */
-export function ComputeLinks({ links, colorOf, opacityOf }: Props) {
+export function ComputeLinks({ links, colorOf, opacityOf, hoverable }: Props) {
   return (
     <>
       {links.map((l) => (
-        <ComputeLine key={l.id} link={l} color={colorOf(l.cluster)} opacity={opacityOf(l)} />
+        <ComputeLine key={l.id} link={l} color={colorOf(l.cluster)} opacity={opacityOf(l)} hoverable={hoverable} />
       ))}
     </>
   )
 }
 
-function ComputeLine({ link, color, opacity }: { link: ComputeLink; color: string; opacity: number }) {
+const ComputeLine = memo(function ComputeLine({ link, color, opacity: base, hoverable }: { link: ComputeLink; color: string; opacity: number; hoverable: boolean }) {
+  const hovered = useStore((s) => hoverable && (s.hoveredTableId === link.job || s.hoveredTableId === link.cluster))
+  const opacity = hovered ? 0.9 : base
   const line = useRef<Line2>(null)
   const v = useMemo(() => ({ a: new Vector3(), b: new Vector3(), buf: new Float32Array(6) }), [])
   useFrame(() => {
@@ -37,7 +42,8 @@ function ComputeLine({ link, color, opacity }: { link: ComputeLink; color: strin
     line.current.visible = !!(a && b) && opacity > 0.01
     if (!a || !b) return
     b.y += 0.35 // top of the rack
-    v.buf.set([a.x, a.y, a.z, b.x, b.y, b.z])
+    a.toArray(v.buf, 0)
+    b.toArray(v.buf, 3)
     writeLine(line.current, v.buf, true)
   })
   return (
@@ -55,4 +61,4 @@ function ComputeLine({ link, color, opacity }: { link: ComputeLink; color: strin
       depthWrite={false}
     />
   )
-}
+})
