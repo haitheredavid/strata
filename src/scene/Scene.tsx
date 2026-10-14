@@ -206,12 +206,15 @@ function Diagram({ model }: { model: SceneModel }) {
     const n = world.nodes.count
     const color = new Float32Array(n * 4)
     const medal = new Float32Array(n * 4)
+    // A handful of distinct colors across thousands of cards: parse each once.
+    const parsed = new Map<string, Color>()
+    const rgb = (css: string) => parsed.get(css) ?? parsed.set(css, tmpColor.clone().set(css)).get(css)!
     world.nodes.ids.forEach((id, i) => {
       const node = nodeById.get(id)
       if (!node || node.kind === 'job') return
-      tmpColor.set(palette.layer(node.layerId)).toArray(color, 4 * i)
+      rgb(palette.layer(node.layerId)).toArray(color, 4 * i)
       color[4 * i + 3] = nodeOpacity(id)
-      if (node.medallion) tmpColor.set(palette.medallion(node.medallion)).toArray(medal, 4 * i)
+      if (node.medallion) rgb(palette.medallion(node.medallion)).toArray(medal, 4 * i)
       medal[4 * i + 3] = (node.medallion ? 1 : 0) + (id === focused || time?.reached.has(id) ? 2 : 0)
     })
     return { color, medal }

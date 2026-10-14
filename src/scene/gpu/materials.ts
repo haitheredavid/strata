@@ -24,6 +24,7 @@ import {
   textureLoad,
   uniform,
   uv,
+  varying,
   vec2,
   vec3,
   vec4,
@@ -241,13 +242,20 @@ export function textMaterial(atlas: { texture: Texture; cols: number; rows: numb
     const local = vec3(g0.y.add(corner.x.mul(g1.y)), g0.z.add(corner.y.mul(g1.y)), g0.w)
     return cameraProjectionMatrix.mul(modelViewMatrix.mul(vec4(apos.add(rotate(aquat, local)), 1)))
   })()
+  // The anchor's opacity (position texel .w), passed down from the vertex stage.
+  const anchorAlpha = varying(
+    Fn(() => {
+      const a = int(g0.x.add(0.5)).mul(2)
+      return textureLoad(anchors, ivec2(a.mod(ANCHOR_W), a.div(ANCHOR_W))).w
+    })(),
+  )
   const col = g1.x.mod(atlas.cols)
   const row = g1.x.div(atlas.cols).floor()
   const auv = vec2(col.add(corner.x), row.add(float(1).sub(corner.y))).div(vec2(atlas.cols, atlas.rows))
   const d = texture(atlas.texture, auv).r
   const w = max(fwidth(d).mul(0.7), 0.001)
   mat.colorNode = g2.xyz
-  mat.opacityNode = smoothstep(float(0.5).sub(w), float(0.5).add(w), d).mul(g1.z)
+  mat.opacityNode = smoothstep(float(0.5).sub(w), float(0.5).add(w), d).mul(g1.z).mul(anchorAlpha)
   mat.alphaTest = 0.01
   mat.transparent = true
   mat.depthWrite = false

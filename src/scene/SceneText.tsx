@@ -66,12 +66,12 @@ export function SceneText(p: Props) {
       const n = p.nodeById.get(id)
       if (!n) {
         const c = p.clusterById.get(id)
-        if (c) clusterText(out, i, c, p.clusterOpacity(c), p.clusterColor(c.cluster.kind))
+        if (c) clusterText(out, i, c, 1, p.clusterColor(c.cluster.kind))
         continue
       }
-      const opacity = p.nodeOpacity(id)
+      const opacity = 1 // the node's own opacity rides on its anchor (see the effect below)
       if (n.kind === 'job') {
-        jobText(out, i, n, opacity, p.pipelineColor(n.pipelineId!), id === p.focused ? p.jobVolume(id) : undefined)
+        jobText(out, i, n, opacity, p.pipelineColor(n.pipelineId!))
         continue
       }
       cardText(out, i, n, nodes.size[2 * i + 1] / 2, opacity, isNear(id))
@@ -79,12 +79,27 @@ export function SceneText(p: Props) {
     return out
   }) // `p` members are listed individually; callers pass memoized functions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  , [world, nearVersion, p.nodeById, p.clusterById, p.nodeOpacity, p.clusterOpacity, p.focused])
+  , [world, nearVersion, p.nodeById, p.clusterById])
+
+  // Node fades (lens, focus, timeline) write one opacity per anchor instead of rebuilding glyphs.
+  const { anchors, nodeById, clusterById, nodeOpacity, clusterOpacity } = p
+  useEffect(() => {
+    const { nodes } = world
+    for (let i = 0; i < nodes.count; i++) {
+      const id = nodes.ids[i]
+      const c = nodeById.has(id) ? undefined : clusterById.get(id)
+      anchors.table.setAlpha(i, c ? clusterOpacity(c) : nodeOpacity(id))
+    }
+  }, [world, anchors, nodeById, clusterById, nodeOpacity, clusterOpacity])
 
   // Plate names and FK marks: few, but they follow every placement, so they get their own layer.
   const overlay = useMemo(() => {
     void nearVersion
     const out: TextItem[] = []
+    // The focused job's bytes in / out and runs a day, under its name.
+    const fi = p.focused ? world.nodes.index.get(p.focused) : undefined
+    const volume = fi !== undefined && p.nodeById.get(p.focused!)?.kind === 'job' ? p.jobVolume(p.focused!) : undefined
+    if (volume) out.push({ anchor: fi!, x: 0, y: -1.7, z: 0.05, text: volume, size: 0.24, color: '#cbd5e1', opacity: 1, anchorX: 'center', anchorY: 'middle' })
     const { nodes } = world
     plates.forEach((pl, k) => {
       const [w, h] = pl.size
@@ -113,7 +128,7 @@ export function SceneText(p: Props) {
       })
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world, plates, nearVersion, p.fkEdges, p.showFk, p.fkOpacity, p.plateOpacity])
+  }, [world, plates, nearVersion, p.fkEdges, p.showFk, p.fkOpacity, p.plateOpacity, p.focused, p.nodeById, p.jobVolume])
 
   if (!atlas) return null
   return (
@@ -161,9 +176,8 @@ function cardText(out: TextItem[], anchor: number, n: ViewNode, top: number, opa
   })
 }
 
-function jobText(out: TextItem[], anchor: number, n: ViewNode, opacity: number, color: string, volume: string | undefined) {
+function jobText(out: TextItem[], anchor: number, n: ViewNode, opacity: number, color: string) {
   out.push({ anchor, x: 0, y: -1.25, z: 0.05, text: n.name, size: 0.34, color, opacity, anchorX: 'center', anchorY: 'middle' })
-  if (volume) out.push({ anchor, x: 0, y: -1.7, z: 0.05, text: volume, size: 0.24, color: '#cbd5e1', opacity, anchorX: 'center', anchorY: 'middle' })
   if (n.trigger) out.push({ anchor, x: 0, y: 1.55, z: 0.05, text: triggerText(n.trigger), size: 0.26, color: '#cbd5e1', opacity, anchorX: 'center', anchorY: 'middle' })
   if (n.emits?.length) out.push({ anchor, x: 1.45 + 0.42, y: 0.95, z: 0.1, text: n.emits.join(', '), size: 0.24, color: EVENT, opacity, anchorX: 'left', anchorY: 'middle' })
 }

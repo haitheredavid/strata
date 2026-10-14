@@ -6,7 +6,8 @@ import type { World } from '../../world/world'
 
 /**
  * Transforms that text hangs off, as a float texture the glyph shader reads: two texels per anchor
- * (position, then orientation quaternion). Cards, plates and wire ends are anchors; glyphs store an
+ * (position + opacity, then orientation quaternion). Opacity multiplies everything hung off the
+ * anchor, so fading a node (lens, timeline) is one float, not a rebuild of its glyphs. Cards, plates and wire ends are anchors; glyphs store an
  * anchor index and an offset in its local frame, so moving a card moves its text without touching
  * the glyph buffers.
  */
@@ -22,7 +23,7 @@ export class AnchorTable {
     this.count = count
     const rows = Math.max(1, Math.ceil((count * 2) / ANCHOR_TEX_W))
     this.data = new Float32Array(ANCHOR_TEX_W * rows * 4)
-    for (let i = 0; i < count; i++) this.data[8 * i + 7] = 1 // identity quaternions
+    for (let i = 0; i < count; i++) this.data[8 * i + 3] = this.data[8 * i + 7] = 1 // opaque, identity
     this.texture = new DataTexture(this.data, ANCHOR_TEX_W, rows, RGBAFormat, FloatType)
     this.texture.minFilter = NearestFilter
     this.texture.magFilter = NearestFilter
@@ -40,7 +41,7 @@ export class AnchorTable {
     if (rows * ANCHOR_TEX_W * 4 <= this.data.length) return
     const data = new Float32Array(ANCHOR_TEX_W * rows * 4)
     data.set(this.data)
-    for (let i = this.data.length / 8; i < count; i++) data[8 * i + 7] = 1
+    for (let i = this.data.length / 8; i < count; i++) data[8 * i + 3] = data[8 * i + 7] = 1
     this.data = data
     this.texture.dispose() // free the old GPU storage; the next upload allocates the new size
     this.texture.image = { data, width: ANCHOR_TEX_W, height: rows }
@@ -58,6 +59,13 @@ export class AnchorTable {
     d[o + 5] = quat.y
     d[o + 6] = quat.z
     d[o + 7] = quat.w
+    this.dirty = true
+  }
+
+  /** Opacity of everything hung off anchor `i`. */
+  setAlpha(i: number, a: number) {
+    if (this.data[8 * i + 3] === a) return
+    this.data[8 * i + 3] = a
     this.dirty = true
   }
 
