@@ -17,18 +17,28 @@ const WANTED = ['float32-filterable', 'timestamp-query', 'depth32float-stencil8'
  */
 async function gpuDevice(): Promise<GPUDevice | undefined> {
   if (forceWebGL || typeof navigator === 'undefined' || !navigator.gpu) return undefined
-  try {
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
-    if (!adapter) {
-      console.warn('[strata] no WebGPU adapter; using the WebGL2 backend')
-      return undefined
+  // Each attempt asks for a fresh adapter: a lost one can't make devices. Firefox can hand back an
+  // adapter whose device is already lost (e.g. the discrete GPU on a dual-GPU Mac, or a GPU process
+  // left bad by an earlier failure), so fall back to the default GPU, then to no optional features.
+  const attempts: { adapter: GPURequestAdapterOptions; features: boolean }[] = [
+    { adapter: { powerPreference: 'high-performance' }, features: true },
+    { adapter: {}, features: true },
+    { adapter: {}, features: false },
+  ]
+  for (const { adapter: options, features } of attempts) {
+    try {
+      const adapter = await navigator.gpu.requestAdapter(options)
+      if (!adapter) continue
+      const requiredFeatures = features ? WANTED.filter((f) => adapter.features.has(f)) : []
+      const device = await adapter.requestDevice({ requiredFeatures })
+      void device.lost.then((info) => console.warn(`[strata] WebGPU device lost (${info.reason}): ${info.message}`))
+      return device
+    } catch (e) {
+      console.warn(`[strata] WebGPU device request failed (${JSON.stringify(options)}, features: ${features}):`, e)
     }
-    const requiredFeatures = WANTED.filter((f) => adapter.features.has(f))
-    return await adapter.requestDevice({ requiredFeatures })
-  } catch (e) {
-    console.warn('[strata] WebGPU device request failed; using the WebGL2 backend:', e)
-    return undefined
   }
+  console.warn('[strata] no usable WebGPU device; using the WebGL2 backend')
+  return undefined
 }
 
 /** r3f `gl` factory. */
