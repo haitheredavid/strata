@@ -74,14 +74,22 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
     dragNode(node.id, [p.x, p.y, p.z])
   }
 
-  const onPointerUp = (e: ThreeEvent<PointerEvent>) => {
+  // Up, cancel (touch gesture, palm rejection) and lost capture (alt-tab) all end the drag; otherwise
+  // `dragging` sticks and the camera stays locked.
+  const endDrag = () => {
     const d = drag.current
-    if (!d) return
-    e.stopPropagation()
-    ;(e.target as unknown as Element).releasePointerCapture(e.pointerId)
     drag.current = null
+    if (!d) return null
     animState.snapId = null
     setDragging(false)
+    return d
+  }
+
+  const onPointerUp = (e: ThreeEvent<PointerEvent>) => {
+    if (!drag.current) return
+    e.stopPropagation()
+    ;(e.target as unknown as Element).releasePointerCapture(e.pointerId)
+    const d = endDrag()!
     if (d.moved) return
     const s = useStore.getState()
     if (e.nativeEvent.shiftKey && s.focusedTableId && s.focusedTableId !== node.id) {
@@ -102,6 +110,8 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
           onDoubleClick={(e) => {
             e.stopPropagation()
             if (isDomain) return
