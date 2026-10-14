@@ -1,22 +1,20 @@
-import { useMemo, useRef } from 'react'
-import { Line } from './compat'
+import { useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Vector3 } from 'three'
-import type { Line2 } from 'three-stdlib'
 import type { Pipeline } from '../model/workflow'
 import type { ViewGraph } from '../view/deriveView'
 import { runSteps } from '../view/runOrder'
 import { nodeCenter } from './curve'
-import { writeLine } from './lineBuffer'
+import { CurveBatch } from './curves/CurveBatch'
+import { CURVE_WRITE, Curves } from './curves/Curves'
 
-/** Placeholder points; useFrame writes the real ends. A stable array so <Line> keeps its geometry. */
-const SEGMENT: [number, number, number][] = [[0, 0, 0], [0, 0, 1]]
+const v = { a: new Vector3(), b: new Vector3() }
 
 interface Link { id: string; from: string; to: string; color: string }
 
 /**
  * What starts a pipeline, drawn as faint dotted lines into its first jobs: from the tables a
- * `table_update` trigger watches, or from the last jobs of the pipeline it runs after.
+ * `table_update` trigger watches, or from the last jobs of the pipeline it runs after. One draw for all.
  */
 export function TriggerLinks({ view, pipelines, colorOf, opacity }: { view: ViewGraph; pipelines: Pipeline[]; colorOf: (pipelineId: string) => string; opacity: number }) {
   const links = useMemo(() => {
@@ -39,41 +37,16 @@ export function TriggerLinks({ view, pipelines, colorOf, opacity }: { view: View
     return out
   }, [view, pipelines, colorOf])
 
-  return (
-    <>
-      {links.map((l) => (
-        <TriggerLine key={l.id} link={l} opacity={opacity} />
-      ))}
-    </>
-  )
-}
-
-function TriggerLine({ link, opacity }: { link: Link; opacity: number }) {
-  const line = useRef<Line2>(null)
-  const v = useMemo(() => ({ a: new Vector3(), b: new Vector3(), buf: new Float32Array(6) }), [])
+  const batch = useMemo(() => new CurveBatch(Math.max(16, links.length)), [links.length])
   useFrame(() => {
-    if (!line.current) return
-    const a = nodeCenter(link.from, v.a)
-    const b = nodeCenter(link.to, v.b)
-    line.current.visible = !!(a && b)
-    if (!a || !b) return
-    a.toArray(v.buf, 0)
-    b.toArray(v.buf, 3)
-    writeLine(line.current, v.buf, true)
-  })
-  return (
-    <Line
-      ref={line}
-      points={SEGMENT}
-      frustumCulled={false}
-      color={link.color}
-      lineWidth={1}
-      dashed
-      dashSize={0.15}
-      gapSize={0.35}
-      transparent
-      opacity={0.5 * opacity}
-      depthWrite={false}
-    />
-  )
+    batch.resize(links.length)
+    links.forEach((l, k) => {
+      const a = nodeCenter(l.from, v.a)
+      const b = nodeCenter(l.to, v.b)
+      batch.setStyle(k, l.color, a && b ? 0.5 * opacity : 0, 1, 0.15, 0.35)
+      if (a && b) batch.setSegment(k, a, b)
+    })
+  }, CURVE_WRITE)
+
+  return <Curves batch={batch} />
 }

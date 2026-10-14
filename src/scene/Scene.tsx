@@ -1,8 +1,6 @@
 import { Suspense, useEffect, useMemo } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { Line } from './compat'
 import { MODES } from '../layout/modes'
-import type { Ring } from '../layout/modes'
 import { modeOf, scheduleFor, useStore } from '../store'
 import { AnimDriver } from './anim'
 import { LodDriver } from './lod'
@@ -21,7 +19,9 @@ import type { CardStyle } from './CardBodies'
 import { Color } from 'three'
 import { buildWorld } from '../world/world'
 import { fkCurves } from '../world/fkEdges'
-import { FlowWire } from './FlowWire'
+import { FlowWires } from './FlowWires'
+import { PlateOutlines, RingLines } from './Outlines'
+import type { FlowWireSpec } from './FlowWires'
 import { JobNode } from './JobNode'
 import type { RunState } from './JobNode'
 import { Lanes } from './Lanes'
@@ -145,7 +145,7 @@ function Diagram({ model }: { model: SceneModel }) {
     if (time) return time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04
     if (reach) return reach.has(l.job) && reach.has(l.cluster) ? 0.9 : 0.04
     if (lens) return lens.has(l.job) ? 0.6 : 0.04
-    return 0.22 // hover brightens it in ComputeLine
+    return 0.22 // hover brightens it in ComputeLinks
   }
 
   // Flat-array scene for the instanced renderers; rebuilt when the view or placement changes.
@@ -196,6 +196,23 @@ function Diagram({ model }: { model: SceneModel }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [world, nodeById, palette, focused, time, lit, reach, placement])
 
+  const flowWires = useMemo<FlowWireSpec[]>(() => {
+    const out: FlowWireSpec[] = []
+    for (const f of view.flows) {
+      const a = nodeById.get(f.from)!
+      const b = nodeById.get(f.to)!
+      if (!placement.nodes[a.id] || !placement.nodes[b.id]) continue
+      const job = f.role === 'read' ? f.to : f.from
+      let opacity = 0.75
+      if (time) opacity = time.active.has(job) ? 1 : time.done.has(job) ? 0.55 : lit?.flows.has(f.id) ? 0.15 : 0.03
+      else if (lit) opacity = lit.flows.has(f.id) ? 1 : 0.05
+      else if (reach) opacity = reach.has(f.from) && reach.has(f.to) ? 1 : 0.06
+      const strong = opacity === 1 && (!!lit || !!reach || !!time)
+      out.push({ flow: f, from: a, to: b, color: colorOf(f.pipelineId), opacity, width: strong ? 3 : 2 })
+    }
+    return out
+  }, [view, nodeById, placement, time, lit, reach, colorOf])
+
   return (
     <>
       {!legacyCards && <CardBodies world={world} style={cardStyle} />}
@@ -203,7 +220,8 @@ function Diagram({ model }: { model: SceneModel }) {
         <LayerPlate key={pl.id} plate={pl} color={palette.layer(pl.id)} opacity={lens ? 0.4 : 1} />
       ))}
 
-      {placement.rings?.map((r, i) => <RingLine key={i} ring={r} />)}
+      <PlateOutlines plates={placement.plates} colorOf={palette.layer} opacity={lens ? 0.4 : 1} />
+      {placement.rings && <RingLines rings={placement.rings} />}
 
       {view.nodes.map((n) => {
         const place = placement.nodes[n.id]
@@ -276,18 +294,7 @@ function Diagram({ model }: { model: SceneModel }) {
           )
         })}
 
-      {view.flows.map((f) => {
-        const a = nodeById.get(f.from)!
-        const b = nodeById.get(f.to)!
-        if (!placement.nodes[a.id] || !placement.nodes[b.id]) return null
-        const job = f.role === 'read' ? f.to : f.from
-        let opacity = 0.75
-        if (time) opacity = time.active.has(job) ? 1 : time.done.has(job) ? 0.55 : lit?.flows.has(f.id) ? 0.15 : 0.03
-        else if (lit) opacity = lit.flows.has(f.id) ? 1 : 0.05
-        else if (reach) opacity = reach.has(f.from) && reach.has(f.to) ? 1 : 0.06
-        const strong = opacity === 1 && (!!lit || !!reach || !!time)
-        return <FlowWire key={f.id} flow={f} from={a} to={b} color={colorOf(f.pipelineId)} opacity={opacity} width={strong ? 3 : 2} />
-      })}
+      {flowWires.length > 0 && <FlowWires wires={flowWires} />}
 
       {view.clusters.map((c) =>
         placement.nodes[c.id] ? (
@@ -332,18 +339,6 @@ function Diagram({ model }: { model: SceneModel }) {
       <TimeDriver time={time} />
     </>
   )
-}
-
-function RingLine({ ring }: { ring: Ring }) {
-  const points = useMemo(
-    () =>
-      Array.from({ length: 97 }, (_, i) => {
-        const a = (i / 96) * Math.PI * 2
-        return [ring.r * Math.cos(a), ring.y, ring.r * Math.sin(a)] as [number, number, number]
-      }),
-    [ring.r, ring.y],
-  )
-  return <Line points={points} color="#3a4459" lineWidth={1} transparent opacity={0.5} dashed dashSize={0.6} gapSize={0.4} />
 }
 
 /**

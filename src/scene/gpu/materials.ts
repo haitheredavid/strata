@@ -158,3 +158,57 @@ export function cardMaterial(outline: number) {
   mat.forceSinglePass = true
   return { material: mat, uniforms: u as unknown as Uniforms }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Curve batches: same ribbon as the FK wires, with per-curve color, width, taper and dashes.
+
+export function curveMaterial(segments: number) {
+  const u = {
+    resolution: uniform(new Vector2(1, 1)),
+    fade: uniform(1),
+  }
+  const seg = attribute('seg', 'float')
+  const side = attribute('side', 'float')
+  const c0 = attribute('c0', 'vec3')
+  const c1 = attribute('c1', 'vec3')
+  const c2 = attribute('c2', 'vec3')
+  const c3 = attribute('c3', 'vec3')
+  const istyle = attribute('istyle', 'vec4') // rgb, opacity
+  const iline = attribute('iline', 'vec4') // width px (negative: taper), dash, gap, length
+
+  const t = seg.div(segments)
+  const bez = (t: F): V3 => {
+    const s = float(1).sub(t)
+    return c0
+      .mul(s.mul(s).mul(s))
+      .add(c1.mul(s.mul(s).mul(t).mul(3)))
+      .add(c2.mul(s.mul(t).mul(t).mul(3)))
+      .add(c3.mul(t.mul(t).mul(t)))
+  }
+
+  const mat = new MeshBasicNodeMaterial()
+  mat.vertexNode = Fn(() => {
+    const mvp = (p: V3): V4 => cameraProjectionMatrix.mul(modelViewMatrix.mul(vec4(p, 1)))
+    const clip = mvp(bez(t)).toVar()
+    const screen = (c: V4): V2 => c.xy.div(c.w).mul(u.resolution).mul(0.5)
+    const a = screen(mvp(bez(max(t.sub(1 / segments), 0))))
+    const b = screen(mvp(bez(min(t.add(1 / segments), 1))))
+    const d = b.sub(a)
+    const dir = select(length(d).greaterThan(1e-5), normalize(d), vec2(1, 0))
+    const width = select(iline.x.lessThan(0), iline.x.negate().mul(float(1).sub(t)), iline.x)
+    const off = vec2(dir.y.negate(), dir.x).mul(side).mul(width).div(u.resolution).mul(clip.w)
+    return vec4(clip.xy.add(off), clip.z, clip.w)
+  })()
+
+  // Dashes in world units along the curve; gaps discard via alphaTest.
+  const along = t.mul(iline.w)
+  const gap = iline.y.greaterThan(0).and(along.mod(iline.y.add(iline.z)).greaterThan(iline.y))
+  mat.colorNode = istyle.xyz
+  mat.opacityNode = select(gap, float(0), istyle.w.mul(u.fade))
+  mat.alphaTest = 0.001
+  mat.transparent = true
+  mat.depthWrite = false
+  mat.side = DoubleSide
+  mat.forceSinglePass = true
+  return { material: mat, uniforms: u as unknown as Uniforms }
+}
