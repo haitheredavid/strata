@@ -14,6 +14,8 @@ interface Entry {
   quat: Quaternion
   target: Vector3
   frame: Frame
+  /** `animState.frame` this entry last changed position or orientation; readers skip work when unchanged. */
+  movedAt: number
 }
 
 export const anim = new Map<string, Entry>()
@@ -22,7 +24,13 @@ export const animState = {
   moving: 0,
   /** Card under the pointer while dragging: follows the pointer without easing. */
   snapId: null as string | null,
+  /** Frame counter, bumped by the driver before it moves anything. */
+  frame: 0,
 }
+
+/** Settled: closer than this to the target (and orientation within EPS_ANGLE) stops easing. */
+const EPS = 1e-4
+const EPS_ANGLE = 1e-5
 
 const FLAT = new Quaternion().setFromEuler(new Euler(-Math.PI / 2, 0, 0))
 const UPRIGHT = new Quaternion()
@@ -51,7 +59,8 @@ function upsert(id: string, p: V3, frame: Frame, live: Set<string>) {
     e.frame = frame
   } else {
     const pos = new Vector3(...p)
-    anim.set(id, { pos, quat: (frame === 'billboard' ? UPRIGHT : frameQuat(frame, UPRIGHT)).clone(), target: pos.clone(), frame })
+    const quat = (frame === 'billboard' ? UPRIGHT : frameQuat(frame, UPRIGHT)).clone()
+    anim.set(id, { pos, quat, target: pos.clone(), frame, movedAt: animState.frame })
   }
 }
 
@@ -65,17 +74,22 @@ export function AnimDriver({ placement }: { placement: Placement }) {
 
   useFrame((state, dt) => {
     const k = 1 - Math.exp(-Math.min(dt, 0.1) * RATE)
+    const frame = ++animState.frame
     let maxMove = 0
     for (const [id, e] of anim) {
       const q = frameQuat(e.frame, state.camera.quaternion)
-      if (id === animState.snapId) {
+      const dist = e.pos.distanceTo(e.target)
+      const turn = e.quat.angleTo(q)
+      if (dist < EPS && turn < EPS_ANGLE) continue // settled: nothing to ease, readers can skip it
+      e.movedAt = frame
+      if (id === animState.snapId || dist < EPS) {
         e.pos.copy(e.target)
       } else {
-        maxMove = Math.max(maxMove, e.pos.distanceTo(e.target))
+        maxMove = Math.max(maxMove, dist)
         e.pos.lerp(e.target, k)
       }
       // Billboards track the camera exactly; orientation changes between frames ease.
-      if (e.frame === 'billboard' && e.quat.angleTo(q) < 0.02) e.quat.copy(q)
+      if (turn < EPS_ANGLE || (e.frame === 'billboard' && turn < 0.02)) e.quat.copy(q)
       else e.quat.slerp(q, k)
     }
     const target = Math.min(1, maxMove / 6)

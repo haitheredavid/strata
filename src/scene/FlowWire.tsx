@@ -1,20 +1,25 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { CubicBezierCurve3, Quaternion, Vector3 } from 'three'
+import { ConeGeometry, CubicBezierCurve3, Quaternion, Vector3 } from 'three'
 import type { Mesh } from 'three'
 import type { Line2 } from 'three-stdlib'
 import type { FlowEdge, ViewNode } from '../view/deriveView'
-import { animState } from './anim'
+import { anim, animState } from './anim'
 import { archCurve, flowCurves, nodeAnchor, nodeCenter } from './curve'
 import { writeLine } from './lineBuffer'
 
 const SEGMENTS = 24
 const Y = new Vector3(0, 1, 0)
+const p = new Vector3()
+const tangent = new Vector3()
+
+/** Shared cone for every arrowhead. */
+const HEAD = new ConeGeometry(0.18, 0.5, 10)
 
 function sample(curve: CubicBezierCurve3, out: Float32Array) {
   for (let i = 0; i <= SEGMENTS; i++) {
-    const p = curve.getPoint(i / SEGMENTS)
+    curve.getPoint(i / SEGMENTS, p)
     out[i * 3] = p.x
     out[i * 3 + 1] = p.y
     out[i * 3 + 2] = p.z
@@ -39,6 +44,8 @@ export const FlowWire = memo(function FlowWire({ flow, from, to, color, opacity,
   const buf = useMemo(() => new Float32Array((SEGMENTS + 1) * 3), [])
   const initial = useMemo(() => Array.from({ length: SEGMENTS + 1 }, () => [0, 0, 0] as [number, number, number]), [])
   const v = useMemo(() => ({ a: new Vector3(), b: new Vector3(), ca: new Vector3(), cb: new Vector3(), q: new Quaternion() }), [])
+  // End stamps the curve was last built from; rebuilt only when an end moved.
+  const built = useRef({ a: -1, b: -1 })
 
   useEffect(() => {
     flowCurves.set(flow.id, curve)
@@ -47,6 +54,10 @@ export const FlowWire = memo(function FlowWire({ flow, from, to, color, opacity,
 
   useFrame(() => {
     if (!line.current || !head.current) return
+    line.current.material.opacity = opacity * (1 - 0.75 * animState.moving)
+    const A = anim.get(from.id)
+    const B = anim.get(to.id)
+    if (A && B && A.movedAt === built.current.a && B.movedAt === built.current.b) return
     // Aim each end at the other node's center, then anchor on the facing side.
     const ca = nodeCenter(from.id, v.ca)
     const cb = nodeCenter(to.id, v.cb)
@@ -55,12 +66,12 @@ export const FlowWire = memo(function FlowWire({ flow, from, to, color, opacity,
     const ok = !!(a && b)
     line.current.visible = head.current.visible = ok
     if (!ok) return
+    built.current = { a: A!.movedAt, b: B!.movedAt }
     archCurve(a, b, curve)
     writeLine(line.current, sample(curve, buf), true)
-    line.current.material.opacity = opacity * (1 - 0.75 * animState.moving)
     // Arrowhead just short of the target, pointing along the curve.
-    head.current.position.copy(curve.getPoint(0.94))
-    head.current.quaternion.copy(v.q.setFromUnitVectors(Y, curve.getTangent(0.94).normalize()))
+    curve.getPoint(0.94, head.current.position)
+    head.current.quaternion.copy(v.q.setFromUnitVectors(Y, curve.getTangent(0.94, tangent).normalize()))
   })
 
   return (
@@ -78,8 +89,7 @@ export const FlowWire = memo(function FlowWire({ flow, from, to, color, opacity,
         opacity={opacity}
         depthWrite={false}
       />
-      <mesh ref={head} raycast={() => null}>
-        <coneGeometry args={[0.18, 0.5, 10]} />
+      <mesh ref={head} geometry={HEAD} raycast={() => null}>
         <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
       </mesh>
     </group>

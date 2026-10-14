@@ -5,6 +5,7 @@ import { MODES } from '../layout/modes'
 import type { Ring } from '../layout/modes'
 import { modeOf, scheduleFor, useStore } from '../store'
 import { AnimDriver } from './anim'
+import { LodDriver } from './lod'
 import { CameraRig } from './CameraRig'
 import { LayerPlate } from './LayerPlate'
 import { TableCard } from './TableCard'
@@ -47,6 +48,7 @@ export function Scene() {
       <color attach="background" args={['#0b0e14']} />
       <CameraRig view={model.view} placement={model.placement} />
       <AnimDriver placement={model.placement} />
+      <LodDriver />
       {/* Scene text suspends on its font; keep that inside the canvas so the DOM UI never blanks. */}
       <Suspense fallback={null}>
         <Diagram model={model} />

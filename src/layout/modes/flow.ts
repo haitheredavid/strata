@@ -29,6 +29,18 @@ export function flowOrder(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'g
   return [...head, ...domainRank(ids, (n) => layerOf.get(n), view.edges)]
 }
 
+/** Buckets `xs` by `key`, keeping `val` of each, in input order. */
+export function groupBy<T, V>(xs: readonly T[], key: (x: T) => string, val: (x: T) => V): Map<string, V[]> {
+  const m = new Map<string, V[]>()
+  for (const x of xs) {
+    const k = key(x)
+    const list = m.get(k)
+    if (list) list.push(val(x))
+    else m.set(k, [val(x)])
+  }
+  return m
+}
+
 interface Base {
   pos: Map<string, { x: number; y: number; z: number }>
   order: string[]
@@ -55,9 +67,12 @@ export function flowBase(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'la
     neighbors.get(e.to)?.push(e.from)
   }
   // Lineage counts too: what a job reads sits near what it writes.
-  for (const job of view.nodes.filter((n) => n.kind === 'job')) {
-    const reads = view.flows.filter((f) => f.to === job.id).map((f) => f.from)
-    const writes = view.flows.filter((f) => f.from === job.id).map((f) => f.to)
+  const readsOf = groupBy(view.flows, (f) => f.to, (f) => f.from)
+  const writesOf = groupBy(view.flows, (f) => f.from, (f) => f.to)
+  for (const job of view.nodes) {
+    if (job.kind !== 'job') continue
+    const reads = readsOf.get(job.id) ?? []
+    const writes = writesOf.get(job.id) ?? []
     for (const r of reads)
       for (const w of writes) {
         if (r === w) continue
@@ -66,16 +81,27 @@ export function flowBase(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'la
       }
   }
 
+  const idsOf = groupBy(view.nodes.filter((n) => n.kind !== 'job'), (n) => n.layerId, (n) => n.id)
+  const innerOf = groupBy(
+    view.edges.filter((e) => {
+      const a = byId.get(e.from)?.layerId
+      return a !== undefined && a === byId.get(e.to)?.layerId
+    }),
+    (e) => byId.get(e.from)!.layerId,
+    (e) => e,
+  )
+
   const columns: { x: number; z: number; ids: string[] }[] = []
   let cursor = 0
   for (const layerId of order) {
-    const ids = view.nodes.filter((n) => n.layerId === layerId && n.kind !== 'job').map((n) => n.id)
+    const ids = idsOf.get(layerId) ?? []
     if (!ids.length) continue
-    const inner = view.edges.filter((e) => byId.get(e.from)?.layerId === layerId && byId.get(e.to)?.layerId === layerId)
-    const depth = fkDepth(ids, inner)
-    const subs = Math.max(...ids.map((id) => depth.get(id)!)) + 1
-    for (let d = 0; d < subs; d++)
-      columns.push({ x: cursor, z: ((subs - 1) / 2 - d) * SUB_STEP, ids: ids.filter((id) => depth.get(id) === d) })
+    const depth = fkDepth(ids, innerOf.get(layerId) ?? [])
+    let subs = 0
+    for (const id of ids) subs = Math.max(subs, depth.get(id)! + 1)
+    const bySub: string[][] = Array.from({ length: subs }, () => [])
+    for (const id of ids) bySub[depth.get(id)!].push(id)
+    bySub.forEach((sub, d) => columns.push({ x: cursor, z: ((subs - 1) / 2 - d) * SUB_STEP, ids: sub }))
     cursor += layout.layerGap * SLAB_SPACING
   }
 
@@ -124,16 +150,29 @@ export function placeFlow(view: ViewGraph, layout: Layout, ctx: { hops: Map<stri
   }
 
   const plates: PlatePlace[] = []
+  const membersOf = groupBy(view.nodes, (n) => n.layerId, (n) => n)
   for (const l of view.layers) {
-    const members = view.nodes.filter((n) => n.layerId === l.id)
-    if (!members.length) continue
-    const boxes = members.map((n) => ({ p: pos.get(n.id)!, o: overrides[n.id], h: cardDepth(n) }))
-    const at = boxes.map((b) => ({ ...b.p, ...b.o, h: b.h }))
-    const z0 = Math.min(...at.map((b) => b.z - CARD_W / 2)) - PAD
-    const z1 = Math.max(...at.map((b) => b.z + CARD_W / 2)) + PAD
-    const y0 = Math.min(...at.map((b) => b.y - b.h / 2)) - PAD
-    const y1 = Math.max(...at.map((b) => b.y + b.h / 2)) + PAD + LABEL_ROOM
-    const center: V3 = [at[0].x - 0.05, (y0 + y1) / 2, (z0 + z1) / 2]
+    const members = membersOf.get(l.id)
+    if (!members) continue
+    let z0 = Infinity
+    let z1 = -Infinity
+    let y0 = Infinity
+    let y1 = -Infinity
+    let x = 0
+    members.forEach((n, i) => {
+      const b = { ...pos.get(n.id)!, ...overrides[n.id] }
+      const h = cardDepth(n)
+      if (i === 0) x = b.x
+      z0 = Math.min(z0, b.z - CARD_W / 2)
+      z1 = Math.max(z1, b.z + CARD_W / 2)
+      y0 = Math.min(y0, b.y - h / 2)
+      y1 = Math.max(y1, b.y + h / 2)
+    })
+    z0 -= PAD
+    z1 += PAD
+    y0 -= PAD
+    y1 += PAD + LABEL_ROOM
+    const center: V3 = [x - 0.05, (y0 + y1) / 2, (z0 + z1) / 2]
     plates.push({ id: l.id, center, size: [z1 - z0, y1 - y0], frame: 'side', label: l.name, color: l.color })
   }
   return { nodes, plates }

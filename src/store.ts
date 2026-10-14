@@ -3,6 +3,8 @@ import type { ColumnDetail, EdgeLayer, Graph, GroupBy, Layout, ModeId } from './
 import { parseDbml } from './parse/dbml'
 import { EMPTY_WORKFLOWS } from './model/workflow'
 import { autoLayout } from './layout/autoLayout'
+import { layoutAsync } from './layout/layoutClient'
+import { seedLayout } from './layout/seedLayout'
 import { MODES } from './layout/modes'
 import { flowOrder } from './layout/modes/flow'
 import { deriveView } from './view/deriveView'
@@ -11,7 +13,7 @@ import { hash32 } from './sim/rng'
 import { DAY, simulateDay } from './sim/schedule'
 import type { Schedule } from './sim/schedule'
 import { isScheme } from './theme/schemes'
-import { span } from './dev/perf'
+import { record, span } from './dev/perf'
 import type { SchemeId } from './theme/schemes'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
@@ -152,9 +154,30 @@ export function isLayoutFor(layout: Layout, graph: Graph) {
   )
 }
 
+/** Up to this many tables, lay out on the main thread so a load shows the final layout at once. */
+const SYNC_LAYOUT_MAX = 300
+
+/**
+ * A fresh stack layout for `graph`. Small graphs get `autoLayout` right away; big ones get an instant
+ * spiral seed while the force layout runs in a worker, then the cards ease to the result (unless the
+ * schema changed or a card was dragged meanwhile).
+ */
+function freshLayout(graph: Graph, schemaKey: string, layerGap = 8): Layout {
+  if (graph.tables.length <= SYNC_LAYOUT_MAX) return span('autoLayout', () => autoLayout(graph, layerGap))
+  const seed = seedLayout(graph, layerGap)
+  const started = performance.now()
+  void layoutAsync(graph, layerGap).then((positions) => {
+    record('autoLayout:worker', performance.now() - started, started)
+    const s = useStore.getState()
+    if (!positions || s.schemaKey !== schemaKey || s.layout.positions !== seed.positions) return
+    useStore.setState({ layout: { ...s.layout, positions } })
+  })
+  return seed
+}
+
 /** State for a freshly loaded graph: its saved layout (or a new one) and every per-schema setting reset. */
 function installGraph(graph: Graph, schemaKey: string, source: string, sidecar: string | null): Partial<State> {
-  const layout = span('autoLayout', () => loadSavedLayout(schemaKey, graph) ?? autoLayout(graph))
+  const layout = loadSavedLayout(schemaKey, graph) ?? freshLayout(graph, schemaKey)
   return {
     source,
     sidecar,
@@ -239,7 +262,7 @@ export const useStore = create<State>((set, get) => ({
       if (mode === 'flow') return { layout: { ...s.layout, flowOrder: undefined, flowOverrides: undefined } }
       if (mode === 'diagram') return { layout: { ...s.layout, flowOrder: undefined } }
       if (mode === 'stack' && s.layout.groupBy === 'medallion') return { layout: { ...s.layout, medallionPositions: undefined } }
-      if (mode === 'stack') return { layout: { ...s.layout, ...autoLayout(s.graph, s.layout.layerGap) } }
+      if (mode === 'stack') return { layout: { ...s.layout, ...freshLayout(s.graph, s.schemaKey, s.layout.layerGap) } }
       return s
     }),
   setLayerGap: (layerGap) => set((s) => ({ layout: { ...s.layout, layerGap } })),
@@ -339,15 +362,30 @@ export const useStore = create<State>((set, get) => ({
 
 const toggle = (xs: string[], x: string) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x])
 
-// Autosave layout per schema.
-useStore.subscribe((s, prev) => {
-  if (s.layout === prev.layout || !s.schemaKey) return
+// Autosave layout per schema, debounced and off the busy path: a slider drag changes the layout every
+// frame, and stringifying a big layout each time stalls the drag.
+const SAVE_DELAY = 500
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+let pending: { schemaKey: string; layout: Layout } | null = null
+const idle = (fn: () => void) => ('requestIdleCallback' in window ? requestIdleCallback(fn, { timeout: 2000 }) : fn())
+function flushSave() {
+  if (!pending) return
+  const { schemaKey, layout } = pending
+  pending = null
   try {
-    localStorage.setItem(storageKey(s.schemaKey), JSON.stringify(s.layout))
+    localStorage.setItem(storageKey(schemaKey), JSON.stringify(layout))
   } catch {
     /* storage unavailable: layout just isn't persisted */
   }
+}
+useStore.subscribe((s, prev) => {
+  if (s.layout === prev.layout || !s.schemaKey) return
+  if (pending && pending.schemaKey !== s.schemaKey) flushSave() // switching schema: keep the old one's edits
+  pending = { schemaKey: s.schemaKey, layout: s.layout }
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => idle(flushSave), SAVE_DELAY)
 })
+if (typeof window !== 'undefined') window.addEventListener('pagehide', flushSave)
 
 /** Whether a layer is currently shown, given hide/isolate state. */
 export const layerVisible = (s: Pick<State, 'hiddenLayers' | 'isolatedLayerId'>, layerId: string) =>

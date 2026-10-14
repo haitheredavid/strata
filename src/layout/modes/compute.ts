@@ -13,11 +13,10 @@ const MIN_GAP = 4.5 // between cluster centers
 export function placeClusters(view: ViewGraph, placement: Placement, mode: ModeId, gap: number): Placement {
   if (!view.clusters.length) return placement
   if (mode === 'diagram') return placeClustersBelow(view, placement)
-  const ys = [
-    ...Object.values(placement.nodes).map((n) => n.p[1]),
-    ...placement.plates.map((pl) => (pl.frame === 'flat' ? pl.center[1] : pl.center[1] - pl.size[1] / 2)),
-  ]
-  const floor = (ys.length ? Math.min(...ys) : 0) - (mode === 'stack' ? gap * 0.75 : 4)
+  let low = Infinity
+  for (const id in placement.nodes) low = Math.min(low, placement.nodes[id].p[1])
+  for (const pl of placement.plates) low = Math.min(low, pl.frame === 'flat' ? pl.center[1] : pl.center[1] - pl.size[1] / 2)
+  const floor = (low === Infinity ? 0 : low) - (mode === 'stack' ? gap * 0.75 : 4)
 
   const placed: { id: string; p: V3 }[] = []
   for (const c of view.clusters) {
@@ -36,8 +35,9 @@ export function placeClusters(view: ViewGraph, placement: Placement, mode: ModeI
 
 /** Diagram: a row of clusters past the bottom edge of the diagram (+Z), each under its jobs' centroid. */
 function placeClustersBelow(view: ViewGraph, placement: Placement): Placement {
-  const zs = placement.plates.map((pl) => pl.center[2] + pl.size[1] / 2)
-  const floor = (zs.length ? Math.max(...zs) : 0) + 4
+  let edge = -Infinity
+  for (const pl of placement.plates) edge = Math.max(edge, pl.center[2] + pl.size[1] / 2)
+  const floor = (edge === -Infinity ? 0 : edge) + 4
   const placed: { id: string; p: V3 }[] = []
   for (const c of view.clusters) {
     const at = c.jobs.map((j) => placement.nodes[j]?.p).filter((p): p is V3 => !!p)

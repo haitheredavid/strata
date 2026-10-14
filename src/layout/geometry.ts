@@ -14,10 +14,14 @@ export const cardDepth = (t: Sized) => HEADER_H + t.columns.length * ROW_H
  * rows run down -Y. `side` is -1 (left) or +1 (right). Hidden columns anchor at the header.
  */
 export function localAnchor(t: Sized, column: string | undefined, side: number): [number, number, number] {
+  return [(side * CARD_W) / 2, anchorY(t, column), 0]
+}
+
+/** Local Y of a column's anchor (the header for a hidden column). Fixed per card, so callers cache it. */
+export function anchorY(t: Sized, column: string | undefined): number {
   const top = cardDepth(t) / 2
   const i = column ? t.columns.findIndex((c) => c.name === column) : -1
-  const y = i < 0 ? top - HEADER_H / 2 : top - HEADER_H - (i + 0.5) * ROW_H
-  return [(side * CARD_W) / 2, y, 0]
+  return i < 0 ? top - HEADER_H / 2 : top - HEADER_H - (i + 0.5) * ROW_H
 }
 
 export interface Rect { x0: number; x1: number; z0: number; z1: number }

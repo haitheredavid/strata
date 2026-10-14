@@ -3,7 +3,8 @@ import type { SimulationNodeDatum } from 'd3-force'
 import type { Graph, Layout, Vec2 } from '../model/types'
 import { EMPTY_WORKFLOWS } from '../model/workflow'
 import type { ViewGraph } from '../view/deriveView'
-import { CARD_W, cardDepth, cardRect, rectsOverlap } from './geometry'
+import { CARD_W, cardDepth } from './geometry'
+import { GridHash } from './gridHash'
 
 interface Node extends SimulationNodeDatum {
   id: string
@@ -14,7 +15,8 @@ interface Node extends SimulationNodeDatum {
 }
 
 const MARGIN = 0.6
-const TICKS = 300
+/** Force ticks per layer: fewer on big layers, where each tick costs more and the overlap pass cleans up. */
+const ticksFor = (n: number) => (n < 500 ? 300 : n < 5000 ? 150 : 80)
 
 function lcg(seed: number) {
   let s = seed >>> 0
@@ -35,8 +37,18 @@ export function autoLayout(graph: Graph, layerGap = 8): Layout {
     neighbors.get(r.to.table)!.add(r.from.table)
   }
 
+  // One pass to bucket tables and same-layer links by layer, instead of a scan per layer.
+  const tablesOf = new Map<string, Graph['tables']>(layerOrder.map((id) => [id, []]))
+  for (const t of graph.tables) tablesOf.get(t.layerId)?.push(t)
+  const linksOf = new Map<string, { source: string; target: string }[]>(layerOrder.map((id) => [id, []]))
+  for (const r of graph.refs) {
+    const a = tableById.get(r.from.table)
+    const b = tableById.get(r.to.table)
+    if (a && b && a !== b && a.layerId === b.layerId) linksOf.get(a.layerId)?.push({ source: a.id, target: b.id })
+  }
+
   for (const layerId of layerOrder) {
-    const tables = graph.tables.filter((t) => t.layerId === layerId)
+    const tables = tablesOf.get(layerId)!
     const ids = new Set(tables.map((t) => t.id))
 
     const nodes: Node[] = tables.map((t, i) => {
@@ -57,9 +69,7 @@ export function autoLayout(graph: Graph, layerGap = 8): Layout {
       }
     })
 
-    const links = graph.refs
-      .filter((r) => r.from.table !== r.to.table && ids.has(r.from.table) && ids.has(r.to.table))
-      .map((r) => ({ source: r.from.table, target: r.to.table }))
+    const links = linksOf.get(layerId)!
 
     forceSimulation(nodes)
       .randomSource(lcg(42))
@@ -69,38 +79,56 @@ export function autoLayout(graph: Graph, layerGap = 8): Layout {
       .force('y', forceY<Node>((n) => n.tz).strength((n) => n.pull))
       .force('collide', forceCollide<Node>((n) => n.r).strength(1).iterations(4))
       .stop()
-      .tick(TICKS)
+      .tick(ticksFor(nodes.length))
 
     for (const n of nodes) positions[n.id] = { x: n.x!, z: n.y! }
-    resolveOverlaps(tables.map((t) => t.id), positions, tableById)
+    resolveOverlaps(tables, positions)
   }
 
   return { layerGap, layerOrder, positions }
 }
 
-/** Push apart any card rectangles that still overlap after the force pass. */
-function resolveOverlaps(ids: string[], pos: Record<string, Vec2>, tables: Map<string, Graph['tables'][number]>) {
+/**
+ * Push apart any card rectangles that still overlap after the force pass. A grid with cells as big as
+ * the largest card finds the overlapping pairs, so each pass is O(n) rather than all pairs.
+ */
+function resolveOverlaps(tables: Graph['tables'], pos: Record<string, Vec2>) {
+  const n = tables.length
+  if (n < 2) return
+  const halfD = new Float64Array(n)
+  let cell = CARD_W
+  tables.forEach((t, i) => {
+    halfD[i] = cardDepth(t) / 2
+    cell = Math.max(cell, halfD[i] * 2)
+  })
+  const ps = tables.map((t) => pos[t.id])
+  const halfW = CARD_W / 2
+  const grid = new GridHash(cell)
+  const near: number[] = []
   for (let iter = 0; iter < 200; iter++) {
+    grid.clear()
+    ps.forEach((p, i) => grid.insert(i, p.x, p.z))
     let moved = false
-    for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) {
-        const a = tables.get(ids[i])!
-        const b = tables.get(ids[j])!
-        const ra = cardRect(a, pos[a.id])
-        const rb = cardRect(b, pos[b.id])
-        if (!rectsOverlap(ra, rb)) continue
+    for (let i = 0; i < n; i++) {
+      const a = ps[i]
+      grid.near(near, 2, a.x, a.z)
+      near.sort((x, y) => x - y) // same pair order as an all-pairs scan
+      for (const j of near) {
+        if (j <= i) continue
+        const b = ps[j]
+        const ox = 2 * halfW - Math.abs(a.x - b.x)
+        const oz = halfD[i] + halfD[j] - Math.abs(a.z - b.z)
+        if (ox <= 0 || oz <= 0) continue
         moved = true
-        const ox = Math.min(ra.x1, rb.x1) - Math.max(ra.x0, rb.x0)
-        const oz = Math.min(ra.z1, rb.z1) - Math.max(ra.z0, rb.z0)
         // Separate along the axis of least overlap.
         if (ox < oz) {
-          const d = (ox / 2 + 0.05) * (pos[a.id].x <= pos[b.id].x ? -1 : 1)
-          pos[a.id].x += d
-          pos[b.id].x -= d
+          const d = (ox / 2 + 0.05) * (a.x <= b.x ? -1 : 1)
+          a.x += d
+          b.x -= d
         } else {
-          const d = (oz / 2 + 0.05) * (pos[a.id].z <= pos[b.id].z ? -1 : 1)
-          pos[a.id].z += d
-          pos[b.id].z -= d
+          const d = (oz / 2 + 0.05) * (a.z <= b.z ? -1 : 1)
+          a.z += d
+          b.z -= d
         }
       }
     }
@@ -108,19 +136,42 @@ function resolveOverlaps(ids: string[], pos: Record<string, Vec2>, tables: Map<s
   }
 }
 
-const viewCache = new WeakMap<ViewGraph, Record<string, Vec2>>()
+/** A few recent view layouts, keyed by the view's shape so a re-derived but unchanged view still hits. */
+const viewCache = new Map<string, Record<string, Vec2>>()
+const VIEW_CACHE_SIZE = 8
 
-/** `autoLayout` over a derived view (e.g. medallion grouping, external sources); cached per view. */
-export function autoLayoutView(view: ViewGraph): Record<string, Vec2> {
-  const hit = viewCache.get(view)
-  if (hit) return hit
+function viewKey(view: ViewGraph, layerIds: string[]): string {
+  const parts: string[] = [layerIds.join(',')]
+  for (const n of view.nodes) if (n.kind !== 'job') parts.push(`${n.id}:${n.layerId}:${n.columns.length}`)
+  for (const e of view.edges) parts.push(`${e.from}>${e.to}`)
+  return parts.join('|')
+}
+
+/**
+ * `autoLayout` over a derived view (e.g. medallion grouping, external sources). `layerIds` limits it to
+ * those layers, for when only some nodes lack a stored position. Cached by the view's shape.
+ */
+export function autoLayoutView(view: ViewGraph, layerIds: string[] = view.layers.map((l) => l.id)): Record<string, Vec2> {
+  const key = viewKey(view, layerIds)
+  const hit = viewCache.get(key)
+  if (hit) {
+    viewCache.delete(key) // re-insert: most recent last
+    viewCache.set(key, hit)
+    return hit
+  }
+  const keep = new Set(layerIds)
+  const nodes = view.nodes.filter((n) => n.kind !== 'job' && keep.has(n.layerId))
+  const ids = new Set(nodes.map((n) => n.id))
   const graph: Graph = {
-    tables: view.nodes.filter((n) => n.kind !== 'job').map((n) => ({ id: n.id, name: n.name, layerId: n.layerId, columns: n.columns })),
-    refs: view.edges.map((e) => ({ id: e.id, from: { table: e.from, columns: e.fromColumns }, to: { table: e.to, columns: e.toColumns }, kind: e.kind })),
-    layers: view.layers,
+    tables: nodes.map((n) => ({ id: n.id, name: n.name, layerId: n.layerId, columns: n.columns })),
+    refs: view.edges
+      .filter((e) => ids.has(e.from) && ids.has(e.to))
+      .map((e) => ({ id: e.id, from: { table: e.from, columns: e.fromColumns }, to: { table: e.to, columns: e.toColumns }, kind: e.kind })),
+    layers: view.layers.filter((l) => keep.has(l.id)),
     workflows: EMPTY_WORKFLOWS,
   }
   const positions = autoLayout(graph).positions
-  viewCache.set(view, positions)
+  viewCache.set(key, positions)
+  if (viewCache.size > VIEW_CACHE_SIZE) viewCache.delete(viewCache.keys().next().value!)
   return positions
 }

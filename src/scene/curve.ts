@@ -6,6 +6,7 @@ import { anim } from './anim'
 const X = new Vector3(1, 0, 0)
 const UP = new Vector3(0, 1, 0)
 const tmp = new Vector3()
+const toward_ = new Vector3()
 
 /** Animated center of a node. */
 export function nodeCenter(id: string, out: Vector3): Vector3 | null {
@@ -22,7 +23,7 @@ export function nodeAnchor(node: ViewNode, toward: Vector3, out: Vector3): Vecto
   if (!e) return null
   if (node.kind === 'job') return out.copy(e.pos)
   const x = tmp.copy(X).applyQuaternion(e.quat)
-  const side = toward.clone().sub(e.pos).dot(x) >= 0 ? 1 : -1
+  const side = toward_.copy(toward).sub(e.pos).dot(x) >= 0 ? 1 : -1
   return out.set(...localAnchor(node, undefined, side)).applyQuaternion(e.quat).add(e.pos)
 }
 

@@ -13,7 +13,13 @@ import type { PulseShape } from '../sim/volume'
 const TRAIL = 2 // dots following a running job's progress on the timeline
 const SPEED = 0.35 // curve lengths per second
 const dummy = new Object3D()
-const tmpColor = new Color()
+// CSS color → Color, parsed once rather than per dot per frame.
+const colorCache = new Map<string, Color>()
+const parsed = (css: string) => {
+  let c = colorCache.get(css)
+  if (!c) colorCache.set(css, (c = new Color(css)))
+  return c
+}
 
 interface Props {
   flows: FlowEdge[]
@@ -37,7 +43,6 @@ export function Pulses({ flows, colorOf, schedule, lens, shapes }: Props) {
   const count = useMemo(() => Math.max(1, [...shapes.values()].reduce((s, x) => s + Math.max(x.dots, TRAIL), 0)), [shapes])
   // Phase by flow id, not list position, so filtering doesn't make dots jump.
   const offsets = useMemo(() => new Map([...shapes.keys()].map((id) => [id, rand(`${id}:pulse`)])), [shapes])
-
   useFrame(({ clock }) => {
     const m = mesh.current
     if (!m) return
@@ -56,11 +61,11 @@ export function Pulses({ flows, colorOf, schedule, lens, shapes }: Props) {
         if (local < 0 || local > 1) continue
         for (let k = 0; k < TRAIL; k++) {
           const t = Math.min(1, Math.max(0, local - k * 0.15))
-          dummy.position.copy(curve.getPoint(t))
+          curve.getPoint(t, dummy.position)
           dummy.scale.setScalar(shape.scale * (1.4 - k * 0.45))
           dummy.updateMatrix()
           m.setMatrixAt(n, dummy.matrix)
-          m.setColorAt(n++, tmpColor.set(colorOf(f.pipelineId)))
+          m.setColorAt(n++, parsed(colorOf(f.pipelineId)))
         }
         continue
       }
@@ -68,11 +73,11 @@ export function Pulses({ flows, colorOf, schedule, lens, shapes }: Props) {
       const offset = offsets.get(f.id)!
       for (let k = 0; k < dots; k++) {
         const t = (clock.elapsedTime * SPEED + offset + k / dots) % 1
-        dummy.position.copy(curve.getPoint(t))
+        curve.getPoint(t, dummy.position)
         dummy.scale.setScalar(scale)
         dummy.updateMatrix()
         m.setMatrixAt(n, dummy.matrix)
-        m.setColorAt(n++, tmpColor.set(colorOf(f.pipelineId)))
+        m.setColorAt(n++, parsed(colorOf(f.pipelineId)))
       }
     }
     m.count = n

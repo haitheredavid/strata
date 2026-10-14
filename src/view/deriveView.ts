@@ -107,9 +107,15 @@ export function deriveView(graph: Graph, opts: ViewOptions = {}): ViewGraph {
   const usedSources = new Set(pipelines.flatMap((p) => p.tasks.flatMap((t) => [...t.reads, ...t.writes])))
   const sources = wf.sources.filter((s) => usedSources.has(s.id))
 
-  const baseLayers = byMedallion
-    ? MEDALLION_LAYERS.filter((l) => graph.tables.some((t) => groupOf(t) === l.id))
-    : graph.layers
+  // Tables by group, once, rather than a scan of every table per layer.
+  const tablesOf = new Map<string, Graph['tables']>()
+  for (const t of graph.tables) {
+    const g = groupOf(t)
+    const list = tablesOf.get(g)
+    if (list) list.push(t)
+    else tablesOf.set(g, [t])
+  }
+  const baseLayers = byMedallion ? MEDALLION_LAYERS.filter((l) => tablesOf.has(l.id)) : graph.layers
   const layers = [...(sources.length ? [SOURCES_LAYER] : []), ...baseLayers].filter((l) => !hidden.has(l.id))
 
   const nodes: ViewNode[] = []
@@ -123,7 +129,7 @@ export function deriveView(graph: Graph, opts: ViewOptions = {}): ViewGraph {
       }
       continue
     }
-    const tables = graph.tables.filter((t) => groupOf(t) === l.id)
+    const tables = tablesOf.get(l.id) ?? []
     if (collapsed.has(l.id) && tables.length) {
       const id = domainNodeId(l.id)
       // One pseudo-row carries the table count so the card renders and sizes like any other.
@@ -190,7 +196,9 @@ export function deriveView(graph: Graph, opts: ViewOptions = {}): ViewGraph {
       }
       for (const r of reads) add(r, id, 'read')
       for (const w of writes) add(id, w, 'write')
-      jobsOn.set(t.clusterId, [...(jobsOn.get(t.clusterId) ?? []), id])
+      const on = jobsOn.get(t.clusterId)
+      if (on) on.push(id)
+      else jobsOn.set(t.clusterId, [id])
     }
   }
 

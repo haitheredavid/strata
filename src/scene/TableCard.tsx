@@ -10,6 +10,7 @@ import { Label } from './Label'
 import { usePalette } from '../theme/palette'
 import { useReleaseHover } from './hover'
 import { anim, syncFromAnim, animState } from './anim'
+import { useNear } from './lod'
 
 const DRAG_THRESHOLD = 0.15
 // Card layers sit ~0.005 apart, finer than the depth buffer resolves once the camera pulls back,
@@ -38,6 +39,8 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
   const setDragging = useStore((s) => s.setDragging)
   const toggleCard = useStore((s) => s.toggleCard)
   const palette = usePalette()
+  // Row labels are drawn only when the card is near enough to read them (see lod.ts).
+  const showRows = useNear(node.id)
 
   const group = useRef<Group>(null)
   const drag = useRef<{ offset: Vector3; start: Vector3; moved: boolean; plane: Plane | null; at: Vector3 } | null>(null)
@@ -171,7 +174,7 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
           </group>
         )}
 
-        {node.columns.map((c, i) => {
+        {showRows && node.columns.map((c, i) => {
           const y = top - HEADER_H - (i + 0.5) * ROW_H
           const badge = c.pk ? 'PK' : c.fk ? 'FK' : ''
           return (

@@ -1,8 +1,9 @@
 import type { Table } from '../model/types'
-import type { Medallion, Pipeline, Task, Workflows } from '../model/workflow'
+import type { Medallion, Pipeline, Task, Trigger, Workflows } from '../model/workflow'
 import { jobNodeId } from '../view/deriveView'
 import { runSteps } from '../view/runOrder'
 import { between } from './rng'
+import { MinHeap } from './heap'
 
 /** Seconds in the simulated day. Times below are seconds since 00:00. */
 export const DAY = 86_400
@@ -97,25 +98,37 @@ export function simulateDay(wf: Workflows, tables: Pick<Table, 'id' | 'medallion
   const runs: PipelineRun[] = []
   const taskRuns: TaskRun[] = []
   const events: SimEvent[] = []
-  const requests: Request[] = []
+  const requests = new MinHeap<Request>()
+  const request = (r: Request) => requests.push(r.t, r)
   const busyUntil = new Map<string, number>()
   const queued = new Set<string>()
   const runCount = new Map<string, number>()
 
   for (const p of wf.pipelines) {
     const t = p.trigger
-    if (t?.kind === 'schedule') for (const at of cronTimes(t.cron)) requests.push({ t: at, pipelineId: p.id, cause: `cron ${t.cron}` })
+    if (t?.kind === 'schedule') for (const at of cronTimes(t.cron)) request({ t: at, pipelineId: p.id, cause: `cron ${t.cron}` })
     else if (t?.kind === 'file_arrival')
       for (const [lo, hi] of [[0.5, 3], [7, 10], [13, 17]])
-        requests.push({ t: Math.round(between(`${seed}:${p.id}:arrival:${lo}`, lo, hi) * 3600), pipelineId: p.id, cause: `file in ${t.path}` })
-    else if (t?.kind === 'manual') requests.push({ t: 9 * 3600, pipelineId: p.id, cause: 'manual' })
+        request({ t: Math.round(between(`${seed}:${p.id}:arrival:${lo}`, lo, hi) * 3600), pipelineId: p.id, cause: `file in ${t.path}` })
+    else if (t?.kind === 'manual') request({ t: 9 * 3600, pipelineId: p.id, cause: 'manual' })
     else if (t?.kind === 'continuous') runContinuous(p)
-    else if (!t) requests.push({ t: 6 * 3600, pipelineId: p.id, cause: 'no trigger' })
+    else if (!t) request({ t: 6 * 3600, pipelineId: p.id, cause: 'no trigger' })
   }
 
-  for (let guard = 0; requests.length && guard < 5000; guard++) {
-    requests.sort((a, b) => a.t - b.t)
-    const req = requests.shift()!
+  // Who starts after whom, worked out once rather than scanning every pipeline per run.
+  const after = new Map<string, Pipeline[]>()
+  const watchers: (Pipeline & { trigger: Extract<Trigger, { kind: 'table_update' }> })[] = []
+  for (const q of wf.pipelines) {
+    const t = q.trigger
+    if (t?.kind === 'job') after.set(t.pipeline, [...(after.get(t.pipeline) ?? []), q])
+    if (t?.kind === 'table_update') watchers.push(q as (typeof watchers)[number])
+  }
+
+  // Each pipeline runs at most MAX_RUNS times and queues at most one follow-up, so this bounds the loop
+  // by the workload; it only trips on a trigger cycle.
+  const guardMax = Math.max(5000, wf.pipelines.length * MAX_RUNS * 4)
+  for (let guard = 0; requests.size && guard < guardMax; guard++) {
+    const req = requests.pop()!
     if (req.t >= DAY) break
     const p = byId.get(req.pipelineId)!
     const busy = busyUntil.get(p.id) ?? -1
@@ -123,7 +136,7 @@ export function simulateDay(wf: Workflows, tables: Pick<Table, 'id' | 'medallion
       // Still running: queue one follow-up run, coalescing any further triggers into it.
       if (!queued.has(p.id)) {
         queued.add(p.id)
-        requests.push({ ...req, t: busy })
+        request({ ...req, t: busy })
       }
       continue
     }
@@ -131,20 +144,21 @@ export function simulateDay(wf: Workflows, tables: Pick<Table, 'id' | 'medallion
     const n = runCount.get(p.id) ?? 0
     if (n >= MAX_RUNS) continue
     runCount.set(p.id, n + 1)
+    const first = taskRuns.length
     const run = runBatch(p, n, req)
     busyUntil.set(p.id, run.end)
+    const mine = taskRuns.slice(first).filter((r) => r.runId === run.id)
 
     // Downstream pipelines: `after` this one, or watching a table this run wrote.
-    for (const q of wf.pipelines) {
+    for (const q of after.get(p.id) ?? []) request({ t: run.end + 5, pipelineId: q.id, cause: `after ${p.name}` })
+    for (const q of watchers) {
       const t = q.trigger
-      if (t?.kind === 'job' && t.pipeline === p.id) requests.push({ t: run.end + 5, pipelineId: q.id, cause: `after ${p.name}` })
-      if (t?.kind === 'table_update') {
-        const hits = taskRuns.filter((r) => r.runId === run.id && byTask(p, r.taskId).writes.some((w) => t.tables.includes(w)))
-        if (hits.length)
-          requests.push({ t: Math.max(...hits.map((r) => r.end)) + TABLE_UPDATE_WAIT, pipelineId: q.id, cause: `update from ${p.name}` })
-      }
+      const hits = mine.filter((r) => byTask(p, r.taskId).writes.some((w) => t.tables.includes(w)))
+      if (hits.length)
+        request({ t: hits.reduce((m, r) => Math.max(m, r.end), -Infinity) + TABLE_UPDATE_WAIT, pipelineId: q.id, cause: `update from ${p.name}` })
     }
   }
+  if (requests.size && requests.pop()!.t < DAY) console.warn('[strata] simulateDay stopped early: trigger cycle?')
 
   runs.sort((a, b) => a.start - b.start)
   taskRuns.sort((a, b) => a.start - b.start)

@@ -1,5 +1,6 @@
 import type { ModeId } from '../../model/types'
 import type { ViewGraph } from '../../view/deriveView'
+import { GridHash } from '../gridHash'
 import type { NodePlace, Placement, V3 } from './types'
 
 const MIN_GAP = 3 // between job centers
@@ -18,10 +19,23 @@ export function placeJobs(view: ViewGraph, placement: Placement, mode: ModeId, g
   const nodes: Record<string, NodePlace> = { ...placement.nodes }
   const at = (id: string) => nodes[id]?.p
 
+  const readsOf = new Map<string, V3[]>()
+  const writesOf = new Map<string, V3[]>()
+  const push = (m: Map<string, V3[]>, k: string, p: V3 | undefined) => {
+    if (!p) return
+    const list = m.get(k)
+    if (list) list.push(p)
+    else m.set(k, [p])
+  }
+  for (const f of view.flows) {
+    push(readsOf, f.to, at(f.from))
+    push(writesOf, f.from, at(f.to))
+  }
+
   const placed: { id: string; p: V3 }[] = []
   for (const job of jobs) {
-    const reads = view.flows.filter((f) => f.to === job.id).map((f) => at(f.from)).filter((p): p is V3 => !!p)
-    const writes = view.flows.filter((f) => f.from === job.id).map((f) => at(f.to)).filter((p): p is V3 => !!p)
+    const reads = readsOf.get(job.id) ?? []
+    const writes = writesOf.get(job.id) ?? []
     const r = centroid(reads)
     const w = centroid(writes)
     const a = r ?? w
@@ -43,27 +57,48 @@ export function placeJobs(view: ViewGraph, placement: Placement, mode: ModeId, g
   return { ...placement, nodes }
 }
 
-/** Pushes points apart until none are closer than `gap`, moving them only along the `free` axes. */
+/**
+ * Pushes points apart until none are closer than `gap`, moving them only along the `free` axes. A grid
+ * of `gap`-sized cells finds the close pairs, so a pass is O(n) rather than all pairs.
+ */
 export function separate(placed: { p: V3 }[], free: number[], gap: number) {
+  if (placed.length < 2) return
+  const dims = free.length as 1 | 2 | 3
+  const [f0, f1, f2] = free
+  const grid = new GridHash(gap)
+  const near: number[] = []
+  const d = [0, 0, 0]
   for (let iter = 0; iter < 60; iter++) {
+    grid.clear()
+    placed.forEach(({ p }, i) => grid.insert(i, p[f0], f1 === undefined ? 0 : p[f1], f2 === undefined ? 0 : p[f2]))
     let moved = false
-    for (let i = 0; i < placed.length; i++)
-      for (let j = i + 1; j < placed.length; j++) {
-        const [pi, pj] = [placed[i].p, placed[j].p]
-        const d = free.map((k) => pj[k] - pi[k])
-        let len = Math.hypot(...d)
-        if (len >= gap) continue
+    for (let i = 0; i < placed.length; i++) {
+      const pi = placed[i].p
+      grid.near(near, dims, pi[f0], f1 === undefined ? 0 : pi[f1], f2 === undefined ? 0 : pi[f2])
+      near.sort((a, b) => a - b) // same pair order as an all-pairs scan
+      for (const j of near) {
+        if (j <= i) continue
+        const pj = placed[j].p
+        let len2 = 0
+        for (let n = 0; n < dims; n++) {
+          d[n] = pj[free[n]] - pi[free[n]]
+          len2 += d[n] * d[n]
+        }
+        if (len2 >= gap * gap) continue
         moved = true
+        let len = Math.sqrt(len2)
         if (len < 1e-6) {
-          d[d.length - 1] = 1 // coincident: separate along the last free axis, in list order
+          for (let n = 0; n < dims; n++) d[n] = 0
+          d[dims - 1] = 1 // coincident: separate along the last free axis, in list order
           len = 1
         }
         const push = (gap - len) / 2 / len
-        free.forEach((k, n) => {
-          pi[k] -= d[n] * push
-          pj[k] += d[n] * push
-        })
+        for (let n = 0; n < dims; n++) {
+          pi[free[n]] -= d[n] * push
+          pj[free[n]] += d[n] * push
+        }
       }
+    }
     if (!moved) break
   }
 }

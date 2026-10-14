@@ -21,11 +21,11 @@ export const layerY = (layout: Layout, layerId: string, view?: ViewGraph) => {
  * (and anything without a stored position, like external sources) uses an auto layout of the view.
  * Collapsed domains sit at the centroid of their tables.
  */
-function stackPos(n: ViewNode, layout: Layout, view: ViewGraph): Vec2 {
+function stackPos(n: ViewNode, layout: Layout, auto: () => Record<string, Vec2>): Vec2 {
   const medallion = layout.groupBy === 'medallion'
   const stored = medallion ? layout.medallionPositions ?? {} : layout.positions
   // Nodes with no stored position (sources, medallion grouping) keep drags in `medallionPositions`.
-  const at = (id: string) => stored[id] ?? layout.medallionPositions?.[id] ?? autoLayoutView(view)[id]
+  const at = (id: string) => stored[id] ?? layout.medallionPositions?.[id] ?? auto()[id]
   if (!n.members) return at(n.id) ?? { x: 0, z: 0 }
   const ps = n.members.map((id) => (medallion ? undefined : layout.positions[id])).filter((p): p is Vec2 => !!p)
   if (!ps.length) return at(n.id) ?? { x: 0, z: 0 }
@@ -36,20 +36,42 @@ function stackPos(n: ViewNode, layout: Layout, view: ViewGraph): Vec2 {
 export function placeStack(view: ViewGraph, layout: Layout): Placement {
   const nodes: Record<string, NodePlace> = {}
   const plates: PlatePlace[] = []
+  const membersOf = new Map<string, ViewNode[]>(view.layers.map((l) => [l.id, []]))
+  for (const n of view.nodes) membersOf.get(n.layerId)?.push(n)
+
+  // Auto layout only what has no stored position: everything under medallion grouping, else the
+  // layers holding such nodes (external sources). Computed on first use.
+  let auto: Record<string, Vec2> | null = null
+  const autoPos = () => {
+    if (auto) return auto
+    const stored = layout.groupBy === 'medallion' ? null : layout.positions
+    const missing = stored
+      ? view.layers.filter((l) => membersOf.get(l.id)!.some((n) => !n.members && !stored[n.id] && !layout.medallionPositions?.[n.id])).map((l) => l.id)
+      : undefined
+    return (auto = autoLayoutView(view, missing))
+  }
 
   for (const l of view.layers) {
-    const members = view.nodes.filter((n) => n.layerId === l.id)
+    const members = membersOf.get(l.id)!
     if (!members.length) continue
     const y = layerY(layout, l.id, view)
-    const rects = members.map((n) => {
-      const p = stackPos(n, layout, view)
+    let x0 = Infinity
+    let x1 = -Infinity
+    let z0 = Infinity
+    let z1 = -Infinity
+    for (const n of members) {
+      const p = stackPos(n, layout, autoPos)
       nodes[n.id] = { p: [p.x, y, p.z], frame: 'flat', plateId: l.id }
-      return cardRect(n, p)
-    })
-    const x0 = Math.min(...rects.map((r) => r.x0)) - PAD
-    const x1 = Math.max(...rects.map((r) => r.x1)) + PAD
-    const z0 = Math.min(...rects.map((r) => r.z0)) - PAD
-    const z1 = Math.max(...rects.map((r) => r.z1)) + PAD + LABEL_ROOM
+      const r = cardRect(n, p)
+      x0 = Math.min(x0, r.x0)
+      x1 = Math.max(x1, r.x1)
+      z0 = Math.min(z0, r.z0)
+      z1 = Math.max(z1, r.z1)
+    }
+    x0 -= PAD
+    x1 += PAD
+    z0 -= PAD
+    z1 += PAD + LABEL_ROOM
     plates.push({
       id: l.id,
       center: [(x0 + x1) / 2, y - 0.02, (z0 + z1) / 2],

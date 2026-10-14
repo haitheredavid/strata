@@ -15,8 +15,8 @@ import { deriveView } from '../view/deriveView'
  * `pnpm bench`. Sizes where a step is already too slow to iterate are left out of that step (see SIZES).
  */
 const SIZES = [1_000, 10_000, 50_000]
-/** autoLayout is O(n²) today; past this it takes minutes. */
-const LAYOUT_MAX = 5_000
+/** Largest size autoLayout is timed at. */
+const LAYOUT_MAX = 50_000
 const opts = { iterations: 3, warmupIterations: 1, time: 0, warmupTime: 0 }
 
 /** One timed step per test (vitest 5's `bench` fixture). */
@@ -54,8 +54,6 @@ for (const n of SIZES) {
     step('deriveView (lineage)', () => void deriveView(graphOf(n), { lineage: true }))
     step('simulateDay', () => void simulateDay(graphOf(n).workflows, graphOf(n).tables))
     for (const id of MODE_IDS) {
-      // stack places sources and jobs with a full force layout, quadratic for now
-      if (id === 'stack' && n > 10_000) continue
       step(`place ${id} (+jobs, clusters)`, () => {
         const g = graphOf(n)
         const view = deriveView(g, { lineage: true })
