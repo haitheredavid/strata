@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { Line } from '@react-three/drei'
+import { Line } from './compat'
 import { MODES } from '../layout/modes'
 import type { Ring } from '../layout/modes'
 import { modeOf, scheduleFor, useStore } from '../store'
@@ -34,6 +34,7 @@ import { TriggerLinks } from './TriggerLinks'
 import { flowVolumes, formatBytes, pulseShape } from '../sim/volume'
 import { usePalette } from '../theme/palette'
 import { PerfHud } from '../dev/PerfHud'
+import { createRenderer, lastDrawCalls, nodeRenderer } from './gpu/renderer'
 import { runBench } from '../dev/bench'
 import type { BenchOptions } from '../dev/bench'
 import { allSpans, lastSpans } from '../dev/perf'
@@ -56,6 +57,13 @@ export function Scene() {
 
   return (
     <Canvas
+      gl={createRenderer}
+      // WebGPURenderer blends in a linear buffer whenever it tone maps or converts color spaces, which
+      // makes translucent plates and wires read much stronger than WebGL's sRGB blending. Keep colors
+      // as sRGB values and draw straight to the canvas instead, so both renderers look alike.
+      legacy={nodeRenderer}
+      linear={nodeRenderer}
+      flat={nodeRenderer}
       camera={{ position: [30, 30, 40], fov: 45, near: 0.5, far: 2000 }}
       dpr={[1, 2]}
       onPointerMissed={() => !useStore.getState().dragging && focus(null)}
@@ -173,21 +181,17 @@ function Diagram({ model }: { model: SceneModel }) {
 
   const cardStyle = useMemo<CardStyle>(() => {
     const n = world.nodes.count
-    const color = new Float32Array(n * 3)
+    const color = new Float32Array(n * 4)
     const medal = new Float32Array(n * 4)
-    const state = new Float32Array(n * 2)
     world.nodes.ids.forEach((id, i) => {
       const node = nodeById.get(id)
       if (!node || node.kind === 'job') return
-      tmpColor.set(palette.layer(node.layerId)).toArray(color, 3 * i)
-      if (node.medallion) {
-        tmpColor.set(palette.medallion(node.medallion)).toArray(medal, 4 * i)
-        medal[4 * i + 3] = 1
-      }
-      state[2 * i] = nodeOpacity(id)
-      state[2 * i + 1] = id === focused || time?.reached.has(id) ? 1 : 0
+      tmpColor.set(palette.layer(node.layerId)).toArray(color, 4 * i)
+      color[4 * i + 3] = nodeOpacity(id)
+      if (node.medallion) tmpColor.set(palette.medallion(node.medallion)).toArray(medal, 4 * i)
+      medal[4 * i + 3] = (node.medallion ? 1 : 0) + (id === focused || time?.reached.has(id) ? 2 : 0)
     })
-    return { color, medal, state }
+    return { color, medal }
     // nodeOpacity reads the same inputs listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [world, nodeById, palette, focused, time, lit, reach, placement])
@@ -354,7 +358,8 @@ function DevHandle() {
     ;(window as unknown as { __strata: unknown }).__strata = {
       store: useStore,
       scene: () => get().scene,
-      info: () => ({ calls: gl.info.render.calls, triangles: gl.info.render.triangles, geometries: gl.info.memory.geometries }),
+      gl: () => gl,
+      info: () => ({ calls: lastDrawCalls(gl.info as never), triangles: gl.info.render.triangles, geometries: gl.info.memory.geometries }),
       advance: (n = 1) => {
         for (let i = 0; i < n; i++) advance(performance.now() + i * 16)
       },

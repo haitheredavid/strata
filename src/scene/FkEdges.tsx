@@ -10,7 +10,10 @@ import {
   ShaderMaterial,
   Vector2,
 } from 'three'
-import type { Mesh } from 'three'
+import type { Material, Mesh } from 'three'
+import { nodeRenderer } from './gpu/renderer'
+import { fkEdgeMaterial } from './gpu/materials'
+import type { Uniforms } from './gpu/materials'
 import { useStore } from '../store'
 import { updateFkCurves } from '../world/fkEdges'
 import type { FkCurves } from '../world/fkEdges'
@@ -144,25 +147,31 @@ export function FkEdges({ world, curves, fkStyle }: { world: World; curves: FkCu
 
   useEffect(() => () => geometry.dispose(), [geometry])
 
-  const material = useMemo(
-    () =>
-      new ShaderMaterial({
-        vertexShader,
-        fragmentShader,
-        uniforms: {
-          resolution: { value: new Vector2(1, 1) },
-          hovered: { value: -1 },
-          hoverable: { value: 1 },
-          fade: { value: 1 },
-        },
-        transparent: true,
-        depthWrite: false,
-        side: DoubleSide, // ribbon winding flips with the curve's screen direction
-      }),
-    [],
-  )
+  // GLSL for the classic renderer, TSL for WebGPURenderer; uniforms ride on userData.u either way.
+  const material = useMemo<Material>(() => {
+    if (nodeRenderer) {
+      const { material, uniforms } = fkEdgeMaterial(SEGMENTS)
+      material.userData.u = uniforms
+      return material
+    }
+    const m = new ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        resolution: { value: new Vector2(1, 1) },
+        hovered: { value: -1 },
+        hoverable: { value: 1 },
+        fade: { value: 1 },
+      },
+      transparent: true,
+      depthWrite: false,
+      side: DoubleSide, // ribbon winding flips with the curve's screen direction
+    })
+    m.userData.u = m.uniforms
+    return m
+  }, [])
   useEffect(() => () => material.dispose(), [material])
-  const mesh = useRef<Mesh<InstancedBufferGeometry, ShaderMaterial>>(null)
+  const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)
 
   useFrame(() => {
     const m = mesh.current
@@ -176,12 +185,12 @@ export function FkEdges({ world, curves, fkStyle }: { world: World; curves: FkCu
         buf.needsUpdate = true
       }
     }
-    const u = m.material.uniforms
+    const u = m.material.userData.u as Uniforms
     const h = useStore.getState().hoveredTableId
     u.hovered.value = h === null ? -1 : (world.nodes.index.get(h) ?? -2)
     u.fade.value = 1 - 0.75 * animState.moving
     u.hoverable.value = fkStyle.hoverable ? 1 : 0
-    u.resolution.value.set(size.width, size.height)
+    ;(u.resolution.value as Vector2).set(size.width, size.height)
   })
 
   return <mesh ref={mesh} geometry={geometry} material={material} frustumCulled={false} raycast={() => null} />

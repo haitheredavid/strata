@@ -3,6 +3,7 @@ import { useThree } from '@react-three/fiber'
 import { StatsGl } from '@react-three/drei'
 import { installFrameClock, lastFrame } from './frames'
 import { lastSpans } from './perf'
+import { lastDrawCalls } from '../scene/gpu/renderer'
 
 /** Dev overlay: stats-gl (FPS / CPU / GPU) plus draw calls, geometry counts, frame work and recent spans. */
 export function PerfHud() {
@@ -21,7 +22,7 @@ export function PerfHud() {
         .slice(0, 8)
         .map((s) => `${s.name.padEnd(16)} ${s.ms.toFixed(1).padStart(7)}ms`)
       el.textContent = [
-        `calls ${render.calls}  tris ${render.triangles}`,
+        `calls ${lastDrawCalls(gl.info as never)}  tris ${render.triangles}`,
         `geo ${memory.geometries}  tex ${memory.textures}`,
         `frame work ${lastFrame.work.toFixed(1)}ms  interval ${lastFrame.interval.toFixed(1)}ms`,
         ...spans,

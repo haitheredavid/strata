@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Color, DoubleSide, InstancedBufferAttribute, InstancedBufferGeometry, PlaneGeometry, ShaderMaterial } from 'three'
-import type { Mesh } from 'three'
+import type { Material, Mesh } from 'three'
+import { nodeRenderer } from './gpu/renderer'
+import { cardMaterial } from './gpu/materials'
+import type { Uniforms } from './gpu/materials'
 import { HEADER_H } from '../layout/geometry'
 import { useStore } from '../store'
 import { packOnce } from '../world/world'
@@ -19,12 +22,10 @@ const vertexShader = /* glsl */ `
   uniform float hovered;
   attribute vec3 ipos;
   attribute vec4 iquat;
-  attribute vec2 isize;
-  attribute float ikind;
-  attribute vec3 icolor;
-  attribute vec4 imedal;   // rgb, has-medallion
-  attribute vec2 istate;   // opacity, highlighted (focus / timeline)
-  attribute float iindex;
+  // Packed to stay within WebGPU's 8 vertex buffers.
+  attribute vec4 imeta;    // size.x, size.y, kind, node index
+  attribute vec4 icolor;   // layer rgb, opacity
+  attribute vec4 imedal;   // medallion rgb, flags (1 has medallion, 2 highlighted)
   varying vec2 vLocal;
   varying vec2 vSize;
   varying vec3 vColor;
@@ -35,15 +36,16 @@ const vertexShader = /* glsl */ `
   vec3 rotate(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 
   void main() {
-    bool card = ikind < 2.5; // table, domain, source
+    vec2 isize = imeta.xy;
+    bool card = imeta.z < 2.5; // table, domain, source
     vec2 full = isize + vec2(${OUTLINE * 2});
     vec2 local = position.xy * full;
     vLocal = local;
     vSize = isize;
-    vColor = icolor;
-    vMedal = imedal;
-    vOpacity = istate.x;
-    vHigh = max(istate.y, abs(iindex - hovered) < 0.5 ? 1.0 : 0.0);
+    vColor = icolor.rgb;
+    vMedal = vec4(imedal.rgb, mod(imedal.a, 2.0));
+    vOpacity = icolor.a;
+    vHigh = max(imedal.a >= 2.0 ? 1.0 : 0.0, abs(imeta.w - hovered) < 0.5 ? 1.0 : 0.0);
     // Cards sit just in front of their plane, like the old group offset.
     vec3 world = ipos + rotate(iquat, vec3(local, 0.02));
     gl_Position = card ? projectionMatrix * viewMatrix * vec4(world, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
@@ -88,12 +90,10 @@ const fragmentShader = /* glsl */ `
 `
 
 export interface CardStyle {
-  /** rgb per world node (layer color). */
+  /** Layer rgb + opacity per world node. */
   color: Float32Array
-  /** rgb + has-medallion per world node. */
+  /** Medallion rgb + flags (1 has medallion, 2 highlighted) per world node. */
   medal: Float32Array
-  /** opacity, highlighted per world node. */
-  state: Float32Array
 }
 
 export function CardBodies({ world, style }: { world: World; style: CardStyle }) {
@@ -110,40 +110,45 @@ export function CardBodies({ world, style }: { world: World; style: CardStyle })
     quat.setUsage(35048)
     g.setAttribute('ipos', pos)
     g.setAttribute('iquat', quat)
-    g.setAttribute('isize', new InstancedBufferAttribute(nodes.size, 2))
-    g.setAttribute('ikind', new InstancedBufferAttribute(Float32Array.from(nodes.kind), 1))
-    g.setAttribute('iindex', new InstancedBufferAttribute(Float32Array.from({ length: n }, (_, i) => i), 1))
+    const meta = new Float32Array(n * 4)
+    for (let i = 0; i < n; i++) meta.set([nodes.size[2 * i], nodes.size[2 * i + 1], nodes.kind[i], i], 4 * i)
+    g.setAttribute('imeta', new InstancedBufferAttribute(meta, 4))
     g.instanceCount = n
     return g
   }, [world, n])
 
   useEffect(() => {
-    geometry.setAttribute('icolor', new InstancedBufferAttribute(style.color, 3))
+    geometry.setAttribute('icolor', new InstancedBufferAttribute(style.color, 4))
     geometry.setAttribute('imedal', new InstancedBufferAttribute(style.medal, 4))
-    geometry.setAttribute('istate', new InstancedBufferAttribute(style.state, 2))
   }, [geometry, style])
   useEffect(() => () => geometry.dispose(), [geometry])
 
-  const material = useMemo(
-    () =>
-      new ShaderMaterial({
-        vertexShader,
-        fragmentShader,
-        uniforms: {
-          hovered: { value: -1 },
-          // the old card meshes' colors
-          bodyColor: { value: new Color('#1b2130') },
-          bodyHigh: { value: new Color('#2a3344') },
-          ink: { value: new Color('#0b0e14') },
-        },
-        transparent: true,
-        depthWrite: false,
-        side: DoubleSide,
-      }),
-    [],
-  )
+  // GLSL for the classic renderer, TSL for WebGPURenderer; uniforms ride on userData.u either way.
+  const material = useMemo<Material>(() => {
+    if (nodeRenderer) {
+      const { material, uniforms } = cardMaterial(OUTLINE)
+      material.userData.u = uniforms
+      return material
+    }
+    const m = new ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        hovered: { value: -1 },
+        // the old card meshes' colors
+        bodyColor: { value: new Color('#1b2130') },
+        bodyHigh: { value: new Color('#2a3344') },
+        ink: { value: new Color('#0b0e14') },
+      },
+      transparent: true,
+      depthWrite: false,
+      side: DoubleSide,
+    })
+    m.userData.u = m.uniforms
+    return m
+  }, [])
   useEffect(() => () => material.dispose(), [material])
-  const mesh = useRef<Mesh<InstancedBufferGeometry, ShaderMaterial>>(null)
+  const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)
 
   useFrame(() => {
     const m = mesh.current
@@ -158,7 +163,7 @@ export function CardBodies({ world, style }: { world: World; style: CardStyle })
       }
     }
     const h = useStore.getState().hoveredTableId
-    m.material.uniforms.hovered.value = h === null ? -1 : (world.nodes.index.get(h) ?? -1)
+    ;(m.material.userData.u as Uniforms).hovered.value = h === null ? -1 : (world.nodes.index.get(h) ?? -1)
   })
 
   // Drawn after the layer plates, so a plate never washes over the cards resting on it.

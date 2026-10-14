@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef } from 'react'
-import { Line } from '@react-three/drei'
+import { Line } from './compat'
 import { useFrame } from '@react-three/fiber'
 import { Vector3 } from 'three'
 import type { Line2 } from 'three-stdlib'
