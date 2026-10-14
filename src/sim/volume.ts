@@ -48,24 +48,39 @@ export function flowVolumes(flows: FlowEdge[], graph: Graph, schedule: Schedule)
     const layer = table.startsWith('source:') ? 'source' : (medallion.get(table) ?? 'none')
     const [lo, hi] = RANGE[layer]
     const bytes = declared.get(f.taskId) ?? lo * (hi / lo) ** rand(`${f.taskId}:${table}:bytes`)
-    out.set(f.id, { bytes: Math.round(bytes), runsPerDay: Math.max(1, runs.get(f.taskId) ?? 0) })
+    // At least a byte: the dot size is a log scale.
+    out.set(f.id, { bytes: Math.max(1, Math.round(bytes)), runsPerDay: Math.max(1, runs.get(f.taskId) ?? 0) })
   }
   return out
 }
 
-/** Dot size from bytes per run (log scale across the shown flows) and dots per edge from runs per day. */
-export function pulseShape(flows: FlowEdge[], volumes: Map<string, FlowVolume>) {
-  const logs = flows.map((f) => Math.log10(volumes.get(f.id)?.bytes ?? 1e9))
+export interface PulseShape {
+  scale: number
+  dots: number
+}
+
+/**
+ * Dot size from bytes per run and dots per edge from runs per day, by flow id. Pass every flow in the
+ * view, not just the lit ones: the log scale spans what's passed, and a lens or the timeline changing
+ * the set must not resize an edge's dots.
+ */
+export function pulseShape(flows: FlowEdge[], volumes: Map<string, FlowVolume>): Map<string, PulseShape> {
+  const logs = flows.map((f) => Math.log10(Math.max(1, volumes.get(f.id)?.bytes ?? 1e9)))
   const lo = Math.min(...logs)
   const range = Math.max(...logs) - lo
-  return flows.map((f, i) => {
-    const runs = volumes.get(f.id)?.runsPerDay ?? 1
-    return {
-      scale: range > 0.01 ? 0.55 + 1.35 * ((logs[i] - lo) / range) : 1,
-      // a daily batch is one dot, hourly about four, streaming a dense train
-      dots: Math.min(MAX_DOTS, Math.max(1, Math.round(1 + Math.log2(runs) / 1.5))),
-    }
-  })
+  return new Map(
+    flows.map((f, i) => {
+      const runs = volumes.get(f.id)?.runsPerDay ?? 1
+      return [
+        f.id,
+        {
+          scale: range > 0.01 ? 0.55 + 1.35 * ((logs[i] - lo) / range) : 1,
+          // a daily batch is one dot, hourly about four, streaming a dense train
+          dots: Math.min(MAX_DOTS, Math.max(1, Math.round(1 + Math.log2(runs) / 1.5))),
+        },
+      ]
+    }),
+  )
 }
 
 /** `4.2 GB`, `350 MB`, `12 KB`. */

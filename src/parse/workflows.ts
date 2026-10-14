@@ -47,7 +47,7 @@ const UNITS: Record<string, number> = { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e1
 
 /** `123456`, `500MB`, `4 GB`, `1.2TiB` → bytes; undefined when it isn't a size. */
 export function parseBytes(v: unknown): number | undefined {
-  if (typeof v === 'number') return v > 0 ? v : undefined
+  if (typeof v === 'number') return v > 0 ? Math.round(v) || undefined : undefined
   if (typeof v !== 'string') return undefined
   const m = /^(\d+(?:\.\d+)?)\s*([kmgt]i?b|b)?$/.exec(v.trim().toLowerCase())
   if (!m) return undefined

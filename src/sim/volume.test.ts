@@ -23,6 +23,12 @@ describe('parseBytes', () => {
     expect(parseBytes('lots')).toBeUndefined()
   })
 
+  it('never yields a zero size', () => {
+    expect(parseBytes(0.3)).toBeUndefined()
+    expect(parseBytes(1.6)).toBe(2)
+    expect(parseBytes('0.3')).toBeUndefined()
+  })
+
   it('warns on an unreadable size', () => {
     const g = parseDbml(read('lakehouse.dbml'), 'pipelines:\n  - id: p\n    tasks:\n      - id: t\n        bytes: lots\n        reads: [bronze.orders_raw]\n')
     expect(g.workflows.warnings.some((w) => w.includes('unreadable size'))).toBe(true)
@@ -63,9 +69,15 @@ describe('pulseShape', () => {
   it('scales dot size with bytes and dot count with runs a day', () => {
     const flows = ['a', 'b'].map((id) => ({ id, from: 'x', to: 'y', pipelineId: 'p', taskId: id, role: 'write' as const }))
     const shape = pulseShape(flows, new Map([['a', { bytes: 1e7, runsPerDay: 1 }], ['b', { bytes: 1e10, runsPerDay: 144 }]]))
-    expect(shape[0].scale).toBeLessThan(shape[1].scale)
-    expect(shape[0].dots).toBe(1)
-    expect(shape[1].dots).toBe(6)
+    expect(shape.get('a')!.scale).toBeLessThan(shape.get('b')!.scale)
+    expect(shape.get('a')!.dots).toBe(1)
+    expect(shape.get('b')!.dots).toBe(6)
+  })
+
+  it('keeps sizes finite for a zero-byte flow', () => {
+    const flows = ['a', 'b'].map((id) => ({ id, from: 'x', to: 'y', pipelineId: 'p', taskId: id, role: 'write' as const }))
+    const shape = pulseShape(flows, new Map([['a', { bytes: 0, runsPerDay: 1 }], ['b', { bytes: 1e10, runsPerDay: 1 }]]))
+    for (const s of shape.values()) expect(Number.isFinite(s.scale)).toBe(true)
   })
 })
 

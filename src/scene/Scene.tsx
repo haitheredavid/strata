@@ -22,7 +22,7 @@ import { CLUSTER_COLOR } from './clusterStyle'
 import { ComputeLinks } from './ComputeLinks'
 import type { ComputeLink, ViewCluster } from '../view/deriveView'
 import { TriggerLinks } from './TriggerLinks'
-import { flowVolumes, formatBytes } from '../sim/volume'
+import { flowVolumes, formatBytes, pulseShape } from '../sim/volume'
 
 const DIM = 0.1
 const FADED = 0.35
@@ -100,6 +100,7 @@ function Diagram({ model }: { model: SceneModel }) {
       return `${formatBytes(e.in)} in → ${formatBytes(e.out)} out · ${runs}`
     }
   }, [view, volumes])
+  const pulseShapes = useMemo(() => pulseShape(view.flows, volumes), [view, volumes])
   const pulseFlows = useMemo(() => view.flows.filter((f) => !lit || lit.flows.has(f.id)), [view, lit])
 
   // Clusters follow their jobs: lit when a job they run is lit / running.
@@ -223,7 +224,7 @@ function Diagram({ model }: { model: SceneModel }) {
         <>
           <Pulses
             flows={pulseFlows}
-            volumes={volumes}
+            shapes={pulseShapes}
             colorOf={colorOf}
             schedule={time ? scheduleFor(graph) : null}
             lens={time ? time.active : null}
