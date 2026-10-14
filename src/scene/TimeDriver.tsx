@@ -2,12 +2,14 @@ import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { scheduleFor, useStore } from '../store'
 import { DAY, taskRunsIn } from '../sim/schedule'
+import { timeWindow } from './usePlacement'
 import type { TimeView } from './usePlacement'
 import { timeClock } from './timeClock'
 
 /**
  * Advances the day clock while playing (stopping at the span end or midnight), publishes `t` to the
- * store whenever the set of running jobs changes, and (optionally) follows them with the camera.
+ * store whenever the running jobs or the recent-runs window change, and (optionally) follows them with
+ * the camera.
  */
 export function TimeDriver({ time }: { time: TimeView | null }) {
   const follow = useStore((s) => s.time.follow)
@@ -22,7 +24,11 @@ export function TimeDriver({ time }: { time: TimeView | null }) {
       timeClock.t = Math.min(end, timeClock.t + Math.min(dt, 0.1) * s.time.speed)
       if (timeClock.t >= end) s.setTime({ playing: false, t: end })
     }
-    const key = taskRunsIn(scheduleFor(s.graph), [timeClock.t, timeClock.t]).map((r) => r.id).join()
+    // The window matters too: a finished run must stop counting as done once it slides out, even if
+    // nothing starts or stops for hours.
+    const schedule = scheduleFor(s.graph)
+    const ids = (w: [number, number]) => taskRunsIn(schedule, w).map((r) => r.id).join()
+    const key = `${ids([timeClock.t, timeClock.t])}|${ids(timeWindow(timeClock.t, s.time.span))}`
     if (key !== lastKey.current) {
       lastKey.current = key
       if (s.time.t !== timeClock.t) s.setTime({ t: timeClock.t })
