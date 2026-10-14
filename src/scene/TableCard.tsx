@@ -26,10 +26,12 @@ interface Props {
   /** Focused or reached by the timeline; hover is added here. */
   highlighted: boolean
   draggable: boolean
+  /** Visuals come from CardBodies: keep only an invisible hit surface and the text. */
+  instanced?: boolean
 }
 
 /** A table (or collapsed domain) card, drawn in its local frame: faces +Z, header on top. */
-export const TableCard = memo(function TableCard({ node, place, color, opacity, highlighted: selected, draggable }: Props) {
+export const TableCard = memo(function TableCard({ node, place, color, opacity, highlighted: selected, draggable, instanced = false }: Props) {
   const hover = useStore((s) => s.hover)
   useReleaseHover(node.id)
   // Hover is read here, not passed down, so moving the pointer re-renders only the cards it enters and leaves.
@@ -116,6 +118,7 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
       <group position={[0, 0, 0.02]}>
         {/* body: also the interaction surface */}
         <mesh
+          visible={!instanced}
           onPointerOver={(e) => (e.stopPropagation(), hover(node.id))}
           onPointerOut={() => hover(null)}
           onPointerDown={onPointerDown}
@@ -135,16 +138,16 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
         </mesh>
 
         {/* outline */}
-        <mesh position={[0, 0, -0.005]} raycast={() => null}>
+        {!instanced && <mesh position={[0, 0, -0.005]} raycast={() => null}>
           <planeGeometry args={[CARD_W + 0.08, depth + 0.08]} />
           <meshBasicMaterial color={highlighted ? '#ffffff' : color} transparent opacity={(highlighted ? 0.9 : 0.5) * opacity} {...layer(-1)} />
-        </mesh>
+        </mesh>}
 
         {/* header */}
-        <mesh position={[0, top - HEADER_H / 2, 0.005]} raycast={() => null}>
+        {!instanced && <mesh position={[0, top - HEADER_H / 2, 0.005]} raycast={() => null}>
           <planeGeometry args={[CARD_W, HEADER_H]} />
           <meshBasicMaterial color={color} transparent opacity={opacity} {...layer(1)} />
-        </mesh>
+        </mesh>}
         <Label
           position={[-CARD_W / 2 + 0.2, top - HEADER_H / 2, 0.02]}
           fontSize={0.32}
@@ -160,14 +163,14 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
         </Label>
         {node.medallion && (
           <group position={[CARD_W / 2 - 0.32, top - HEADER_H / 2, 0.012]}>
-            <mesh raycast={() => null}>
+            {!instanced && <mesh raycast={() => null}>
               <planeGeometry args={[0.44, 0.44]} />
               <meshBasicMaterial color="#0b0e14" transparent opacity={0.85 * opacity} {...layer(2)} />
-            </mesh>
-            <mesh position={[0, 0, 0.002]} raycast={() => null}>
+            </mesh>}
+            {!instanced && <mesh position={[0, 0, 0.002]} raycast={() => null}>
               <planeGeometry args={[0.34, 0.34]} />
               <meshBasicMaterial color={palette.medallion(node.medallion)} transparent opacity={opacity} {...layer(3)} />
-            </mesh>
+            </mesh>}
             <Label position={[0, 0, 0.01]} fontSize={0.22} color="#0b0e14" fillOpacity={opacity} anchorX="center" anchorY="middle" depthOffset={-16} raycast={() => null}>
               {node.medallion[0].toUpperCase()}
             </Label>

@@ -16,6 +16,9 @@ import { FkEdges } from './FkEdges'
 import { packColors } from './colors'
 import type { FkStyle } from './FkEdges'
 import { FkLabels } from './FkLabels'
+import { CardBodies } from './CardBodies'
+import type { CardStyle } from './CardBodies'
+import { Color } from 'three'
 import { buildWorld } from '../world/world'
 import { fkCurves } from '../world/fkEdges'
 import { FlowWire } from './FlowWire'
@@ -38,6 +41,9 @@ import type CameraControlsImpl from 'camera-controls'
 
 /** `?wires=legacy` keeps one drei Line per FK wire, for comparing against the instanced path. */
 const legacyWires = /[?&]wires=legacy\b/.test(location.search)
+/** `?cards=legacy` keeps the per-card meshes. */
+const legacyCards = /[?&]cards=legacy\b/.test(location.search)
+const tmpColor = new Color()
 
 const showPerf = import.meta.env.DEV && /[?&](perf|synth)\b/.test(location.search)
 
@@ -165,8 +171,30 @@ function Diagram({ model }: { model: SceneModel }) {
     return { color: packColors(colors), style, hoverable: !lit && !reach }
   }, [fkEdges, placement, lit, reach, lineageActive, palette, nodeById])
 
+  const cardStyle = useMemo<CardStyle>(() => {
+    const n = world.nodes.count
+    const color = new Float32Array(n * 3)
+    const medal = new Float32Array(n * 4)
+    const state = new Float32Array(n * 2)
+    world.nodes.ids.forEach((id, i) => {
+      const node = nodeById.get(id)
+      if (!node || node.kind === 'job') return
+      tmpColor.set(palette.layer(node.layerId)).toArray(color, 3 * i)
+      if (node.medallion) {
+        tmpColor.set(palette.medallion(node.medallion)).toArray(medal, 4 * i)
+        medal[4 * i + 3] = 1
+      }
+      state[2 * i] = nodeOpacity(id)
+      state[2 * i + 1] = id === focused || time?.reached.has(id) ? 1 : 0
+    })
+    return { color, medal, state }
+    // nodeOpacity reads the same inputs listed here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world, nodeById, palette, focused, time, lit, reach, placement])
+
   return (
     <>
+      {!legacyCards && <CardBodies world={world} style={cardStyle} />}
       {placement.plates.map((pl) => (
         <LayerPlate key={pl.id} plate={pl} color={palette.layer(pl.id)} opacity={lens ? 0.4 : 1} />
       ))}
@@ -199,6 +227,7 @@ function Diagram({ model }: { model: SceneModel }) {
             opacity={nodeOpacity(n.id)}
             highlighted={highlighted || !!time?.reached.has(n.id)}
             draggable={mode.draggable}
+            instanced={!legacyCards}
           />
         )
       })}
