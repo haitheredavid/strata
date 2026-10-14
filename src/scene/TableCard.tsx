@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef } from 'react'
-import { Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
 import { Group, Plane, Vector3 } from 'three'
@@ -8,6 +7,7 @@ import type { NodePlace } from '../layout/modes'
 import { MEDALLION_LAYERS } from '../view/deriveView'
 import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
+import { Label } from './Label'
 import { syncFromAnim, animState } from './anim'
 
 const DRAG_THRESHOLD = 0.15
@@ -124,7 +124,7 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
           <planeGeometry args={[CARD_W, HEADER_H]} />
           <meshBasicMaterial color={color} transparent opacity={opacity} {...layer(1)} />
         </mesh>
-        <Text
+        <Label
           position={[-CARD_W / 2 + 0.2, top - HEADER_H / 2, 0.02]}
           fontSize={0.32}
           anchorX="left"
@@ -136,7 +136,7 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
           raycast={() => null}
         >
           {isDomain ? node.name.toUpperCase() : node.name}
-        </Text>
+        </Label>
         {node.medallion && (
           <group position={[CARD_W / 2 - 0.32, top - HEADER_H / 2, 0.012]}>
             <mesh raycast={() => null}>
@@ -147,9 +147,9 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
               <planeGeometry args={[0.34, 0.34]} />
               <meshBasicMaterial color={MEDALLION_COLOR[node.medallion]} transparent opacity={opacity} {...layer(3)} />
             </mesh>
-            <Text position={[0, 0, 0.01]} fontSize={0.22} color="#0b0e14" fillOpacity={opacity} anchorX="center" anchorY="middle" depthOffset={-16} raycast={() => null}>
+            <Label position={[0, 0, 0.01]} fontSize={0.22} color="#0b0e14" fillOpacity={opacity} anchorX="center" anchorY="middle" depthOffset={-16} raycast={() => null}>
               {node.medallion[0].toUpperCase()}
-            </Text>
+            </Label>
           </group>
         )}
 
@@ -158,7 +158,7 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
           const badge = c.pk ? 'PK' : c.fk ? 'FK' : ''
           return (
             <group key={c.name} position={[0, y, 0.02]}>
-              <Text
+              <Label
                 position={[-CARD_W / 2 + 0.2, 0, 0]}
                 fontSize={0.22}
                 anchorX="left"
@@ -169,8 +169,8 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
                 raycast={() => null}
               >
                 {badge ? `${c.name}  ·${badge}` : c.name}
-              </Text>
-              <Text
+              </Label>
+              <Label
                 position={[CARD_W / 2 - 0.2, 0, 0]}
                 fontSize={0.2}
                 anchorX="right"
@@ -181,7 +181,7 @@ export function TableCard({ node, place, color, opacity, highlighted, draggable 
                 raycast={() => null}
               >
                 {c.type}
-              </Text>
+              </Label>
             </group>
           )
         })}

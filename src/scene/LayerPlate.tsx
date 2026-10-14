@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef } from 'react'
-import { Line, Text } from '@react-three/drei'
+import { Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import type { Group } from 'three'
 import type { PlatePlace } from '../layout/modes'
+import { Label } from './Label'
 import { syncFromAnim, plateKey } from './anim'
 
 /** Translucent domain plate, drawn in its local frame (faces +Z). Flat plates label the near edge, upright ones the top. */
@@ -29,7 +30,7 @@ export function LayerPlate({ plate, opacity }: { plate: PlatePlace; opacity: num
         transparent
         opacity={0.6 * opacity}
       />
-      <Text
+      <Label
         position={[x0 + 0.5, labelY, 0.02]}
         fontSize={0.7}
         anchorX="left"
@@ -39,7 +40,7 @@ export function LayerPlate({ plate, opacity }: { plate: PlatePlace; opacity: num
         raycast={() => null}
       >
         {plate.label.toUpperCase()}
-      </Text>
+      </Label>
     </group>
   )
 }

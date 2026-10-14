@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { Suspense, useEffect, useMemo } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Line } from '@react-three/drei'
 import { MODES } from '../layout/modes'
@@ -40,7 +40,10 @@ export function Scene() {
       <color attach="background" args={['#0b0e14']} />
       <CameraRig view={model.view} placement={model.placement} />
       <AnimDriver placement={model.placement} />
-      <Diagram model={model} />
+      {/* Scene text suspends on its font; keep that inside the canvas so the DOM UI never blanks. */}
+      <Suspense fallback={null}>
+        <Diagram model={model} />
+      </Suspense>
       {import.meta.env.DEV && <DevHandle />}
     </Canvas>
   )

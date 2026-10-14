@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react'
-import { Line, Text } from '@react-three/drei'
+import { Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { CubicBezierCurve3, Vector3 } from 'three'
 import type { Mesh } from 'three'
@@ -7,6 +7,7 @@ import type { Line2 } from 'three-stdlib'
 import { localAnchor } from '../layout/geometry'
 import type { NodePlace } from '../layout/modes'
 import type { ViewEdge, ViewNode } from '../view/deriveView'
+import { Label } from './Label'
 import { anim, animState } from './anim'
 
 interface End {
@@ -119,12 +120,12 @@ export function Wire(props: Props) {
   return (
     <group>
       <Line ref={line} points={initial} color={color} lineWidth={width} transparent opacity={opacity} depthWrite={false} />
-      <Text ref={labelA} fontSize={0.2} color="#ffffff" fillOpacity={labelOpacity} anchorX="center" anchorY="bottom" raycast={() => null}>
+      <Label ref={labelA} fontSize={0.2} color="#ffffff" fillOpacity={labelOpacity} anchorX="center" anchorY="bottom" raycast={() => null}>
         {fromCard === 'n' ? 'N' : '1'}
-      </Text>
-      <Text ref={labelB} fontSize={0.2} color="#ffffff" fillOpacity={labelOpacity} anchorX="center" anchorY="bottom" raycast={() => null}>
+      </Label>
+      <Label ref={labelB} fontSize={0.2} color="#ffffff" fillOpacity={labelOpacity} anchorX="center" anchorY="bottom" raycast={() => null}>
         {(toCard === 'n' ? 'N' : '1') + (edge.count > 1 ? `  ×${edge.count}` : '')}
-      </Text>
+      </Label>
     </group>
   )
 }

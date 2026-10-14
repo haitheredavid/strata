@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef } from 'react'
-import { Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import type { Group, Mesh } from 'three'
 import type { Trigger } from '../model/workflow'
 import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
+import { Label } from './Label'
 import { syncFromAnim } from './anim'
 import { TRIGGER_LABEL } from './timeClock'
 
@@ -73,13 +73,13 @@ export function JobNode({ node, color, opacity, highlighted, runState, volume }:
         <cylinderGeometry args={[0.92, 0.92, 0.18, 6]} />
         <meshBasicMaterial color={color} transparent opacity={opacity} />
       </mesh>
-      <Text position={[0, -1.25, 0.05]} fontSize={0.34} color={color} fillOpacity={opacity} anchorX="center" anchorY="middle" raycast={() => null}>
+      <Label position={[0, -1.25, 0.05]} fontSize={0.34} color={color} fillOpacity={opacity} anchorX="center" anchorY="middle" raycast={() => null}>
         {node.name}
-      </Text>
+      </Label>
       {highlighted && volume && (
-        <Text position={[0, -1.7, 0.05]} fontSize={0.24} color="#cbd5e1" fillOpacity={opacity} anchorX="center" anchorY="middle" raycast={() => null}>
+        <Label position={[0, -1.7, 0.05]} fontSize={0.24} color="#cbd5e1" fillOpacity={opacity} anchorX="center" anchorY="middle" raycast={() => null}>
           {volume}
-        </Text>
+        </Label>
       )}
 
       {node.trigger && (
@@ -88,9 +88,9 @@ export function JobNode({ node, color, opacity, highlighted, runState, volume }:
             <torusGeometry args={[1.25, 0.05, 8, 6]} />
             <meshBasicMaterial color={color} transparent opacity={0.8 * opacity} />
           </mesh>
-          <Text position={[0, 1.55, 0.05]} fontSize={0.26} color="#cbd5e1" fillOpacity={opacity} anchorX="center" anchorY="middle" raycast={() => null}>
+          <Label position={[0, 1.55, 0.05]} fontSize={0.26} color="#cbd5e1" fillOpacity={opacity} anchorX="center" anchorY="middle" raycast={() => null}>
             {triggerText(node.trigger)}
-          </Text>
+          </Label>
         </group>
       )}
 
@@ -100,9 +100,9 @@ export function JobNode({ node, color, opacity, highlighted, runState, volume }:
             <octahedronGeometry args={[0.28]} />
             <meshBasicMaterial color={EVENT} transparent opacity={opacity} />
           </mesh>
-          <Text position={[0.42, 0, 0]} fontSize={0.24} color={EVENT} fillOpacity={opacity} anchorX="left" anchorY="middle" raycast={() => null}>
+          <Label position={[0.42, 0, 0]} fontSize={0.24} color={EVENT} fillOpacity={opacity} anchorX="left" anchorY="middle" raycast={() => null}>
             {node.emits.join(', ')}
-          </Text>
+          </Label>
         </group>
       )}
     </group>

@@ -1,5 +1,4 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import type { Group, MeshBasicMaterial } from 'three'
 import type { Schedule } from '../sim/schedule'
@@ -7,6 +6,7 @@ import { onCluster } from '../sim/schedule'
 import { workersFor } from '../sim/spark'
 import type { ViewCluster } from '../view/deriveView'
 import { useStore } from '../store'
+import { Label } from './Label'
 import { syncFromAnim } from './anim'
 import { timeClock } from './timeClock'
 import { CLUSTER_COLOR, clusterSpec, KIND_LABEL } from './clusterStyle'
@@ -86,15 +86,15 @@ export function ClusterNode({ cluster: vc, opacity, highlighted, schedule }: Pro
           <meshBasicMaterial color={highlighted ? '#2a3344' : '#0f131c'} transparent opacity={opacity} />
         </mesh>
       </group>
-      <Text position={[0, 0.55, 0.3]} fontSize={0.2} color={color} fillOpacity={opacity} anchorX="center" anchorY="bottom" raycast={() => null}>
+      <Label position={[0, 0.55, 0.3]} fontSize={0.2} color={color} fillOpacity={opacity} anchorX="center" anchorY="bottom" raycast={() => null}>
         {KIND_LABEL[c.kind]}
-      </Text>
-      <Text position={[0, -(shown + 1) * (ROW + GAP) - 0.15, 0.3]} fontSize={0.32} color="#e2e8f0" fillOpacity={opacity} anchorX="center" anchorY="top" raycast={() => null}>
+      </Label>
+      <Label position={[0, -(shown + 1) * (ROW + GAP) - 0.15, 0.3]} fontSize={0.32} color="#e2e8f0" fillOpacity={opacity} anchorX="center" anchorY="top" raycast={() => null}>
         {c.name}
-      </Text>
-      <Text position={[0, -(shown + 1) * (ROW + GAP) - 0.6, 0.3]} fontSize={0.22} color="#94a3b8" fillOpacity={opacity} anchorX="center" anchorY="top" raycast={() => null}>
+      </Label>
+      <Label position={[0, -(shown + 1) * (ROW + GAP) - 0.6, 0.3]} fontSize={0.22} color="#94a3b8" fillOpacity={opacity} anchorX="center" anchorY="top" raycast={() => null}>
         {clusterSpec(c)}
-      </Text>
+      </Label>
     </group>
   )
 }
