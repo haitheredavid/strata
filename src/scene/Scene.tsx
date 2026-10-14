@@ -23,6 +23,13 @@ import type { ComputeLink, ViewCluster } from '../view/deriveView'
 import { TriggerLinks } from './TriggerLinks'
 import { flowVolumes, formatBytes, pulseShape } from '../sim/volume'
 import { usePalette } from '../theme/palette'
+import { PerfHud } from '../dev/PerfHud'
+import { runBench } from '../dev/bench'
+import type { BenchOptions } from '../dev/bench'
+import { allSpans, lastSpans } from '../dev/perf'
+import type CameraControlsImpl from 'camera-controls'
+
+const showPerf = import.meta.env.DEV && /[?&](perf|synth)\b/.test(location.search)
 
 const DIM = 0.1
 const FADED = 0.35
@@ -45,6 +52,7 @@ export function Scene() {
         <Diagram model={model} />
       </Suspense>
       {import.meta.env.DEV && <DevHandle />}
+      {showPerf && <PerfHud />}
     </Canvas>
   )
 }
@@ -256,16 +264,24 @@ function RingLine({ ring }: { ring: Ring }) {
   return <Line points={points} color="#3a4459" lineWidth={1} transparent opacity={0.5} dashed dashSize={0.6} gapSize={0.4} />
 }
 
-/** Dev only: lets automation step frames (`__strata.advance()`) when the tab is backgrounded. */
+/**
+ * Dev only: lets automation step frames (`__strata.advance()`) when the tab is backgrounded, and run the
+ * perf bench (`await __strata.bench({ synth: { tables: 5000 } })`).
+ */
 function DevHandle() {
   const advance = useThree((s) => s.advance)
+  const gl = useThree((s) => s.gl)
+  const get = useThree((s) => s.get)
   useEffect(() => {
     ;(window as unknown as { __strata: unknown }).__strata = {
       store: useStore,
       advance: (n = 1) => {
         for (let i = 0; i < n; i++) advance(performance.now() + i * 16)
       },
+      bench: (opts?: Partial<BenchOptions>) =>
+        runBench({ gl, controls: () => get().controls as unknown as CameraControlsImpl | null }, opts),
+      spans: () => ({ last: lastSpans(), all: allSpans() }),
     }
-  }, [advance])
+  }, [advance, gl, get])
   return null
 }

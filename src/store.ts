@@ -11,6 +11,7 @@ import { hash32 } from './sim/rng'
 import { DAY, simulateDay } from './sim/schedule'
 import type { Schedule } from './sim/schedule'
 import { isScheme } from './theme/schemes'
+import { span } from './dev/perf'
 import type { SchemeId } from './theme/schemes'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
@@ -47,6 +48,8 @@ interface State {
 
   /** Load a schema; `sidecar` replaces the saved workflow file for it (null keeps the saved one). */
   loadSchema: (src: string, sidecar?: string | null) => void
+  /** Load an already-built graph (e.g. a synthetic one); `key` names its saved layout. */
+  loadGraph: (graph: Graph, key: string) => void
   loadSidecar: (text: string) => void
   setLayout: (layout: Layout) => void
   resetLayout: () => void
@@ -102,7 +105,7 @@ const schedules = new WeakMap<Graph, Schedule>()
 /** The simulated day for a graph's workflows (cached per graph). */
 export function scheduleFor(graph: Graph): Schedule {
   let s = schedules.get(graph)
-  if (!s) schedules.set(graph, (s = simulateDay(graph.workflows, graph.tables)))
+  if (!s) schedules.set(graph, (s = span('simulateDay', () => simulateDay(graph.workflows, graph.tables))))
   return s
 }
 
@@ -149,6 +152,31 @@ export function isLayoutFor(layout: Layout, graph: Graph) {
   )
 }
 
+/** State for a freshly loaded graph: its saved layout (or a new one) and every per-schema setting reset. */
+function installGraph(graph: Graph, schemaKey: string, source: string, sidecar: string | null): Partial<State> {
+  const layout = span('autoLayout', () => loadSavedLayout(schemaKey, graph) ?? autoLayout(graph))
+  return {
+    source,
+    sidecar,
+    lensPipeline: null,
+    time: CLOSED,
+    collapsedLayers: [],
+    pathOpen: false,
+    pathEnds: [null, null],
+    pathIgnore: [],
+    activePath: null,
+    schemaKey,
+    graph,
+    layout,
+    error: null,
+    hoveredTableId: null,
+    focusedTableId: null,
+    hiddenLayers: [],
+    isolatedLayerId: null,
+    cameraCommand: { kind: 'preset', preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() },
+  }
+}
+
 export const useStore = create<State>((set, get) => ({
   schemaKey: '',
   graph: EMPTY_GRAPH,
@@ -178,35 +206,17 @@ export const useStore = create<State>((set, get) => ({
     const sidecar = sidecarText ?? (storage((ls) => ls.getItem(sidecarKey(schemaKey))) as string | null)
     let graph: Graph
     try {
-      graph = parseDbml(src, sidecar)
+      graph = span('parse', () => parseDbml(src, sidecar))
     } catch (e) {
       const diag = (e as { diags?: { message: string }[] }).diags?.[0]?.message
       set({ error: diag ?? String(e) })
       return
     }
     if (sidecarText) storage((ls) => ls.setItem(sidecarKey(schemaKey), sidecarText))
-    const layout = loadSavedLayout(schemaKey, graph) ?? autoLayout(graph)
-    set({
-      source: src,
-      sidecar,
-      lensPipeline: null,
-      time: CLOSED,
-      collapsedLayers: [],
-      pathOpen: false,
-      pathEnds: [null, null],
-      pathIgnore: [],
-      activePath: null,
-      schemaKey,
-      graph,
-      layout,
-      error: null,
-      hoveredTableId: null,
-      focusedTableId: null,
-      hiddenLayers: [],
-      isolatedLayerId: null,
-      cameraCommand: { kind: 'preset', preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() },
-    })
+    set(installGraph(graph, schemaKey, src, sidecar))
   },
+
+  loadGraph: (graph, key) => set(installGraph(graph, hash(key), '', null)),
 
   loadSidecar: (text) => {
     const { source, schemaKey } = get()

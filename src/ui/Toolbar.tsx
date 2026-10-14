@@ -3,7 +3,7 @@ import { modeOf, useStore } from '../store'
 import type { Layout } from '../model/types'
 import { MODES, MODE_IDS } from '../layout/modes'
 import { TablePicker } from './TablePicker'
-import { SAMPLES, loadFiles, loadSample } from './files'
+import { SAMPLES, SYNTH_PRESETS, loadFiles, loadSample } from './files'
 import { SCHEMES } from '../theme/schemes'
 import type { SchemeId } from '../theme/schemes'
 
@@ -50,6 +50,10 @@ export function Toolbar() {
         {SAMPLES.map((s) => (
           <option key={s.id} value={s.id}>{s.label}</option>
         ))}
+        {import.meta.env.DEV &&
+          SYNTH_PRESETS.map((s) => (
+            <option key={s.id} value={s.id}>{s.label}</option>
+          ))}
       </select>
       <button onClick={() => dbmlInput.current?.click()} title="Pick a .dbml file, optionally with its workflows .yaml/.json">
         Open DBML

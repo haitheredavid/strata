@@ -273,3 +273,25 @@ select.sample {
   color: var(--muted); font-size: 11px; line-height: 1.4;
 }
 .compute .tip .first { color: var(--text); font-weight: 600; }
+
+/* Dev perf overlay (?perf or ?synth=). */
+.perf-stats {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 50;
+}
+.perf-hud {
+  position: fixed;
+  right: 12px;
+  bottom: 72px;
+  z-index: 50;
+  margin: 0;
+  padding: 6px 8px;
+  font: 11px/1.35 ui-monospace, monospace;
+  color: #cfd6e4;
+  background: rgba(11, 14, 20, 0.85);
+  border: 1px solid #2a3142;
+  border-radius: 6px;
+  pointer-events: none;
+}

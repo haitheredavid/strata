@@ -3,7 +3,7 @@ import { Scene } from './scene/Scene'
 import { Toolbar } from './ui/Toolbar'
 import { LayerPanel } from './ui/LayerPanel'
 import { useStore } from './store'
-import { loadFiles, loadSample } from './ui/files'
+import { loadFiles, loadSample, loadSynth } from './ui/files'
 import { Timeline } from './ui/Timeline'
 import { ComputePanel } from './ui/ComputePanel'
 import { usePalette } from './theme/palette'
@@ -18,6 +18,8 @@ export default function App() {
   }, [accent])
 
   useEffect(() => {
+    const synth = import.meta.env.DEV ? new URLSearchParams(location.search).get('synth') : null
+    if (synth) return loadSynth(synth)
     let last: string | null = null
     try {
       last = localStorage.getItem('strata:sample')

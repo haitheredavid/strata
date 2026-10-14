@@ -14,6 +14,7 @@ import { taskRunsIn } from '../sim/schedule'
 import type { Window } from '../sim/schedule'
 import { jobNodeId } from '../view/deriveView'
 import { modeOf, scheduleFor, useStore } from '../store'
+import { span } from '../dev/perf'
 
 export interface Lit {
   nodes: Set<string>
@@ -69,7 +70,7 @@ export function useView(): ViewGraph {
   return useMemo(() => {
     const ids = deriveView(s.graph, { groupBy: s.groupBy, lineage: lineageOn(s.edgeLayer) }).layers.map((l) => l.id)
     const hidden = s.isolatedLayerId ? ids.filter((id) => id !== s.isolatedLayerId) : s.hiddenLayers
-    return deriveView(s.graph, {
+    return span('deriveView', () => deriveView(s.graph, {
       hiddenLayers: hidden,
       collapsedLayers: s.collapsedLayers,
       columnDetail: s.columnDetail,
@@ -78,7 +79,7 @@ export function useView(): ViewGraph {
       lineage: lineageOn(s.edgeLayer),
       hiddenPipelines: s.hiddenPipelines,
       compute: s.showCompute ?? true,
-    })
+    }))
   }, [s.showCompute, s.graph, s.groupBy, s.edgeLayer, s.isolatedLayerId, s.hiddenLayers, s.collapsedLayers, s.columnDetail, s.collapsedCards, s.hiddenPipelines])
 }
 
@@ -140,23 +141,15 @@ export function useSceneModel(): SceneModel {
   }, [view, focused, focusedNode?.kind, focusedCluster, s.hopUp, s.hopDown])
 
   const mode = MODES[modeOf(layout)]
-  const placement = useMemo(
-    () =>
-      placeClusters(
-        view,
-        placeJobs(
-          view,
-          // Layouts only know diagram nodes; a focused cluster doesn't rearrange them.
-          focusedCluster
-            ? mode.place(view, layout, { focusedId: null, hops: null, hopUp: s.hopUp, hopDown: s.hopDown })
-            : mode.place(view, layout, { focusedId: focused, hops: reach, hopUp: s.hopUp, hopDown: s.hopDown }),
-          mode.id,
-          layout.layerGap,
-        ),
-        mode.id,
-        layout.layerGap,
-      ),
-    [mode, view, layout, focused, focusedCluster, reach, s.hopUp, s.hopDown],
+  const placement = useMemo(() => {
+    // Layouts only know diagram nodes; a focused cluster doesn't rearrange them.
+    const ctx = focusedCluster
+      ? { focusedId: null, hops: null, hopUp: s.hopUp, hopDown: s.hopDown }
+      : { focusedId: focused, hops: reach, hopUp: s.hopUp, hopDown: s.hopDown }
+    const placed = span(`place:${mode.id}`, () => mode.place(view, layout, ctx))
+    const withJobs = span('placeJobs', () => placeJobs(view, placed, mode.id, layout.layerGap))
+    return span('placeClusters', () => placeClusters(view, withJobs, mode.id, layout.layerGap))
+  }, [mode, view, layout, focused, focusedCluster, reach, s.hopUp, s.hopDown],
   )
 
   const paths = usePaths(view)

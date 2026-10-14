@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:scale": "STRATA_SCALE=1 vitest run src/layout/scale.test.ts",
+    "bench": "vitest bench --run"
   },
   "dependencies": {
     "@dbml/core": "^10.3.1",
