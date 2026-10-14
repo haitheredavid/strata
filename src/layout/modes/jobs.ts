@@ -58,27 +58,30 @@ export function placeJobs(view: ViewGraph, placement: Placement, mode: ModeId, g
 }
 
 /**
- * Pushes points apart until none are closer than `gap`, moving them only along the `free` axes. A grid
- * of `gap`-sized cells finds the close pairs, so a pass is O(n) rather than all pairs.
+ * Pushes points apart until none are closer than `gap`, moving them only along the `free` axes.
+ * Only points that are also within `gap` on the other (locked) axes interact: jobs between
+ * different pairs of layers sit at different heights and don't need to dodge each other. A grid of
+ * `gap`-sized cells over all three axes finds the close pairs, so a pass is O(n).
  */
 export function separate(placed: { p: V3 }[], free: number[], gap: number) {
   if (placed.length < 2) return
-  const dims = free.length as 1 | 2 | 3
-  const [f0, f1, f2] = free
+  const dims = free.length
+  const locked = [0, 1, 2].filter((k) => !free.includes(k))
   const grid = new GridHash(gap)
   const near: number[] = []
   const d = [0, 0, 0]
   for (let iter = 0; iter < 60; iter++) {
     grid.clear()
-    placed.forEach(({ p }, i) => grid.insert(i, p[f0], f1 === undefined ? 0 : p[f1], f2 === undefined ? 0 : p[f2]))
+    placed.forEach(({ p }, i) => grid.insert(i, p[0], p[1], p[2]))
     let moved = false
     for (let i = 0; i < placed.length; i++) {
       const pi = placed[i].p
-      grid.near(near, dims, pi[f0], f1 === undefined ? 0 : pi[f1], f2 === undefined ? 0 : pi[f2])
+      grid.near(near, 3, pi[0], pi[1], pi[2])
       near.sort((a, b) => a - b) // same pair order as an all-pairs scan
       for (const j of near) {
         if (j <= i) continue
         const pj = placed[j].p
+        if (locked.some((k) => Math.abs(pj[k] - pi[k]) >= gap)) continue
         let len2 = 0
         for (let n = 0; n < dims; n++) {
           d[n] = pj[free[n]] - pi[free[n]]
