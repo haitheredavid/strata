@@ -10,7 +10,7 @@ const centroid = (ps: V3[]): V3 | null =>
 /**
  * Places job nodes between what they read and what they write, after a mode has placed the tables.
  * Stack: halfway between layers (or above a layer when reads and writes share it). Flow: in the gap
- * between slabs. Orbit: midway along the chord. Then nudges jobs apart so none overlap.
+ * between slabs. Diagram: on the ground, in the gap between domain columns. Orbit: midway along the chord. Then nudges jobs apart so none overlap.
  */
 export function placeJobs(view: ViewGraph, placement: Placement, mode: ModeId, gap: number): Placement {
   const jobs = view.nodes.filter((n) => n.kind === 'job' && !placement.nodes[n.id])
@@ -30,12 +30,14 @@ export function placeJobs(view: ViewGraph, placement: Placement, mode: ModeId, g
     const p: V3 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]
     if (mode === 'stack' && Math.abs(a[1] - b[1]) < 0.5) p[1] += gap * 0.5
     else if (mode === 'flow' && Math.abs(a[0] - b[0]) < 0.5) p[0] += gap * 0.6
+    else if (mode === 'diagram' && Math.abs(a[0] - b[0]) < 0.5) p[0] += gap * 0.6
     else if (mode === 'orbit' && Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 0.5) p[1] += 3
+    if (mode === 'diagram') p[1] = 0.3 // just above the cards, under the wires' arch
     placed.push({ id: job.id, p })
   }
 
   // Push overlapping jobs apart, only along axes that keep them between their layers.
-  separate(placed, mode === 'stack' ? [0, 2] : mode === 'flow' ? [1, 2] : [0, 1, 2], MIN_GAP)
+  separate(placed, mode === 'stack' || mode === 'diagram' ? [0, 2] : mode === 'flow' ? [1, 2] : [0, 1, 2], MIN_GAP)
 
   for (const { id, p } of placed) nodes[id] = { p, frame: 'billboard' }
   return { ...placement, nodes }

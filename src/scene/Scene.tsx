@@ -22,6 +22,7 @@ import { CLUSTER_COLOR } from './clusterStyle'
 import { ComputeLinks } from './ComputeLinks'
 import type { ComputeLink, ViewCluster } from '../view/deriveView'
 import { TriggerLinks } from './TriggerLinks'
+import { flowVolumes, formatBytes } from '../sim/volume'
 
 const DIM = 0.1
 const FADED = 0.35
@@ -80,6 +81,24 @@ function Diagram({ model }: { model: SceneModel }) {
   const runState = (id: string): RunState =>
     !time ? null : time.active.has(id) ? 'active' : time.done.has(id) ? 'done' : 'pending'
   const lineageActive = view.flows.length > 0
+  const volumes = useMemo(() => flowVolumes(view.flows, graph, scheduleFor(graph)), [view, graph])
+  const jobVolume = useMemo(() => {
+    const m = new Map<string, { in: number; out: number; runs: number }>()
+    for (const f of view.flows) {
+      const v = volumes.get(f.id)!
+      const job = f.role === 'read' ? f.to : f.from
+      const e = m.get(job) ?? { in: 0, out: 0, runs: v.runsPerDay }
+      e[f.role === 'read' ? 'in' : 'out'] += v.bytes
+      m.set(job, e)
+    }
+    return (id: string) => {
+      const e = m.get(id)
+      if (!e) return undefined
+      const runs = e.runs >= 100 ? 'streaming' : `${Math.round(e.runs)}×/day`
+      return `${formatBytes(e.in)} in → ${formatBytes(e.out)} out · ${runs}`
+    }
+  }, [view, volumes])
+  const pulseFlows = useMemo(() => view.flows.filter((f) => !lit || lit.flows.has(f.id)), [view, lit])
 
   // Clusters follow their jobs: lit when a job they run is lit / running.
   const clusterById = useMemo(() => new Map(view.clusters.map((c) => [c.id, c])), [view])
@@ -117,6 +136,7 @@ function Diagram({ model }: { model: SceneModel }) {
               opacity={nodeOpacity(n.id)}
               highlighted={highlighted}
               runState={runState(n.id)}
+              volume={jobVolume(n.id)}
             />
           )
         return (
@@ -200,17 +220,19 @@ function Diagram({ model }: { model: SceneModel }) {
       {lineageActive && (
         <>
           <Pulses
-            flows={view.flows.filter((f) => !lit || lit.flows.has(f.id))}
+            flows={pulseFlows}
+            volumes={volumes}
             colorOf={colorOf}
             schedule={time ? scheduleFor(graph) : null}
             lens={time ? time.active : null}
           />
           <TriggerLinks view={view} pipelines={shownPipelines} opacity={lens || time ? 0.3 : 1} />
-          {mode.id === 'flow' && (
+          {(mode.id === 'flow' || mode.id === 'diagram') && (
             <Lanes
               view={view}
               placement={placement}
               pipelines={shownPipelines}
+              spread={mode.id === 'diagram' ? 'z' : 'y'}
               opacityOf={(id) => (litPipelines ? (litPipelines.has(id) ? 1.5 : 0.15) : 1)}
             />
           )}

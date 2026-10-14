@@ -1,14 +1,26 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { CameraControls } from '@react-three/drei'
-import { useThree } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import CameraControlsImpl from 'camera-controls'
-import { Vector3 } from 'three'
+import { MathUtils, Vector3 } from 'three'
+import type { PerspectiveCamera } from 'three'
 import { CARD_W, cardDepth } from '../layout/geometry'
 import type { Frame, Placement } from '../layout/modes'
 import type { ViewGraph } from '../view/deriveView'
 import { modeOf, useStore } from '../store'
 
 const { ACTION } = CameraControlsImpl
+
+const FOV = 45
+/** Diagram mode narrows the lens this far: close enough to orthographic, still a perspective camera. */
+const FLAT_FOV = 3
+const FOV_RATE = 3
+
+/** Distance multiplier that keeps the framing of a 45° lens at `fov`. */
+const lensScale = (fov: number) => Math.tan(MathUtils.degToRad(FOV / 2)) / Math.tan(MathUtils.degToRad(fov / 2))
+
+/** camera-controls keeps its orbit radius (now and where it is easing to) in these. */
+type Radii = { _spherical: { radius: number }; _sphericalEnd: { radius: number }; _needsUpdate: boolean }
 
 /** Where the eye sits relative to a card when flying to it. */
 const FLY_OFFSET: Record<Exclude<Frame, 'billboard'>, [number, number, number]> = {
@@ -22,24 +34,58 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
   const camera = useThree((s) => s.camera)
   const cmd = useStore((s) => s.cameraCommand)
   const overCard = useStore((s) => s.hoveredTableId !== null || s.dragging)
+  const flat = useStore((s) => modeOf(s.layout) === 'diagram')
   // Commands run against the placement of the render that issued them.
   const latest = useRef({ view, placement })
   useLayoutEffect(() => {
     latest.current = { view, placement }
   }, [view, placement])
 
-  // Left-drag on a card moves the card, so stop it from also orbiting the camera.
+  // Left-drag on a card moves the card, so stop it from also orbiting the camera. Diagram cards don't drag.
   useEffect(() => {
     const c = controls.current
     if (!c) return
-    c.mouseButtons.left = overCard ? ACTION.NONE : ACTION.ROTATE
-    c.touches.one = overCard ? ACTION.NONE : ACTION.TOUCH_ROTATE
-  }, [overCard])
+    const block = overCard && !flat
+    c.mouseButtons.left = block ? ACTION.NONE : ACTION.ROTATE
+    c.touches.one = block ? ACTION.NONE : ACTION.TOUCH_ROTATE
+  }, [overCard, flat])
+
+  // Dolly zoom: ease the lens toward its mode's fov and scale the orbit radius with it, so the framing
+  // holds while perspective flattens out (or comes back). Clip planes follow the distance.
+  useFrame((state, dt) => {
+    const c = controls.current
+    const cam = state.camera as PerspectiveCamera
+    if (!c || !cam.isPerspectiveCamera) return
+    const goal = flat ? FLAT_FOV : FOV
+    let changed = false
+    if (cam.fov !== goal) {
+      changed = true
+      // ease in log space: the lens scale is what changes evenly
+      const next = Math.abs(cam.fov - goal) < 0.01 ? goal : Math.exp(MathUtils.lerp(Math.log(cam.fov), Math.log(goal), 1 - Math.exp(-dt * FOV_RATE)))
+      const r = lensScale(next) / lensScale(cam.fov)
+      const radii = c as unknown as Radii
+      radii._spherical.radius *= r
+      radii._sphericalEnd.radius *= r
+      radii._needsUpdate = true
+      cam.fov = next
+    }
+    const d = c.distance
+    const near = Math.max(0.1, d * 0.01)
+    const far = Math.max(2000, d * 6)
+    if (changed || cam.near !== near || cam.far !== far) {
+      cam.near = near
+      cam.far = far
+      cam.updateProjectionMatrix()
+    }
+  })
 
   useEffect(() => {
     const c = controls.current
     if (!c || !cmd) return
     const { view, placement } = latest.current
+    const flat = modeOf(useStore.getState().layout) === 'diagram'
+    // Offsets below are for a 45° lens; stretch them to the lens in use now.
+    const k = lensScale((camera as PerspectiveCamera).fov ?? FOV)
 
     if (cmd.kind === 'fly') {
       const n = placement.nodes[cmd.tableId]
@@ -49,7 +95,7 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
         n.frame === 'billboard'
           ? camera.position.clone().sub(new Vector3(x, y, z)).normalize().multiplyScalar(14).toArray()
           : FLY_OFFSET[n.frame]
-      c.setLookAt(x + off[0], y + off[1], z + off[2], x, y, z, true)
+      c.setLookAt(x + off[0] * k, y + off[1] * k, z + off[2] * k, x, y, z, true)
       return
     }
 
@@ -78,15 +124,17 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
     // Aim a little right of center so the side panel doesn't cover the far end of the scene.
     c.setFocalOffset(size * 0.12, 0, 0, true)
 
+    const look = (dx: number, dy: number, dz: number) => c.setLookAt(cx + dx * k, cy + dy * k, cz + dz * k, cx, cy, cz, true)
     if (cmd.kind === 'frame') {
-      const dir = camera.position.clone().sub(new Vector3(cx, cy, cz)).normalize().multiplyScalar(size * 2)
-      c.setLookAt(cx + dir.x, cy + dir.y, cz + dir.z, cx, cy, cz, true)
-    } else if (cmd.preset === 'iso') c.setLookAt(cx + size * 1.0, cy + size * 1.05, cz + size * 1.3, cx, cy, cz, true)
-    else if (cmd.preset === 'top') c.setLookAt(cx, cy + size * 1.8, cz + 0.01, cx, cy, cz, true)
+      const dir = camera.position.clone().sub(new Vector3(cx, cy, cz)).normalize()
+      dir.multiplyScalar(size * 2)
+      look(dir.x, dir.y, dir.z)
+    } else if (cmd.preset === 'top') look(0, size * (flat ? 1.2 : 1.8), 0.01)
+    else if (cmd.preset === 'iso') look(size * 1.0, size * 1.05, size * 1.3)
     else if (modeOf(useStore.getState().layout) === 'flow') {
       // Slabs face +X and run left to right: look from the front-right so faces read and the row recedes.
-      c.setLookAt(cx + size * 0.75, cy + size * 0.45, cz + size * 0.95, cx, cy, cz, true)
-    } else c.setLookAt(cx, cy + 0.5, cz + size * 2, cx, cy, cz, true)
+      look(size * 0.75, size * 0.45, size * 0.95)
+    } else look(0, 0.5, size * 2)
   }, [cmd, camera])
 
   return <CameraControls ref={controls} makeDefault dollyToCursor smoothTime={0.35} />

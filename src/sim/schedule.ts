@@ -49,7 +49,7 @@ export type Window = [number, number]
 /** Base run time by the medallion layer a task writes: silver does the heavy cleaning and joining. */
 const BASE: Record<Medallion | 'none', number> = { bronze: 240, silver: 720, gold: 300, none: 180 }
 const MAX_RUNS = 24
-const MICRO_BATCH = 600
+export const MICRO_BATCH = 600
 const TABLE_UPDATE_WAIT = 60 // Databricks waits for writes to settle before a table-update trigger fires
 
 /** Minutes of the day a cron expression fires at. Unix 5-field or Quartz 6/7-field; date fields ignored. */

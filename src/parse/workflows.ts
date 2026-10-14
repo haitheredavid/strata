@@ -13,6 +13,7 @@ export interface RawTask {
   dependsOn?: string[]
   emits?: string[]
   duration?: number
+  bytes?: number
   /** Cluster id: a pipeline's job cluster (`<pipeline>.<key>`), a shared cluster, or `serverless`. */
   compute?: string
 }
@@ -40,6 +41,17 @@ export function parseDuration(v: unknown): number | undefined {
   const m = /^(?:(\d+(?:\.\d+)?)h)?\s*(?:(\d+(?:\.\d+)?)m)?\s*(?:(\d+(?:\.\d+)?)s)?$/.exec(s)
   if (!m || !(m[1] || m[2] || m[3])) return undefined
   return Math.round(Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)) || undefined
+}
+
+const UNITS: Record<string, number> = { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12, kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4 }
+
+/** `123456`, `500MB`, `4 GB`, `1.2TiB` → bytes; undefined when it isn't a size. */
+export function parseBytes(v: unknown): number | undefined {
+  if (typeof v === 'number') return v > 0 ? v : undefined
+  if (typeof v !== 'string') return undefined
+  const m = /^(\d+(?:\.\d+)?)\s*([kmgt]i?b|b)?$/.exec(v.trim().toLowerCase())
+  if (!m) return undefined
+  return Math.round(Number(m[1]) * UNITS[m[2] ?? 'b']) || undefined
 }
 
 const CORES: Record<string, number> = {
@@ -137,6 +149,8 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; clusters
       const taskId = String(t.id ?? t.task_key ?? t.name ?? `${id}_task_${j + 1}`)
       const duration = parseDuration(t.duration)
       if (t.duration !== undefined && duration === undefined) warnings.push(`Task "${taskId}" has an unreadable duration "${t.duration}"`)
+      const bytes = parseBytes(t.bytes)
+      if (t.bytes !== undefined && bytes === undefined) warnings.push(`Task "${taskId}" has an unreadable size "${t.bytes}"`)
       tasks.push({
         id: taskId,
         name: t.name ? String(t.name) : undefined,
@@ -148,6 +162,7 @@ export function parseSidecar(text: string): { pipelines: RawPipeline[]; clusters
           : strings(deps),
         emits: strings(t.emits),
         duration,
+        bytes,
         compute: t.job_cluster_key
           ? `${id}.${t.job_cluster_key}`
           : t.existing_cluster_id ? String(t.existing_cluster_id)
@@ -215,6 +230,7 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
           writes: union(old?.writes, t.writes),
           emits: union(old?.emits, t.emits),
           duration: t.duration ?? old?.duration,
+          bytes: t.bytes ?? old?.bytes,
           compute: t.compute ?? old?.compute,
           dependsOn: explicit ? t.dependsOn : old?.dependsOn,
           explicitDeps: explicit || !!old?.explicitDeps,
@@ -276,6 +292,7 @@ export function buildWorkflows(inputs: RawPipeline[][], tableIds: string[], warn
       dependsOn: [],
       emits: t.emits ?? [],
       ...(t.duration ? { duration: t.duration } : {}),
+      ...(t.bytes ? { bytes: t.bytes } : {}),
       clusterId: clusterFor(t, byId.get(t.pipelineId)!),
     }
     if (!task.reads.length && !task.writes.length) warnings.push(`Task "${t.id}" reads and writes nothing`)

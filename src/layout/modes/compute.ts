@@ -12,6 +12,7 @@ const MIN_GAP = 4.5 // between cluster centers
  */
 export function placeClusters(view: ViewGraph, placement: Placement, mode: ModeId, gap: number): Placement {
   if (!view.clusters.length) return placement
+  if (mode === 'diagram') return placeClustersBelow(view, placement)
   const ys = [
     ...Object.values(placement.nodes).map((n) => n.p[1]),
     ...placement.plates.map((pl) => (pl.frame === 'flat' ? pl.center[1] : pl.center[1] - pl.size[1] / 2)),
@@ -28,6 +29,22 @@ export function placeClusters(view: ViewGraph, placement: Placement, mode: ModeI
   }
   separate(placed, [0, 2], MIN_GAP)
 
+  const nodes: Record<string, NodePlace> = { ...placement.nodes }
+  for (const { id, p } of placed) nodes[id] = { p, frame: 'billboard' }
+  return { ...placement, nodes }
+}
+
+/** Diagram: a row of clusters past the bottom edge of the diagram (+Z), each under its jobs' centroid. */
+function placeClustersBelow(view: ViewGraph, placement: Placement): Placement {
+  const zs = placement.plates.map((pl) => pl.center[2] + pl.size[1] / 2)
+  const floor = (zs.length ? Math.max(...zs) : 0) + 4
+  const placed: { id: string; p: V3 }[] = []
+  for (const c of view.clusters) {
+    const at = c.jobs.map((j) => placement.nodes[j]?.p).filter((p): p is V3 => !!p)
+    if (!at.length) continue
+    placed.push({ id: c.id, p: [at.reduce((s, p) => s + p[0], 0) / at.length, 0.3, floor] })
+  }
+  separate(placed, [0], MIN_GAP)
   const nodes: Record<string, NodePlace> = { ...placement.nodes }
   for (const { id, p } of placed) nodes[id] = { p, frame: 'billboard' }
   return { ...placement, nodes }

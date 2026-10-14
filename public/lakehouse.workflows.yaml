@@ -19,10 +19,12 @@ pipelines:
     trigger: { file_arrival: /Volumes/main/landing/sales/ }
     tasks:
       - id: ingest_orders
+        bytes: 18GB            # per run, each read / write; omitted sizes are simulated
         reads: [sftp.erp_orders]
         writes: [bronze.orders_raw, bronze.order_lines_raw]
         emits: [sales.landed]
       - id: ingest_payments
+        bytes: 400MB
         reads: [api.stripe]
         writes: [bronze.payments_raw]
 

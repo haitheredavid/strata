@@ -10,11 +10,12 @@ pnpm test
 
 ## Layout modes
 
-The toolbar switches between modes. Switching animates, and each table keeps its identity as it moves.
+The toolbar switches between modes. Switching animates, each table keeps its identity as it moves, and the camera stays where it is.
 
 - **Stack**: each domain is a horizontal layer stacked on Y. Refs inside a domain stay on the plate; refs between domains wire between layers. Tables are placed with d3-force, and you can drag them.
 - **Flow**: each domain is an upright slab, ordered left to right by FK dependency. Domains that are referenced come first (upstream), and domains that reference them follow (downstream). On each slab, sub-columns follow FK depth within the domain, and rows are ordered by barycenter sweeps to reduce crossings. Focusing a table lifts its neighborhood off the slab. You can drag cards on their slab and reorder domains with ←/→.
 - **Orbit**: the focused table sits at the center (or the most connected table, if nothing is focused). Tables it references sit on rings above it and tables that reference it sit below, one ring per hop. Tables outside the hop range sit on a faded outer ring. Click a table to re-center on it.
+- **Diagram**: Flow's arrangement laid flat on the ground, with domains left to right and rows top to bottom. The lens narrows to a near-orthographic 3° (a dolly zoom that keeps the framing), so it reads like a 2D lineage diagram. Press Top for the straight-down view, and switch to Flow to watch each column stand up into its slab.
 
 ## Exploring
 
@@ -57,6 +58,7 @@ Load the **Lakehouse sample** from the Samples menu, or drop a `.dbml` together 
 - **Lineage drawing**:
   - Jobs are hexagons placed between what they read and what they write.
   - Lineage wires are dashed, in the pipeline's colour, with pulses moving downstream.
+  - Pulse size shows bytes per run (log scale) and the number of pulses on a wire shows runs per day: a daily batch is one dot, streaming a dense train. Set `bytes: 4GB` on a task to give its size; otherwise it is simulated from the medallion layer. Hover a job for its bytes in / out and runs a day.
   - Flow mode adds a translucent lane for each pipeline.
 - **Triggers** label each pipeline's first jobs (CRON / FILE / ON UPDATE / AFTER / STREAMING). Dotted links run from the tables or the upstream pipeline that start it.
 - **Events** are amber markers on the jobs that emit them.

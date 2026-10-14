@@ -7,8 +7,10 @@ import { flowCurves } from './curve'
 import { activeAt } from '../sim/schedule'
 import type { Schedule } from '../sim/schedule'
 import { timeClock } from './timeClock'
+import { pulseShape } from '../sim/volume'
+import type { FlowVolume } from '../sim/volume'
 
-const PER_FLOW = 2
+const TRAIL = 2 // dots following a running job's progress on the timeline
 const SPEED = 0.35 // curve lengths per second
 const dummy = new Object3D()
 const tmpColor = new Color()
@@ -20,15 +22,18 @@ interface Props {
   schedule: Schedule | null
   /** Running jobs that pass the timeline's filters. */
   lens: Set<string> | null
+  volumes: Map<string, FlowVolume>
 }
 
 /**
- * Light moving along lineage edges in the data direction. Idle, every visible flow pulses. With the
- * timeline open, a running job's reads pulse in the first half of its run and its writes in the second.
+ * Light moving along lineage edges in the data direction. Dot size shows bytes per run and the number
+ * of dots on an edge shows runs per day. Idle, every visible flow pulses. With the timeline open, a
+ * running job's reads pulse in the first half of its run and its writes in the second.
  */
-export function Pulses({ flows, colorOf, schedule, lens }: Props) {
+export function Pulses({ flows, colorOf, schedule, lens, volumes }: Props) {
   const mesh = useRef<InstancedMesh>(null)
-  const count = Math.max(1, flows.length * PER_FLOW)
+  const shape = useMemo(() => pulseShape(flows, volumes), [flows, volumes])
+  const count = Math.max(1, shape.reduce((s, x) => s + Math.max(x.dots, TRAIL), 0))
   const offsets = useMemo(() => flows.map((_, i) => (i * 0.37) % 1), [flows])
 
   useFrame(({ clock }) => {
@@ -46,20 +51,21 @@ export function Pulses({ flows, colorOf, schedule, lens }: Props) {
         // reads flow into the job during the first half of its run, writes out during the second
         const local = f.role === 'read' ? frac * 2 : frac * 2 - 1
         if (local < 0 || local > 1) return
-        for (let k = 0; k < PER_FLOW; k++) {
+        for (let k = 0; k < TRAIL; k++) {
           const t = Math.min(1, Math.max(0, local - k * 0.15))
           dummy.position.copy(curve.getPoint(t))
-          dummy.scale.setScalar(1.6 - k * 0.5)
+          dummy.scale.setScalar(shape[i].scale * (1.4 - k * 0.45))
           dummy.updateMatrix()
           m.setMatrixAt(n, dummy.matrix)
           m.setColorAt(n++, tmpColor.set(colorOf(f.pipelineId)))
         }
         return
       }
-      for (let k = 0; k < PER_FLOW; k++) {
-        const t = (clock.elapsedTime * SPEED + offsets[i] + k / PER_FLOW) % 1
+      const { dots, scale } = shape[i]
+      for (let k = 0; k < dots; k++) {
+        const t = (clock.elapsedTime * SPEED + offsets[i] + k / dots) % 1
         dummy.position.copy(curve.getPoint(t))
-        dummy.scale.setScalar(1)
+        dummy.scale.setScalar(scale)
         dummy.updateMatrix()
         m.setMatrixAt(n, dummy.matrix)
         m.setColorAt(n++, tmpColor.set(colorOf(f.pipelineId)))

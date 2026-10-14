@@ -18,6 +18,8 @@ interface Props {
   opacity: number
   highlighted: boolean
   runState: RunState
+  /** Bytes in / out per run and runs a day, shown while highlighted. */
+  volume?: string
 }
 
 function triggerText(t: Trigger) {
@@ -34,7 +36,7 @@ function triggerText(t: Trigger) {
  * A job: hexagon in its pipeline's color, facing the camera. Jobs that start a pipeline carry a
  * spinning trigger ring and label; jobs that emit events carry an amber event marker above.
  */
-export function JobNode({ node, color, opacity, highlighted, runState }: Props) {
+export function JobNode({ node, color, opacity, highlighted, runState, volume }: Props) {
   const hover = useStore((s) => s.hover)
   const focus = useStore((s) => s.focus)
   const group = useRef<Group>(null)
@@ -74,6 +76,11 @@ export function JobNode({ node, color, opacity, highlighted, runState }: Props) 
       <Text position={[0, -1.25, 0.05]} fontSize={0.34} color={color} fillOpacity={opacity} anchorX="center" anchorY="middle" raycast={() => null}>
         {node.name}
       </Text>
+      {highlighted && volume && (
+        <Text position={[0, -1.7, 0.05]} fontSize={0.24} color="#cbd5e1" fillOpacity={opacity} anchorX="center" anchorY="middle" raycast={() => null}>
+          {volume}
+        </Text>
+      )}
 
       {node.trigger && (
         <group>

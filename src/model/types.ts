@@ -48,7 +48,7 @@ export interface Vec2 {
   z: number
 }
 
-export type ModeId = 'stack' | 'flow' | 'orbit'
+export type ModeId = 'stack' | 'flow' | 'orbit' | 'diagram'
 export type ColumnDetail = 'all' | 'keys' | 'header'
 export type GroupBy = 'domain' | 'medallion'
 export type EdgeLayer = 'fk' | 'lineage' | 'both'

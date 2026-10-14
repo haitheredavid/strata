@@ -20,6 +20,8 @@ export interface Task {
   emits: string[]
   /** Run time in seconds, when the workflow file gives one; otherwise simulated. */
   duration?: number
+  /** Bytes each read and write moves per run, when the workflow file gives it; otherwise simulated. */
+  bytes?: number
   /** Compute the task runs on (a `Cluster` id). */
   clusterId: string
 }

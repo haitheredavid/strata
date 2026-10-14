@@ -54,6 +54,11 @@ export function PipelinePanel() {
           )
         })}
       </ul>
+      {lineage && workflows.pipelines.length > 0 && (
+        <div className="row legend" title="Bytes come from a task's `bytes:` in the workflow file, else are simulated">
+          Pulses: size = bytes per run · count = runs per day
+        </div>
+      )}
       {workflows.clusters.length > 0 && (
         <div className="row">
           <span title="The clusters jobs run on, drawn under the diagram">Compute · {workflows.clusters.length} clusters</span>

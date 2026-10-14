@@ -64,12 +64,17 @@ describe('compute in the view', () => {
     expect(v.computeLinks.some((l) => l.job === jobNodeId('build_funnel'))).toBe(false)
   })
 
-  it('places clusters below everything else in every mode', () => {
+  it('places clusters below everything else in every mode (past the bottom edge in the flat diagram)', () => {
     const layout = autoLayout(graph)
     const v = deriveView(graph, { lineage: true, compute: true })
     for (const mode of Object.values(MODES)) {
       const base = placeJobs(v, mode.place(v, layout, { focusedId: null, hops: null, hopUp: 1, hopDown: 1 }), mode.id, 8)
       const p = placeClusters(v, base, mode.id, 8)
+      if (mode.id === 'diagram') {
+        const bottom = Math.max(...base.plates.map((pl) => pl.center[2] + pl.size[1] / 2))
+        for (const c of v.clusters) expect(p.nodes[c.id].p[2], c.id).toBeGreaterThan(bottom)
+        continue
+      }
       const lowest = Math.min(...Object.values(base.nodes).map((n) => n.p[1]))
       for (const c of v.clusters) expect(p.nodes[c.id].p[1], `${mode.id} ${c.id}`).toBeLessThan(lowest)
     }

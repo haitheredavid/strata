@@ -164,6 +164,7 @@ select.sample {
 .panel details > summary::before { content: '▸ '; }
 .panel details[open] > summary::before { content: '▾ '; }
 .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 4px 0; color: var(--muted); }
+.panel .row.legend { font-size: 11px; justify-content: flex-start; }
 
 .pipelines { list-style: none; margin: 0; padding: 0; }
 .pipelines li { display: flex; align-items: center; gap: 4px; padding: 3px 0; }

@@ -5,8 +5,10 @@ import { deriveView } from '../../view/deriveView'
 import { hops } from '../../view/hops'
 import { autoLayout } from '../autoLayout'
 import { domainRank, fkDepth } from '../depth'
-import { CARD_W, cardDepth } from '../geometry'
+import { CARD_W, cardDepth, cardRect, rectsOverlap } from '../geometry'
+import { placeDiagram } from './diagram'
 import { flowOrder, placeFlow } from './flow'
+import { placeJobs } from './jobs'
 import { placeOrbit } from './orbit'
 import { placeStack } from './stack'
 
@@ -95,6 +97,47 @@ describe('placeFlow', () => {
     const f = placeFlow(view, layout, { focusedId: 'orders', hops: reach, hopUp: 1, hopDown: 1 })
     expect(f.nodes.orders.p[0]).toBeGreaterThan(p.nodes.orders.p[0])
     expect(f.nodes.carriers.p[0]).toBe(p.nodes.carriers.p[0])
+  })
+})
+
+describe('placeDiagram', () => {
+  const p = placeDiagram(view, layout)
+
+  it('lays every card flat on the ground', () => {
+    for (const n of view.nodes) {
+      expect(p.nodes[n.id].frame).toBe('flat')
+      expect(p.nodes[n.id].p[1]).toBe(0)
+    }
+  })
+
+  it('keeps flow\'s domain order left to right, without overlapping plates', () => {
+    const plates = flowOrder(view, layout).map((l) => p.plates.find((pl) => pl.id === l)!)
+    for (let i = 1; i < plates.length; i++)
+      expect(plates[i].center[0] - plates[i].size[0] / 2).toBeGreaterThan(plates[i - 1].center[0] + plates[i - 1].size[0] / 2)
+  })
+
+  it('has no overlapping cards', () => {
+    const rects = view.nodes.map((n) => cardRect(n, { x: p.nodes[n.id].p[0], z: p.nodes[n.id].p[2] }))
+    for (let i = 0; i < rects.length; i++)
+      for (let j = i + 1; j < rects.length; j++) expect(rectsOverlap(rects[i], rects[j])).toBe(false)
+  })
+
+  it('keeps flow\'s row order within a column', () => {
+    const f = placeFlow(view, layout, noFocus)
+    for (const a of view.nodes)
+      for (const b of view.nodes)
+        if (a.layerId === b.layerId && f.nodes[a.id].p[2] === f.nodes[b.id].p[2] && f.nodes[a.id].p[1] > f.nodes[b.id].p[1])
+          expect(p.nodes[a.id].p[2]).toBeLessThan(p.nodes[b.id].p[2])
+  })
+
+  it('puts lineage jobs on the ground between domains', () => {
+    const lake = parseDbml(readFileSync(new URL('../../../public/lakehouse.dbml', import.meta.url), 'utf8'),
+      readFileSync(new URL('../../../public/lakehouse.workflows.yaml', import.meta.url), 'utf8'))
+    const v = deriveView(lake, { lineage: true })
+    const placed = placeJobs(v, placeDiagram(v, autoLayout(lake)), 'diagram', 8)
+    const jobs = v.nodes.filter((n) => n.kind === 'job')
+    expect(jobs.length).toBeGreaterThan(0)
+    for (const j of jobs) expect(placed.nodes[j.id].p[1]).toBeCloseTo(0.3)
   })
 })
 

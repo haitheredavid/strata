@@ -216,6 +216,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       const mode = modeOf(s.layout)
       if (mode === 'flow') return { layout: { ...s.layout, flowOrder: undefined, flowOverrides: undefined } }
+      if (mode === 'diagram') return { layout: { ...s.layout, flowOrder: undefined } }
       if (mode === 'stack' && s.layout.groupBy === 'medallion') return { layout: { ...s.layout, medallionPositions: undefined } }
       if (mode === 'stack') return { layout: { ...s.layout, ...autoLayout(s.graph, s.layout.layerGap) } }
       return s
@@ -224,7 +225,7 @@ export const useStore = create<State>((set, get) => ({
   moveLayer: (layerId, delta) =>
     set((s) => {
       if (s.layout.groupBy === 'medallion') return s // bronze → silver → gold is fixed
-      const flow = modeOf(s.layout) === 'flow'
+      const flow = modeOf(s.layout) === 'flow' || modeOf(s.layout) === 'diagram' // diagram shares flow's order
       const order = flow ? flowOrder(deriveView(s.graph), s.layout) : [...s.layout.layerOrder]
       const i = order.indexOf(layerId)
       const j = i + delta
@@ -243,11 +244,8 @@ export const useStore = create<State>((set, get) => ({
   focus: (focusedTableId) => set({ focusedTableId }),
   setDragging: (dragging) => set({ dragging }),
   camera: (cmd) => set({ cameraCommand: { ...cmd, nonce: Date.now() } }),
-  setMode: (mode) =>
-    set((s) => ({
-      layout: { ...s.layout, mode },
-      cameraCommand: { kind: 'preset', preset: MODES[mode].defaultPreset, nonce: Date.now() },
-    })),
+  // The camera stays put across layout switches, so you can watch the cards move.
+  setMode: (mode) => set((s) => ({ layout: { ...s.layout, mode } })),
   dragNode: (id, p) =>
     set((s) => {
       const mode = modeOf(s.layout)

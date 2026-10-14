@@ -14,6 +14,7 @@ const HINTS = {
   stack: 'Click a table to focus · Shift-click a second to find a path · Double-click to fold columns · Drag to move within its layer',
   flow: 'Layers flow left to right, referenced first · Focus pulls the neighborhood off its slab · Drag to move on the slab',
   orbit: 'Focused table at the center · referenced tables above, referencing below · Click a table to re-center',
+  diagram: 'Flow laid flat with a near-flat lens · Top looks straight down · Switch to Flow to watch each column stand up into its slab',
 }
 
 const DETAILS: [ColumnDetail, string][] = [['all', 'All'], ['keys', 'Keys'], ['header', 'Header']]
@@ -60,8 +61,9 @@ export function LayerPanel() {
   const layerById = new Map(fullView.layers.map((l) => [l.id, l]))
   const ids = fullView.layers.map((l) => l.id)
   const fixed = groupBy === 'medallion'
+  const leftToRight = modeId === 'flow' || modeId === 'diagram'
   const ordered =
-    modeId === 'flow'
+    leftToRight
       ? flowOrder(fullView, layout)
       : modeId === 'stack'
         ? // top of the stack first, matching what you see in 3D; sources sit underneath
@@ -69,8 +71,8 @@ export function LayerPanel() {
         : ids
   const movable = ordered.filter((id) => id !== SOURCES)
   // Flow lists left to right, so "earlier" is a lower index; the stack lists top first.
-  const [back, fwd] = modeId === 'flow' ? (['←', '→'] as const) : (['↑', '↓'] as const)
-  const step = modeId === 'flow' ? -1 : 1
+  const [back, fwd] = leftToRight ? (['←', '→'] as const) : (['↑', '↓'] as const)
+  const step = leftToRight ? -1 : 1
 
   return (
     <div className="panel">
