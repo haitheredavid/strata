@@ -4,6 +4,8 @@ import {
   Fn,
   abs,
   attribute,
+  cos,
+  sin,
   cameraProjectionMatrix,
   cross,
   float,
@@ -253,4 +255,29 @@ export function textMaterial(atlas: { texture: Texture; cols: number; rows: numb
   mat.side = DoubleSide
   mat.forceSinglePass = true
   return mat
+}
+
+// ---------------------------------------------------------------------------------------------
+// Node parts: instanced shapes hung off the anchor texture, spun about their local Z.
+
+export function partMaterial(anchors: Texture) {
+  const u = { time: uniform(0) }
+  const p0 = attribute('p0', 'vec4') // anchor, offset xyz
+  const p1 = attribute('p1', 'vec4') // scale xyz, spin rate
+  const p2 = attribute('p2', 'vec4') // rgb, opacity
+
+  const mat = new MeshBasicNodeMaterial()
+  mat.vertexNode = Fn(() => {
+    const a = int(p0.x.add(0.5)).mul(2)
+    const at = (i: Node<'int'>): V4 => textureLoad(anchors, ivec2(i.mod(ANCHOR_W), i.div(ANCHOR_W)))
+    const v = positionGeometry.mul(p1.xyz)
+    const t = u.time.mul(p1.w)
+    const spun = vec3(v.x.mul(cos(t)).sub(v.y.mul(sin(t))), v.x.mul(sin(t)).add(v.y.mul(cos(t))), v.z)
+    const world = at(a).xyz.add(rotate(at(a.add(1)), spun.add(p0.yzw)))
+    return cameraProjectionMatrix.mul(modelViewMatrix.mul(vec4(world, 1)))
+  })()
+  mat.colorNode = p2.xyz
+  mat.opacityNode = p2.w
+  mat.transparent = true
+  return { material: mat, uniforms: u as unknown as Uniforms }
 }

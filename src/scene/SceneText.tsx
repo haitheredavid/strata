@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useFrame } from '@react-three/fiber'
-import { Quaternion, Vector3 } from 'three'
 import { CARD_W, HEADER_H, ROW_H } from '../layout/geometry'
 import type { PlatePlace } from '../layout/modes'
 import type { ViewCluster, ViewEdge, ViewNode } from '../view/deriveView'
-import type { FkCurves } from '../world/fkEdges'
-import { packOnce } from '../world/world'
 import type { World } from '../world/world'
-import { anim, plateKey } from './anim'
 import { clusterSpec, KIND_LABEL } from './clusterStyle'
 import { EVENT, RACK_GAP, RACK_MAX_SHOWN, RACK_ROW, triggerText } from './labels'
 import { isNear, onNearChange } from './lod'
-import { AnchorTable } from './text/anchors'
+import type { SceneAnchors } from './text/anchors'
 import { loadAtlas } from './text/atlas'
 import type { Atlas } from './text/atlas'
 import { TextLayer } from './text/TextLayer'
@@ -20,9 +15,9 @@ import type { TextItem } from './text/TextLayer'
 interface Props {
   world: World
   plates: PlatePlace[]
-  /** View edges in `world.fk` order, their curves (label anchors) and base opacity per edge. */
+  anchors: SceneAnchors
+  /** View edges in `world.fk` order and base opacity per edge. */
   fkEdges: ViewEdge[]
-  fkCurves: FkCurves
   fkOpacity: (k: number) => number
   showFk: boolean
   nodeById: Map<string, ViewNode>
@@ -44,7 +39,7 @@ const CARD_Z = 0.04 // card group offset plus the label offset the old cards use
  * Every label in the scene, built from the view in one pass and drawn by one TextLayer: card
  * headers and medallion letters, column rows on cards near the camera, job and cluster captions,
  * plate names and FK cardinality marks. Anchors: world nodes first, then plates, then two per FK
- * edge (its label points, facing the camera).
+ * edge (see AnchorDriver).
  */
 export function SceneText(p: Props) {
   const [atlas, setAtlas] = useState<Atlas | null>(null)
@@ -59,10 +54,7 @@ export function SceneText(p: Props) {
   useEffect(() => onNearChange(() => setNearVersion((v) => v + 1)), [])
 
   const { world, plates } = p
-  const plateBase = world.nodes.count
-  const fkBase = plateBase + plates.length
-  const anchors = useMemo(() => new AnchorTable(fkBase + world.fk.count * 2), [fkBase, world])
-  useEffect(() => () => anchors.dispose(), [anchors])
+  const { plateBase, fkBase } = p.anchors
 
   const items = useMemo(() => {
     void nearVersion
@@ -113,21 +105,7 @@ export function SceneText(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [world, plates, nearVersion, p.fkEdges, p.showFk, p.nodeById, p.clusterById, p.nodeOpacity, p.clusterOpacity, p.plateOpacity, p.focused])
 
-  const pos = useMemo(() => new Vector3(), [])
-  const quat = useMemo(() => new Quaternion(), [])
-  useFrame(({ camera }) => {
-    if (packOnce(world)) anchors.copy(world.nodes.pos, world.nodes.quat, world.dirty.lo, world.dirty.hi)
-    plates.forEach((pl, k) => {
-      const e = anim.get(plateKey(pl.id))
-      if (e) anchors.set(plateBase + k, e.pos, e.quat)
-    })
-    if (p.showFk)
-      for (let k = 0; k < world.fk.count; k++)
-        for (let end = 0; end < 2; end++) anchors.set(fkBase + 2 * k + end, pos.fromArray(p.fkCurves.labels, 6 * k + 3 * end), quat.copy(camera.quaternion))
-    anchors.flush()
-  })
-
-  return atlas ? <TextLayer atlas={atlas} anchors={anchors} items={items} /> : null
+  return atlas ? <TextLayer atlas={atlas} anchors={p.anchors.table} items={items} /> : null
 }
 
 function cardText(out: TextItem[], anchor: number, n: ViewNode, top: number, opacity: number, rows: boolean) {

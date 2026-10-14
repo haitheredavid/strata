@@ -1,5 +1,8 @@
 import { DataTexture, FloatType, NearestFilter, RGBAFormat } from 'three'
+import { useMemo } from 'react'
 import type { Quaternion, Vector3 } from 'three'
+import type { PlatePlace } from '../../layout/modes'
+import type { World } from '../../world/world'
 
 /**
  * Transforms that text hangs off, as a float texture the glyph shader reads: two texels per anchor
@@ -66,4 +69,23 @@ export class AnchorTable {
   dispose() {
     this.texture.dispose()
   }
+}
+
+/**
+ * Index layout of the scene's anchor table: world nodes first (same indices as `world.nodes`),
+ * then plates, then two per FK edge (its label points).
+ */
+export interface SceneAnchors {
+  table: AnchorTable
+  plateBase: number
+  fkBase: number
+}
+
+/** The scene's anchor table for a world and its plates (rebuilt when either changes shape). */
+export function useSceneAnchors(world: World, plates: PlatePlace[]): SceneAnchors {
+  return useMemo(() => {
+    const plateBase = world.nodes.count
+    const fkBase = plateBase + plates.length
+    return { table: new AnchorTable(fkBase + world.fk.count * 2), plateBase, fkBase }
+  }, [world, plates.length])
 }

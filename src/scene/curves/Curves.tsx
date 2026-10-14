@@ -143,15 +143,16 @@ export function Curves({ batch, fade = () => 1, renderOrder = 0 }: { batch: Curv
   useEffect(() => () => material.dispose(), [material])
 
   const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)
-  const bound = useRef(-1)
+  // Which batch (and which of its allocations) the geometry's buffers point at.
+  const bound = useRef<{ batch: CurveBatch | null; version: number }>({ batch: null, version: -1 })
 
   useFrame(() => {
     const m = mesh.current
     if (!m) return
     const g = m.geometry
-    if (bound.current !== batch.version || !g.getAttribute('c0')) {
+    if (bound.current.batch !== batch || bound.current.version !== batch.version) {
       bind(g, batch)
-      bound.current = batch.version
+      bound.current = { batch, version: batch.version }
       batch.markAll()
     }
     g.instanceCount = batch.count

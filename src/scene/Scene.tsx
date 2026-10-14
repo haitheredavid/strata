@@ -36,6 +36,9 @@ import { usePalette } from '../theme/palette'
 import { PerfHud } from '../dev/PerfHud'
 import { createRenderer, lastDrawCalls, nodeRenderer, sdfText } from './gpu/renderer'
 import { SceneText } from './SceneText'
+import { NodeParts } from './parts/NodeParts'
+import { AnchorDriver } from './text/AnchorDriver'
+import { useSceneAnchors } from './text/anchors'
 import { runBench } from '../dev/bench'
 import type { BenchOptions } from '../dev/bench'
 import { allSpans, lastSpans } from '../dev/perf'
@@ -114,8 +117,10 @@ function Diagram({ model }: { model: SceneModel }) {
     },
     [time, lit, lens, placement],
   )
-  const runState = (id: string): RunState =>
-    !time ? null : time.active.has(id) ? 'active' : time.done.has(id) ? 'done' : 'pending'
+  const runState = useCallback(
+    (id: string): RunState => (!time ? null : time.active.has(id) ? 'active' : time.done.has(id) ? 'done' : 'pending'),
+    [time],
+  )
   const lineageActive = view.flows.length > 0
   const volumes = useMemo(() => flowVolumes(view.flows, graph, scheduleFor(graph)), [view, graph])
   const jobVolume = useMemo(() => {
@@ -187,6 +192,9 @@ function Diagram({ model }: { model: SceneModel }) {
   }, [fkEdges, placement, lit, reach, lineageActive, palette, nodeById])
 
   const fkOpacity = useCallback((k: number) => fkStyle.style[2 * k], [fkStyle])
+  const showFk = edgeLayer !== 'lineage' && !legacyWires
+  const anchors = useSceneAnchors(world, placement.plates)
+  useEffect(() => () => anchors.table.dispose(), [anchors])
 
   const cardStyle = useMemo<CardStyle>(() => {
     const n = world.nodes.count
@@ -225,14 +233,30 @@ function Diagram({ model }: { model: SceneModel }) {
   return (
     <>
       {!legacyCards && <CardBodies world={world} style={cardStyle} />}
+      {!legacyCards && (
+        <NodeParts
+          world={world}
+          anchors={anchors.table}
+          nodeById={nodeById}
+          clusterById={clusterById}
+          nodeOpacity={nodeOpacity}
+          clusterOpacity={clusterOpacity}
+          runState={runState}
+          pipelineColor={colorOf}
+          clusterColor={palette.cluster}
+          focused={focused}
+          schedule={time ? scheduleFor(graph) : null}
+        />
+      )}
+      <AnchorDriver world={world} plates={placement.plates} anchors={anchors} fkCurves={curves} fk={sdfText && showFk} />
       {sdfText && (
         <SceneText
           world={world}
           plates={placement.plates}
+          anchors={anchors}
           fkEdges={fkEdges}
-          fkCurves={curves}
           fkOpacity={fkOpacity}
-          showFk={edgeLayer !== 'lineage' && !legacyWires}
+          showFk={showFk}
           nodeById={nodeById}
           clusterById={clusterById}
           nodeOpacity={nodeOpacity}
@@ -267,6 +291,7 @@ function Diagram({ model }: { model: SceneModel }) {
               highlighted={highlighted}
               runState={runState(n.id)}
               volume={jobVolume(n.id)}
+              instanced={!legacyCards}
             />
           )
         return (
@@ -333,6 +358,7 @@ function Diagram({ model }: { model: SceneModel }) {
             opacity={clusterOpacity(c)}
             highlighted={c.id === focused}
             schedule={time ? scheduleFor(graph) : null}
+            instanced={!legacyCards}
           />
         ) : null,
       )}

@@ -1,5 +1,6 @@
 import { memo, useLayoutEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
+import type { ThreeEvent } from '@react-three/fiber'
 import type { Group, Mesh } from 'three'
 import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
@@ -18,13 +19,15 @@ interface Props {
   runState: RunState
   /** Bytes in / out per run and runs a day, shown while highlighted. */
   volume?: string
+  /** Visuals come from NodeParts / SceneText: keep only an invisible hit surface. */
+  instanced?: boolean
 }
 
 /**
  * A job: hexagon in its pipeline's color, facing the camera. Jobs that start a pipeline carry a
  * spinning trigger ring and label; jobs that emit events carry an amber event marker above.
  */
-export const JobNode = memo(function JobNode({ node, color, opacity, highlighted: selected, runState, volume }: Props) {
+export const JobNode = memo(function JobNode({ node, color, opacity, highlighted: selected, runState, volume, instanced = false }: Props) {
   const hover = useStore((s) => s.hover)
   useReleaseHover(node.id)
   const highlighted = useStore((s) => s.hoveredTableId === node.id) || selected
@@ -45,17 +48,25 @@ export const JobNode = memo(function JobNode({ node, color, opacity, highlighted
 
   const active = runState === 'active'
   const face = active ? '#ffffff' : highlighted ? '#2a3344' : '#141925'
+  const hit = {
+    onPointerOver: (e: ThreeEvent<PointerEvent>) => (e.stopPropagation(), hover(node.id)),
+    onPointerOut: () => hover(null),
+    onClick: (e: ThreeEvent<MouseEvent>) => {
+      e.stopPropagation()
+      focus(useStore.getState().focusedTableId === node.id ? null : node.id)
+    },
+  }
+  if (instanced)
+    return (
+      <group ref={group}>
+        <mesh visible={false} rotation={[Math.PI / 2, 0, 0]} {...hit}>
+          <cylinderGeometry args={[0.92, 0.92, 0.2, 6]} />
+        </mesh>
+      </group>
+    )
   return (
     <group ref={group}>
-      <mesh
-        rotation={[Math.PI / 2, 0, 0]}
-        onPointerOver={(e) => (e.stopPropagation(), hover(node.id))}
-        onPointerOut={() => hover(null)}
-        onClick={(e) => {
-          e.stopPropagation()
-          focus(useStore.getState().focusedTableId === node.id ? null : node.id)
-        }}
-      >
+      <mesh rotation={[Math.PI / 2, 0, 0]} {...hit}>
         <cylinderGeometry args={[0.75, 0.75, 0.2, 6]} />
         <meshBasicMaterial color={face} transparent opacity={opacity} />
       </mesh>

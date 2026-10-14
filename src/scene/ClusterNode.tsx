@@ -1,5 +1,6 @@
 import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
+import type { ThreeEvent } from '@react-three/fiber'
 import type { Group, MeshBasicMaterial } from 'three'
 import type { Schedule } from '../sim/schedule'
 import { onCluster } from '../sim/schedule'
@@ -27,6 +28,8 @@ interface Props {
   highlighted: boolean
   /** With the timeline open: workers light up with the work on the cluster at the playhead. */
   schedule: Schedule | null
+  /** Visuals come from NodeParts / SceneText: keep only an invisible hit surface. */
+  instanced?: boolean
 }
 
 /**
@@ -34,7 +37,7 @@ interface Props {
  * timeline every worker shows its kind color; with it, workers light as tasks run on the cluster, a
  * warm all-purpose cluster idles grey, and a job cluster is dark between runs.
  */
-export const ClusterNode = memo(function ClusterNode({ cluster: vc, opacity, highlighted: selected, schedule }: Props) {
+export const ClusterNode = memo(function ClusterNode({ cluster: vc, opacity, highlighted: selected, schedule, instanced = false }: Props) {
   const c = vc.cluster
   const hover = useStore((s) => s.hover)
   useReleaseHover(vc.id)
@@ -50,6 +53,7 @@ export const ClusterNode = memo(function ClusterNode({ cluster: vc, opacity, hig
   useLayoutEffect(() => syncFromAnim(group.current, vc.id), [vc.id])
   useFrame(() => {
     syncFromAnim(group.current, vc.id)
+    if (instanced) return
     if (!schedule) {
       driver.current?.color.set(color)
       workers.current.forEach((m) => m?.color.set(color))
@@ -65,16 +69,27 @@ export const ClusterNode = memo(function ClusterNode({ cluster: vc, opacity, hig
     workers.current.forEach((m, i) => m?.color.set(i < lit ? color : up ? IDLE : OFF))
   })
 
+  const hit = {
+    onPointerOver: (e: ThreeEvent<PointerEvent>) => (e.stopPropagation(), hover(vc.id)),
+    onPointerOut: () => hover(null),
+    onClick: (e: ThreeEvent<MouseEvent>) => {
+      e.stopPropagation()
+      focus(useStore.getState().focusedTableId === vc.id ? null : vc.id)
+    },
+  }
+  if (instanced) {
+    const h = shown * (ROW + GAP) + 0.75
+    return (
+      <group ref={group}>
+        <mesh visible={false} position={[0, -(shown * (ROW + GAP)) / 2, 0]} {...hit}>
+          <boxGeometry args={[W + 0.25, h, 0.5]} />
+        </mesh>
+      </group>
+    )
+  }
   return (
     <group ref={group}>
-      <group
-        onPointerOver={(e) => (e.stopPropagation(), hover(vc.id))}
-        onPointerOut={() => hover(null)}
-        onClick={(e) => {
-          e.stopPropagation()
-          focus(useStore.getState().focusedTableId === vc.id ? null : vc.id)
-        }}
-      >
+      <group {...hit}>
         <mesh position={[0, 0, 0]}>
           <boxGeometry args={[W, 0.4, 0.5]} />
           <meshBasicMaterial ref={driver} color={color} transparent opacity={opacity} />
