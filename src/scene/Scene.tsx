@@ -12,6 +12,12 @@ import { TableCard } from './TableCard'
 import { useSceneModel } from './usePlacement'
 import type { SceneModel } from './usePlacement'
 import { Wire } from './Wire'
+import { FkEdges } from './FkEdges'
+import { packColors } from './colors'
+import type { FkStyle } from './FkEdges'
+import { FkLabels } from './FkLabels'
+import { buildWorld } from '../world/world'
+import { fkCurves } from '../world/fkEdges'
 import { FlowWire } from './FlowWire'
 import { JobNode } from './JobNode'
 import type { RunState } from './JobNode'
@@ -29,6 +35,9 @@ import { runBench } from '../dev/bench'
 import type { BenchOptions } from '../dev/bench'
 import { allSpans, lastSpans } from '../dev/perf'
 import type CameraControlsImpl from 'camera-controls'
+
+/** `?wires=legacy` keeps one drei Line per FK wire, for comparing against the instanced path. */
+const legacyWires = /[?&]wires=legacy\b/.test(location.search)
 
 const showPerf = import.meta.env.DEV && /[?&](perf|synth)\b/.test(location.search)
 
@@ -125,6 +134,37 @@ function Diagram({ model }: { model: SceneModel }) {
     return 0.22 // hover brightens it in ComputeLine
   }
 
+  // Flat-array scene for the instanced renderers; rebuilt when the view or placement changes.
+  const world = useMemo(() => buildWorld(view, placement), [view, placement])
+  const curves = useMemo(() => fkCurves(world.fk.count), [world])
+  const fkEdges = useMemo(() => {
+    const byId = new Map(view.edges.map((e) => [e.id, e]))
+    return world.fk.ids.map((id) => byId.get(id)!)
+  }, [world, view])
+  const fkStyle = useMemo<FkStyle>(() => {
+    const style = new Float32Array(fkEdges.length * 2)
+    const colors = fkEdges.map((e, k) => {
+      const pa = placement.nodes[e.from]
+      const pb = placement.nodes[e.to]
+      let opacity: number
+      let active = false
+      if (lit) {
+        active = lit.edges.has(e.id)
+        opacity = active ? 1 : 0.04
+      } else if (reach) {
+        active = reach.has(e.from) && reach.has(e.to)
+        opacity = active ? 1 : 0.05
+      } else {
+        // Step FK refs back when lineage is on so data flow reads first. Hover is applied on top.
+        opacity = pa.faded || pb.faded ? 0.25 : lineageActive ? 0.3 : 0.65
+      }
+      style[2 * k] = opacity
+      style[2 * k + 1] = active ? 3 : 1.5
+      return palette.layer(nodeById.get(e.from)!.layerId)
+    })
+    return { color: packColors(colors), style, hoverable: !lit && !reach }
+  }, [fkEdges, placement, lit, reach, lineageActive, palette, nodeById])
+
   return (
     <>
       {placement.plates.map((pl) => (
@@ -163,7 +203,14 @@ function Diagram({ model }: { model: SceneModel }) {
         )
       })}
 
-      {edgeLayer !== 'lineage' &&
+      {edgeLayer !== 'lineage' && !legacyWires && (
+        <>
+          <FkEdges world={world} curves={curves} fkStyle={fkStyle} />
+          <FkLabels world={world} curves={curves} edges={fkEdges} style={fkStyle.style} hoverable={fkStyle.hoverable} />
+        </>
+      )}
+
+      {edgeLayer !== 'lineage' && legacyWires &&
         view.edges.map((e) => {
           const a = nodeById.get(e.from)!
           const b = nodeById.get(e.to)!
@@ -277,6 +324,8 @@ function DevHandle() {
   useEffect(() => {
     ;(window as unknown as { __strata: unknown }).__strata = {
       store: useStore,
+      scene: () => get().scene,
+      info: () => ({ calls: gl.info.render.calls, triangles: gl.info.render.triangles, geometries: gl.info.memory.geometries }),
       advance: (n = 1) => {
         for (let i = 0; i < n; i++) advance(performance.now() + i * 16)
       },

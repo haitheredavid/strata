@@ -30,6 +30,14 @@ function subscribe(id: string, fn: (near: boolean) => void) {
   }
 }
 
+const setListeners = new Set<() => void>()
+/** Called after any card enters or leaves the near set. */
+export function onNearChange(fn: () => void) {
+  setListeners.add(fn)
+  return () => void setListeners.delete(fn)
+}
+export const isNear = (id: string) => near.has(id)
+
 /** Whether this card is close enough to draw its rows. */
 export function useNear(id: string): boolean {
   const [isNear, setNear] = useState(() => near.has(id))
@@ -47,11 +55,14 @@ export function LodDriver() {
     since = 0
     dirty = false
     if (listeners.size <= MAX_NEAR) {
+      let changed = false
       for (const [id, fn] of listeners) {
         if (near.has(id)) continue
         near.add(id)
         fn(true)
+        changed = true
       }
+      if (changed) for (const fn of setListeners) fn()
       return
     }
     // Distance at which ROW_FONT world units project to MIN_PX pixels.
@@ -73,8 +84,10 @@ export function LodDriver() {
     })
     for (const id of near) if (!next.has(id)) listeners.get(id)?.(false)
     for (const id of next) if (!near.has(id)) listeners.get(id)?.(true)
+    const changed = next.size !== near.size || [...next].some((id) => !near.has(id))
     near.clear()
     for (const id of next) near.add(id)
+    if (changed) for (const fn of setListeners) fn()
   })
   return null
 }
