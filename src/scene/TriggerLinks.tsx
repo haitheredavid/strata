@@ -18,7 +18,7 @@ interface Link { id: string; from: string; to: string; color: string }
  * What starts a pipeline, drawn as faint dotted lines into its first jobs: from the tables a
  * `table_update` trigger watches, or from the last jobs of the pipeline it runs after.
  */
-export function TriggerLinks({ view, pipelines, opacity }: { view: ViewGraph; pipelines: Pipeline[]; opacity: number }) {
+export function TriggerLinks({ view, pipelines, colorOf, opacity }: { view: ViewGraph; pipelines: Pipeline[]; colorOf: (pipelineId: string) => string; opacity: number }) {
   const links = useMemo(() => {
     const shown = new Set(view.nodes.map((n) => n.id))
     const ends = (p: Pipeline, last: boolean) => {
@@ -34,10 +34,10 @@ export function TriggerLinks({ view, pipelines, opacity }: { view: ViewGraph; pi
           : t?.kind === 'job' ? ends(pipelines.find((q) => q.id === t.pipeline) ?? { ...p, tasks: [] }, true)
             : []
       for (const f of from.filter((id) => shown.has(id)))
-        for (const j of firsts) out.push({ id: `${f}>${j}`, from: f, to: j, color: p.color })
+        for (const j of firsts) out.push({ id: `${f}>${j}`, from: f, to: j, color: colorOf(p.id) })
     }
     return out
-  }, [view, pipelines])
+  }, [view, pipelines, colorOf])
 
   return (
     <>

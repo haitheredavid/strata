@@ -10,6 +10,8 @@ import { timeClock } from './scene/timeClock'
 import { hash32 } from './sim/rng'
 import { DAY, simulateDay } from './sim/schedule'
 import type { Schedule } from './sim/schedule'
+import { isScheme } from './theme/schemes'
+import type { SchemeId } from './theme/schemes'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
@@ -41,6 +43,7 @@ interface State {
   /** Pipeline lit by the lens button. */
   lensPipeline: string | null
   time: TimeState
+  colorScheme: SchemeId
 
   /** Load a schema; `sidecar` replaces the saved workflow file for it (null keeps the saved one). */
   loadSchema: (src: string, sidecar?: string | null) => void
@@ -75,6 +78,7 @@ interface State {
   openTimeline: (pipelineId?: string) => void
   setTime: (patch: Partial<TimeState>) => void
   closeTimeline: () => void
+  setColorScheme: (scheme: SchemeId) => void
 }
 
 /**
@@ -110,6 +114,7 @@ const hash = (s: string) => hash32(s).toString(36)
 
 const storageKey = (schemaKey: string) => `strata:layout:${schemaKey}`
 const sidecarKey = (schemaKey: string) => `strata:workflows:${schemaKey}`
+const SCHEME_KEY = 'strata:scheme'
 
 function storage(op: (ls: Storage) => string | null | void) {
   try {
@@ -117,6 +122,11 @@ function storage(op: (ls: Storage) => string | null | void) {
   } catch {
     return null // storage unavailable: nothing is persisted
   }
+}
+
+function savedScheme(): SchemeId {
+  const v = storage((ls) => ls.getItem(SCHEME_KEY))
+  return isScheme(v) ? v : 'default'
 }
 
 function loadSavedLayout(schemaKey: string, graph: Graph): Layout | null {
@@ -161,6 +171,7 @@ export const useStore = create<State>((set, get) => ({
   sidecar: null,
   lensPipeline: null,
   time: CLOSED,
+  colorScheme: savedScheme(),
 
   loadSchema: (src, sidecarText = null) => {
     const schemaKey = hash(src)
@@ -310,6 +321,10 @@ export const useStore = create<State>((set, get) => ({
       return { time: { ...s.time, ...patch } }
     }),
   closeTimeline: () => set((s) => ({ time: { ...s.time, open: false, playing: false } })),
+  setColorScheme: (colorScheme) => {
+    storage((ls) => ls.setItem(SCHEME_KEY, colorScheme))
+    set({ colorScheme })
+  },
 }))
 
 const toggle = (xs: string[], x: string) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x])

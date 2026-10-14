@@ -1,5 +1,6 @@
 import { useStore } from '../store'
 import { TRIGGER_LABEL } from '../scene/timeClock'
+import { usePalette } from '../theme/palette'
 
 /** Pipelines from DBML notes and the workflow file: show / hide, light one up, or play its day. */
 export function PipelinePanel() {
@@ -14,6 +15,7 @@ export function PipelinePanel() {
   const setEdgeLayer = useStore((s) => s.setEdgeLayer)
   const showCompute = useStore((s) => s.layout.showCompute ?? true)
   const toggleCompute = useStore((s) => s.toggleCompute)
+  const palette = usePalette()
 
   return (
     <details open>
@@ -23,7 +25,7 @@ export function PipelinePanel() {
           const off = hidden.includes(p.id) || !lineage
           return (
             <li key={p.id} className={off ? 'off' : ''} title={p.tasks.map((t) => t.name).join(' → ')}>
-              <span className="swatch" style={{ background: p.color }} />
+              <span className="swatch" style={{ background: palette.pipeline(p.id) }} />
               <span className="name">{p.name}</span>
               {p.trigger && <span className="trig">{TRIGGER_LABEL[p.trigger.kind]}</span>}
               <span className="count">{p.tasks.length}</span>

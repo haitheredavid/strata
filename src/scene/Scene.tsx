@@ -18,11 +18,11 @@ import { Lanes } from './Lanes'
 import { Pulses } from './Pulses'
 import { TimeDriver } from './TimeDriver'
 import { ClusterNode } from './ClusterNode'
-import { CLUSTER_COLOR } from './clusterStyle'
 import { ComputeLinks } from './ComputeLinks'
 import type { ComputeLink, ViewCluster } from '../view/deriveView'
 import { TriggerLinks } from './TriggerLinks'
 import { flowVolumes, formatBytes, pulseShape } from '../sim/volume'
+import { usePalette } from '../theme/palette'
 
 const DIM = 0.1
 const FADED = 0.35
@@ -56,13 +56,10 @@ function Diagram({ model }: { model: SceneModel }) {
   const mode = useStore((s) => MODES[modeOf(s.layout)])
   const edgeLayer = useStore((s) => s.layout.edgeLayer ?? 'both')
   const pipelines = useStore((s) => s.graph.workflows.pipelines)
+  const palette = usePalette()
+  const colorOf = palette.pipeline
 
-  const layerById = useMemo(() => new Map(view.layers.map((l) => [l.id, l])), [view])
   const nodeById = useMemo(() => new Map(view.nodes.map((n) => [n.id, n])), [view])
-  const colorOf = useMemo(() => {
-    const m = new Map(pipelines.map((p) => [p.id, p.color]))
-    return (id: string) => m.get(id) ?? '#ffffff'
-  }, [pipelines])
   const shownPipelines = useMemo(
     () => pipelines.filter((p) => view.flows.some((f) => f.pipelineId === p.id)),
     [pipelines, view],
@@ -121,7 +118,7 @@ function Diagram({ model }: { model: SceneModel }) {
   return (
     <>
       {placement.plates.map((pl) => (
-        <LayerPlate key={pl.id} plate={pl} opacity={lens ? 0.4 : 1} />
+        <LayerPlate key={pl.id} plate={pl} color={palette.layer(pl.id)} opacity={lens ? 0.4 : 1} />
       ))}
 
       {placement.rings?.map((r, i) => <RingLine key={i} ring={r} />)}
@@ -148,7 +145,7 @@ function Diagram({ model }: { model: SceneModel }) {
             key={n.id}
             node={n}
             place={place}
-            color={layerById.get(n.layerId)!.color}
+            color={palette.layer(n.layerId)}
             opacity={nodeOpacity(n.id)}
             highlighted={highlighted || !!time?.reached.has(n.id)}
             draggable={mode.draggable}
@@ -181,7 +178,7 @@ function Diagram({ model }: { model: SceneModel }) {
               edge={e}
               from={{ node: a, place: pa, column: e.fromColumns[0] }}
               to={{ node: b, place: pb, column: e.toColumns[0] }}
-              color={layerById.get(a.layerId)!.color}
+              color={palette.layer(a.layerId)}
               opacity={opacity}
               width={active ? 3 : 1.5}
               hoverable={!lit && !reach}
@@ -215,7 +212,7 @@ function Diagram({ model }: { model: SceneModel }) {
       )}
       <ComputeLinks
         links={view.computeLinks}
-        colorOf={(id) => CLUSTER_COLOR[clusterById.get(id)?.cluster.kind ?? 'job']}
+        colorOf={(id) => palette.cluster(clusterById.get(id)?.cluster.kind ?? 'job')}
         opacityOf={linkOpacity}
         hoverable={!time && !reach && !lens}
       />
@@ -229,12 +226,13 @@ function Diagram({ model }: { model: SceneModel }) {
             schedule={time ? scheduleFor(graph) : null}
             lens={time ? time.active : null}
           />
-          <TriggerLinks view={view} pipelines={shownPipelines} opacity={lens || time ? 0.3 : 1} />
+          <TriggerLinks view={view} pipelines={shownPipelines} colorOf={colorOf} opacity={lens || time ? 0.3 : 1} />
           {(mode.id === 'flow' || mode.id === 'diagram') && (
             <Lanes
               view={view}
               placement={placement}
               pipelines={shownPipelines}
+              colorOf={colorOf}
               spread={mode.id === 'diagram' ? 'z' : 'y'}
               opacityOf={(id) => (litPipelines ? (litPipelines.has(id) ? 1.5 : 0.15) : 1)}
             />

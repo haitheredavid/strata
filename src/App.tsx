@@ -6,10 +6,16 @@ import { useStore } from './store'
 import { loadFiles, loadSample } from './ui/files'
 import { Timeline } from './ui/Timeline'
 import { ComputePanel } from './ui/ComputePanel'
+import { usePalette } from './theme/palette'
 
 export default function App() {
   const error = useStore((s) => s.error)
   const [dropping, setDropping] = useState(false)
+  const accent = usePalette().accent
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent', accent)
+  }, [accent])
 
   useEffect(() => {
     let last: string | null = null

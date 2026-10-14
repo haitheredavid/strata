@@ -9,6 +9,7 @@ import { lineageOn, usePaths, useView } from '../scene/usePlacement'
 import { modeOf, useStore } from '../store'
 import { PipelinePanel } from './PipelinePanel'
 import { TablePicker } from './TablePicker'
+import { usePalette } from '../theme/palette'
 
 const HINTS = {
   stack: 'Click a table to focus · Shift-click a second to find a path · Double-click to fold columns · Drag to move within its layer',
@@ -48,6 +49,7 @@ export function LayerPanel() {
   const setGroupBy = useStore((s) => s.setGroupBy)
   const setEdgeLayer = useStore((s) => s.setEdgeLayer)
   const pathOpen = useStore((s) => s.pathOpen)
+  const palette = usePalette()
 
   const modeId = modeOf(layout)
   const mode = MODES[modeId]
@@ -89,7 +91,7 @@ export function LayerPanel() {
             const i = movable.indexOf(id)
             return (
               <li key={id} className={hidden || (isolatedLayerId && !isolated) ? 'off' : ''}>
-                <span className="swatch" style={{ background: l.color }} />
+                <span className="swatch" style={{ background: palette.layer(id) }} />
                 <span className="name">{l.name}</span>
                 <span className="count">{count}</span>
                 {modeId !== 'orbit' && !fixed && i >= 0 && (

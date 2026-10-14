@@ -7,7 +7,7 @@ import { Label } from './Label'
 import { syncFromAnim, plateKey } from './anim'
 
 /** Translucent domain plate, drawn in its local frame (faces +Z). Flat plates label the near edge, upright ones the top. */
-export function LayerPlate({ plate, opacity }: { plate: PlatePlace; opacity: number }) {
+export function LayerPlate({ plate, color, opacity }: { plate: PlatePlace; color: string; opacity: number }) {
   const group = useRef<Group>(null)
   const [w, h] = plate.size
   const [x0, y0, y1] = [-w / 2, -h / 2, h / 2]
@@ -26,11 +26,11 @@ export function LayerPlate({ plate, opacity }: { plate: PlatePlace; opacity: num
     <group ref={group}>
       <mesh raycast={() => null} renderOrder={-1}>
         <planeGeometry args={[w, h]} />
-        <meshBasicMaterial color={plate.color} transparent opacity={0.07 * opacity} depthWrite={false} />
+        <meshBasicMaterial color={color} transparent opacity={0.07 * opacity} depthWrite={false} />
       </mesh>
       <Line
         points={outline}
-        color={plate.color}
+        color={color}
         lineWidth={1.5}
         transparent
         opacity={0.6 * opacity}
@@ -40,7 +40,7 @@ export function LayerPlate({ plate, opacity }: { plate: PlatePlace; opacity: num
         fontSize={0.7}
         anchorX="left"
         anchorY="middle"
-        color={plate.color}
+        color={color}
         fillOpacity={opacity}
         raycast={() => null}
       >

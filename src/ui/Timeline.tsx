@@ -6,13 +6,13 @@ import { timeWindow } from '../scene/usePlacement'
 import { clock, DAY, eventsIn, layerTotals, packLanes, span as dur } from '../sim/schedule'
 import { MEDALLIONS } from '../model/workflow'
 import type { Trigger } from '../model/workflow'
-import { jobNodeId, MEDALLION_LAYERS } from '../view/deriveView'
+import { jobNodeId } from '../view/deriveView'
+import { usePalette } from '../theme/palette'
 
 const LANE = 8
 const LANE_GAP = 2
 const MIN_VIEW = 900
 const TICK_STEPS = [900, 1800, 3600, 7200, 10800, 21600]
-const medallionColor = new Map(MEDALLION_LAYERS.map((l) => [l.id, l.color]))
 
 const speedLabel = (v: number) => (v < 3600 ? `${v / 60}m/s` : `${v / 3600}h/s`)
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
@@ -37,6 +37,7 @@ interface Drag { x: number; t: number; mode: 'new' | 'a' | 'b'; moved: boolean; 
 export function Timeline() {
   const time = useStore((s) => s.time)
   const graph = useStore((s) => s.graph)
+  const palette = usePalette()
   const lens = useStore((s) => s.lensPipeline)
   const setTime = useStore((s) => s.setTime)
   const closeTimeline = useStore((s) => s.closeTimeline)
@@ -162,7 +163,6 @@ export function Timeline() {
   const totalsWindow: [number, number] = span ?? [0, time.t]
   const totals = layerTotals(schedule, totalsWindow, lens)
   const events = eventsIn(schedule, timeWindow(time.t, span)).filter((ev) => !lens || ev.pipelineId === lens)
-  const colorOf = new Map(graph.workflows.pipelines.map((p) => [p.id, p.color]))
   const step = TICK_STEPS.find((s) => (view[1] - view[0]) / s <= 12) ?? TICK_STEPS.at(-1)!
   const ticks: number[] = []
   for (let t = Math.ceil(view[0] / step) * step; t <= view[1]; t += step) ticks.push(t)
@@ -183,7 +183,7 @@ export function Timeline() {
         <span className="totals" title="Task run time by the medallion layer each task writes (streaming excluded)">
           {MEDALLIONS.map((m) => (
             <span key={m}>
-              <i style={{ background: medallionColor.get(m) }} />
+              <i style={{ background: palette.medallion(m) }} />
               {m[0].toUpperCase()} {dur(totals[m])}
             </span>
           ))}
@@ -212,7 +212,7 @@ export function Timeline() {
               title={`${triggerLine(p.trigger)} — click to light up`}
               onClick={() => setLens(lens === p.id ? null : p.id)}
             >
-              <span className="swatch" style={{ background: p.color }} />
+              <span className="swatch" style={{ background: palette.pipeline(p.id) }} />
               <span className="name">{p.name}</span>
             </div>
           ))}
@@ -245,8 +245,8 @@ export function Timeline() {
                       width: `${width}%`,
                       top: 3 + lane * (LANE + LANE_GAP),
                       height: LANE,
-                      background: p.color,
-                      borderLeftColor: medallionColor.get(run.medallion ?? '') ?? p.color,
+                      background: palette.pipeline(p.id),
+                      borderLeftColor: run.medallion ? palette.medallion(run.medallion) : palette.pipeline(p.id),
                     }}
                   >
                     {!run.continuous && <div className="setup" style={{ width: `${(run.setup / (run.end - run.start)) * 100}%` }} />}
@@ -272,7 +272,7 @@ export function Timeline() {
             <li key={i} onClick={() => setTime({ t: ev.t })}>
               <span className="at">{clock(ev.t)}</span>
               <span className={`kind ${ev.kind}`}>{ev.kind}</span>
-              <span className="swatch" style={{ background: colorOf.get(ev.pipelineId) }} />
+              <span className="swatch" style={{ background: palette.pipeline(ev.pipelineId) }} />
               <span className="name">{ev.name}</span>
             </li>
           ))}

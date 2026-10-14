@@ -6,15 +6,14 @@ import type { Cluster, Task } from '../model/workflow'
 import { clock, packLanes, span as dur } from '../sim/schedule'
 import type { Schedule, TaskRun, Window } from '../sim/schedule'
 import { sizingHint, sparkRunsOn, utilization } from '../sim/spark'
-import type { SparkRun, StageOp } from '../sim/spark'
-import { CLUSTER_COLOR, clusterSpec, KIND_LABEL } from '../scene/clusterStyle'
+import type { SparkRun } from '../sim/spark'
+import { clusterSpec, KIND_LABEL } from '../scene/clusterStyle'
 import { timeClock } from '../scene/timeClock'
+import { usePalette } from '../theme/palette'
+import type { Palette } from '../theme/palette'
 
 const ROW = 15
 const UTIL_H = 34
-const OP_COLOR: Record<StageOp, string> = {
-  scan: '#60a5fa', exchange: '#f59e0b', join: '#a78bfa', aggregate: '#c084fc', write: '#34d399', optimize: '#94a3b8',
-}
 
 interface Rect { x0: number; x1: number; y: number; t0: number; t1: number; lines: string[] }
 
@@ -40,7 +39,7 @@ function pickWindow(s: Schedule, cluster: Cluster, taskId: string | null, t: num
   return { runs: mine, window: [a - pad, b + pad] }
 }
 
-function flameRects(spark: SparkRun[], names: Map<string, string>, colorOf: (pipelineId: string) => string) {
+function flameRects(spark: SparkRun[], names: Map<string, string>, palette: Palette) {
   const out: (Rect & { color: string; label: string; depth: number; spill?: boolean; waves?: number; skew?: number })[] = []
   const lanes = packLanes(spark.map((sr) => ({ ...sr, start: sr.run.start, end: sr.run.end })))
   for (const { run: sr, lane } of lanes) {
@@ -48,7 +47,7 @@ function flameRects(spark: SparkRun[], names: Map<string, string>, colorOf: (pip
     const r = sr.run
     const name = names.get(r.taskId) ?? r.taskId
     out.push({
-      depth: 0, y: y0, t0: r.start, t1: r.end, x0: 0, x1: 0, color: colorOf(r.pipelineId), label: name,
+      depth: 0, y: y0, t0: r.start, t1: r.end, x0: 0, x1: 0, color: palette.pipeline(r.pipelineId), label: name,
       lines: [name, `${clock(r.start)}–${clock(r.end)} · ${dur(r.end - r.start)}`, `${dur(r.setup)} queue / cluster start`, `${sr.workers} workers · ${sr.cores} cores`],
     })
     for (const j of sr.jobs) {
@@ -58,7 +57,7 @@ function flameRects(spark: SparkRun[], names: Map<string, string>, colorOf: (pip
       })
       for (const st of j.stages)
         out.push({
-          depth: 2, y: y0 + 2 * ROW, t0: st.start, t1: st.end, x0: 0, x1: 0, color: OP_COLOR[st.op], label: st.name,
+          depth: 2, y: y0 + 2 * ROW, t0: st.start, t1: st.end, x0: 0, x1: 0, color: palette.op(st.op), label: st.name,
           spill: st.spillMB > 0, waves: st.waves, skew: st.skew,
           lines: [
             `Stage ${st.id}: ${st.name}`,
@@ -89,10 +88,7 @@ export function ComputePanel() {
   const focus = useStore((s) => s.focus)
   const schedule = useMemo(() => scheduleFor(graph), [graph])
   const tasks = useMemo(() => new Map<string, Task>(graph.workflows.pipelines.flatMap((p) => p.tasks).map((t) => [t.id, t])), [graph])
-  const colorOf = useMemo(() => {
-    const m = new Map(graph.workflows.pipelines.map((p) => [p.id, p.color]))
-    return (id: string) => m.get(id) ?? '#fff'
-  }, [graph])
+  const palette = usePalette()
 
   const target = useMemo(() => {
     if (!focused || !on) return null
@@ -115,7 +111,7 @@ export function ComputePanel() {
     () => (target ? sparkRunsOn(schedule, tasks, target.cluster, win).filter((sr) => !target.taskId || sr.run.taskId === target.taskId) : []),
     [schedule, tasks, target, win],
   )
-  const flame = useMemo(() => flameRects(spark, names, colorOf), [spark, names, colorOf])
+  const flame = useMemo(() => flameRects(spark, names, palette), [spark, names, palette])
   const streaming = runs.some((r) => r.continuous)
 
   // Zoom belongs to the window it was made in; a new window starts unzoomed.
@@ -147,7 +143,7 @@ export function ComputePanel() {
   useEffect(() => {
     if (!target) return
     let raf = 0
-    const color = CLUSTER_COLOR[target.cluster.kind]
+    const color = palette.cluster(target.cluster.kind)
     const x = (tt: number) => ((tt - view[0]) / (view[1] - view[0])) * width
     const prep = (c: HTMLCanvasElement | null, h: number) => {
       if (!c) return null
@@ -163,8 +159,10 @@ export function ComputePanel() {
     }
     const overlay = (ctx: CanvasRenderingContext2D, h: number) => {
       if (time.open && time.span) {
-        ctx.fillStyle = 'rgb(79 157 255 / 0.1)'
+        ctx.fillStyle = palette.accent
+        ctx.globalAlpha = 0.1
         ctx.fillRect(x(time.span[0]), 0, x(time.span[1]) - x(time.span[0]), h)
+        ctx.globalAlpha = 1
       }
       if (time.open) {
         ctx.fillStyle = '#fff'
@@ -234,7 +232,7 @@ export function ComputePanel() {
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [target, view, width, util, flame, height, time.open, time.span])
+  }, [target, view, width, util, flame, height, time.open, time.span, palette])
 
   if (!target || !hint) return null
   const c = target.cluster
@@ -250,7 +248,7 @@ export function ComputePanel() {
   return (
     <div className="compute" onPointerDown={(e) => e.stopPropagation()}>
       <div className="head">
-        <span className="kind" style={{ color: CLUSTER_COLOR[c.kind], borderColor: CLUSTER_COLOR[c.kind] }}>{KIND_LABEL[c.kind]}</span>
+        <span className="kind" style={{ color: palette.cluster(c.kind), borderColor: palette.cluster(c.kind) }}>{KIND_LABEL[c.kind]}</span>
         <span className="title">{c.name}</span>
         <span className="spec">{clusterSpec(c)}{c.sparkVersion ? ` · DBR ${c.sparkVersion.split('.x')[0]}` : ''}</span>
         {target.taskId && <span className="spec">· running {names.get(target.taskId)}</span>}

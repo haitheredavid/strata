@@ -12,6 +12,7 @@ interface Props {
   view: ViewGraph
   placement: Placement
   pipelines: Pipeline[]
+  colorOf: (pipelineId: string) => string
   opacityOf: (pipelineId: string) => number
   /** Axis that keeps parallel lanes apart: up in 3D, across the page when the diagram lies flat. */
   spread?: 'y' | 'z'
@@ -21,7 +22,7 @@ interface Props {
  * One translucent ribbon per pipeline, threading its run order: what the first step reads, each step's
  * jobs, then what the last step writes. Built from placement targets; fades out while cards move.
  */
-export function Lanes({ view, placement, pipelines, opacityOf, spread = 'y' }: Props) {
+export function Lanes({ view, placement, pipelines, colorOf, opacityOf, spread = 'y' }: Props) {
   const lanes = useMemo(() => {
     const at = (id: string) => placement.nodes[id]?.p
     const mean = (ids: string[]) => {
@@ -40,9 +41,9 @@ export function Lanes({ view, placement, pipelines, opacityOf, spread = 'y' }: P
       const offset = (k - (pipelines.length - 1) / 2) * 0.35 // keep parallel lanes apart
       for (const v of pts) v[spread] += offset
       const geo = new TubeGeometry(new CatmullRomCurve3(pts, false, 'centripetal'), pts.length * 16, 0.22, 8, false)
-      return [{ id: p.id, color: p.color, geo }]
+      return [{ id: p.id, color: colorOf(p.id), geo }]
     })
-  }, [view, placement, pipelines, spread])
+  }, [view, placement, pipelines, colorOf, spread])
   useEffect(() => () => lanes.forEach((l) => l.geo.dispose()), [lanes])
 
   return (

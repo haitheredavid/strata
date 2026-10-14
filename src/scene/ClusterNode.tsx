@@ -10,7 +10,8 @@ import { Label } from './Label'
 import { useReleaseHover } from './hover'
 import { syncFromAnim } from './anim'
 import { timeClock } from './timeClock'
-import { CLUSTER_COLOR, clusterSpec, KIND_LABEL } from './clusterStyle'
+import { clusterSpec, KIND_LABEL } from './clusterStyle'
+import { usePalette } from '../theme/palette'
 
 const OFF = '#242b3a'
 const IDLE = '#334155'
@@ -41,7 +42,7 @@ export const ClusterNode = memo(function ClusterNode({ cluster: vc, opacity, hig
   const group = useRef<Group>(null)
   const driver = useRef<MeshBasicMaterial>(null)
   const workers = useRef<(MeshBasicMaterial | null)[]>([])
-  const color = CLUSTER_COLOR[c.kind]
+  const color = usePalette().cluster(c.kind)
   const shown = Math.min(MAX_SHOWN, c.workers.max)
   const rows = useMemo(() => Array.from({ length: shown }, (_, i) => -(i + 1) * (ROW + GAP)), [shown])
 

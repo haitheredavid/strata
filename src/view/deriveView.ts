@@ -85,7 +85,7 @@ export const MEDALLION_LAYERS: Layer[] = [
   { id: 'gold', name: 'gold', color: '#f5c542' },
   { id: UNASSIGNED, name: 'unassigned', color: '#6b7280' },
 ]
-const SOURCES_LAYER: Layer = { id: SOURCES, name: 'sources', color: '#94a3b8' }
+export const SOURCES_LAYER: Layer = { id: SOURCES, name: 'sources', color: '#94a3b8' }
 
 export const domainNodeId = (layerId: string) => `domain:${layerId}`
 export const jobNodeId = (taskId: string) => `job:${taskId}`

@@ -4,15 +4,14 @@ import type { ThreeEvent } from '@react-three/fiber'
 import { Group, Plane, Vector3 } from 'three'
 import { CARD_W, HEADER_H, ROW_H, cardDepth } from '../layout/geometry'
 import type { NodePlace } from '../layout/modes'
-import { MEDALLION_LAYERS } from '../view/deriveView'
 import type { ViewNode } from '../view/deriveView'
 import { useStore } from '../store'
 import { Label } from './Label'
+import { usePalette } from '../theme/palette'
 import { useReleaseHover } from './hover'
 import { anim, syncFromAnim, animState } from './anim'
 
 const DRAG_THRESHOLD = 0.15
-const MEDALLION_COLOR = Object.fromEntries(MEDALLION_LAYERS.map((l) => [l.id, l.color])) as Record<string, string>
 // Card layers sit ~0.005 apart, finer than the depth buffer resolves once the camera pulls back,
 // so each layer also gets a polygon offset (in depth-buffer units, so it holds at any distance).
 const layer = (n: number) => ({ polygonOffset: true, polygonOffsetFactor: -n, polygonOffsetUnits: -n * 4 })
@@ -38,6 +37,7 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
   const dragNode = useStore((s) => s.dragNode)
   const setDragging = useStore((s) => s.setDragging)
   const toggleCard = useStore((s) => s.toggleCard)
+  const palette = usePalette()
 
   const group = useRef<Group>(null)
   const drag = useRef<{ offset: Vector3; start: Vector3; moved: boolean; plane: Plane | null; at: Vector3 } | null>(null)
@@ -163,7 +163,7 @@ export const TableCard = memo(function TableCard({ node, place, color, opacity, 
             </mesh>
             <mesh position={[0, 0, 0.002]} raycast={() => null}>
               <planeGeometry args={[0.34, 0.34]} />
-              <meshBasicMaterial color={MEDALLION_COLOR[node.medallion]} transparent opacity={opacity} {...layer(3)} />
+              <meshBasicMaterial color={palette.medallion(node.medallion)} transparent opacity={opacity} {...layer(3)} />
             </mesh>
             <Label position={[0, 0, 0.01]} fontSize={0.22} color="#0b0e14" fillOpacity={opacity} anchorX="center" anchorY="middle" depthOffset={-16} raycast={() => null}>
               {node.medallion[0].toUpperCase()}

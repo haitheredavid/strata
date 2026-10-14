@@ -4,6 +4,8 @@ import type { Layout } from '../model/types'
 import { MODES, MODE_IDS } from '../layout/modes'
 import { TablePicker } from './TablePicker'
 import { SAMPLES, loadFiles, loadSample } from './files'
+import { SCHEMES } from '../theme/schemes'
+import type { SchemeId } from '../theme/schemes'
 
 export function Toolbar() {
   const graph = useStore((s) => s.graph)
@@ -18,6 +20,8 @@ export function Toolbar() {
   const timeline = useStore((s) => s.time.open)
   const openTimeline = useStore((s) => s.openTimeline)
   const closeTimeline = useStore((s) => s.closeTimeline)
+  const colorScheme = useStore((s) => s.colorScheme)
+  const setColorScheme = useStore((s) => s.setColorScheme)
   const dbmlInput = useRef<HTMLInputElement>(null)
   const workflowInput = useRef<HTMLInputElement>(null)
   const hasSchema = graph.tables.length > 0
@@ -109,6 +113,11 @@ export function Toolbar() {
       </button>
 
       <div className="spacer" />
+      <select className="sample" value={colorScheme} onChange={(e) => setColorScheme(e.target.value as SchemeId)} title="Color scheme">
+        {SCHEMES.map(([id, label]) => (
+          <option key={id} value={id}>{label}</option>
+        ))}
+      </select>
       <button onClick={resetLayout} disabled={mode === 'orbit'}>Auto layout</button>
       <button onClick={exportLayout}>Export layout</button>
       <button onClick={() => layoutInput.current?.click()}>Import layout</button>
