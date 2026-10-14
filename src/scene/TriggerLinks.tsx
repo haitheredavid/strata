@@ -7,6 +7,10 @@ import type { Pipeline } from '../model/workflow'
 import type { ViewGraph } from '../view/deriveView'
 import { runSteps } from '../view/runOrder'
 import { nodeCenter } from './curve'
+import { writeLine } from './lineBuffer'
+
+/** Placeholder points; useFrame writes the real ends. A stable array so <Line> keeps its geometry. */
+const SEGMENT: [number, number, number][] = [[0, 0, 0], [0, 0, 1]]
 
 interface Link { id: string; from: string; to: string; color: string }
 
@@ -54,13 +58,13 @@ function TriggerLine({ link, opacity }: { link: Link; opacity: number }) {
     line.current.visible = !!(a && b)
     if (!a || !b) return
     v.buf.set([a.x, a.y, a.z, b.x, b.y, b.z])
-    line.current.geometry.setPositions(v.buf)
-    line.current.computeLineDistances()
+    writeLine(line.current, v.buf, true)
   })
   return (
     <Line
       ref={line}
-      points={[[0, 0, 0], [0, 0, 1]]}
+      points={SEGMENT}
+      frustumCulled={false}
       color={link.color}
       lineWidth={1}
       dashed

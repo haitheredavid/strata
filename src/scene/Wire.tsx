@@ -9,6 +9,7 @@ import type { NodePlace } from '../layout/modes'
 import type { ViewEdge, ViewNode } from '../view/deriveView'
 import { Label } from './Label'
 import { anim, animState } from './anim'
+import { writeLine } from './lineBuffer'
 
 interface End {
   node: ViewNode
@@ -32,6 +33,7 @@ const Z = new Vector3(0, 0, 1)
 
 const tmp = {
   xa: new Vector3(), xb: new Vector3(), na: new Vector3(), nb: new Vector3(), d: new Vector3(),
+  a: new Vector3(), b: new Vector3(), ab: new Vector3(), ma: new Vector3(), mb: new Vector3(),
 }
 const curve = new CubicBezierCurve3(new Vector3(), new Vector3(), new Vector3(), new Vector3())
 
@@ -47,7 +49,7 @@ function update(e: Props, out: Float32Array, labels: [Vector3, Vector3]) {
   const B = anim.get(e.to.node.id)
   if (!A || !B) return false
   const self = e.from.node.id === e.to.node.id
-  const { xa, xb, na, nb, d } = tmp
+  const { xa, xb, na, nb, d, a, b, ab, ma, mb } = tmp
   xa.copy(X).applyQuaternion(A.quat)
   xb.copy(X).applyQuaternion(B.quat)
   na.copy(Z).applyQuaternion(A.quat)
@@ -56,12 +58,12 @@ function update(e: Props, out: Float32Array, labels: [Vector3, Vector3]) {
   const sa = self || d.dot(xa) >= 0 ? 1 : -1
   const sb = self || -d.dot(xb) > 0 ? 1 : -1
 
-  const a = new Vector3(...localAnchor(e.from.node, e.from.column, sa)).applyQuaternion(A.quat).add(A.pos).addScaledVector(na, LIFT)
-  const b = new Vector3(...localAnchor(e.to.node, e.to.column, sb)).applyQuaternion(B.quat).add(B.pos).addScaledVector(nb, LIFT)
-  const ab = b.clone().sub(a)
+  a.set(...localAnchor(e.from.node, e.from.column, sa)).applyQuaternion(A.quat).add(A.pos).addScaledVector(na, LIFT)
+  b.set(...localAnchor(e.to.node, e.to.column, sb)).applyQuaternion(B.quat).add(B.pos).addScaledVector(nb, LIFT)
+  ab.subVectors(b, a)
   const dist = ab.length()
-  const ma = a.clone()
-  const mb = b.clone()
+  ma.copy(a)
+  mb.copy(b)
 
   if (self) {
     ma.addScaledVector(xa, 2).addScaledVector(na, 0.4)
@@ -105,7 +107,7 @@ export function Wire(props: Props) {
     const ok = update(props, buf, anchors)
     line.current.visible = ok
     if (!ok) return
-    line.current.geometry.setPositions(buf)
+    writeLine(line.current, buf)
     const fade = 1 - 0.75 * animState.moving
     line.current.material.opacity = opacity * fade
     for (const [ref, at] of [[labelA, anchors[0]], [labelB, anchors[1]]] as const) {
@@ -119,7 +121,7 @@ export function Wire(props: Props) {
   const labelOpacity = opacity * (edge.count > 1 ? 1 : 0.9)
   return (
     <group>
-      <Line ref={line} points={initial} color={color} lineWidth={width} transparent opacity={opacity} depthWrite={false} />
+      <Line ref={line} points={initial} frustumCulled={false} color={color} lineWidth={width} transparent opacity={opacity} depthWrite={false} />
       <Label ref={labelA} fontSize={0.2} color="#ffffff" fillOpacity={labelOpacity} anchorX="center" anchorY="bottom" raycast={() => null}>
         {fromCard === 'n' ? 'N' : '1'}
       </Label>

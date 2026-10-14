@@ -5,6 +5,10 @@ import { Vector3 } from 'three'
 import type { Line2 } from 'three-stdlib'
 import type { ComputeLink } from '../view/deriveView'
 import { nodeCenter } from './curve'
+import { writeLine } from './lineBuffer'
+
+/** Placeholder points; useFrame writes the real ends. A stable array so <Line> keeps its geometry. */
+const SEGMENT: [number, number, number][] = [[0, 0, 0], [0, 0, 1]]
 
 interface Props {
   links: ComputeLink[]
@@ -34,13 +38,13 @@ function ComputeLine({ link, color, opacity }: { link: ComputeLink; color: strin
     if (!a || !b) return
     b.y += 0.35 // top of the rack
     v.buf.set([a.x, a.y, a.z, b.x, b.y, b.z])
-    line.current.geometry.setPositions(v.buf)
-    line.current.computeLineDistances()
+    writeLine(line.current, v.buf, true)
   })
   return (
     <Line
       ref={line}
-      points={[[0, 0, 0], [0, 0, 1]]}
+      points={SEGMENT}
+      frustumCulled={false}
       color={color}
       lineWidth={opacity > 0.5 ? 1.6 : 1}
       dashed

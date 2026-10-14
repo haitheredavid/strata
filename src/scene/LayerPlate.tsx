@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import type { Group } from 'three'
@@ -10,7 +10,12 @@ import { syncFromAnim, plateKey } from './anim'
 export function LayerPlate({ plate, opacity }: { plate: PlatePlace; opacity: number }) {
   const group = useRef<Group>(null)
   const [w, h] = plate.size
-  const [x0, x1, y0, y1] = [-w / 2, w / 2, -h / 2, h / 2]
+  const [x0, y0, y1] = [-w / 2, -h / 2, h / 2]
+  // Stable across re-renders: <Line> rebuilds (and disposes) its geometry and material when points change.
+  const outline = useMemo<[number, number, number][]>(
+    () => [[-w / 2, -h / 2, 0], [w / 2, -h / 2, 0], [w / 2, h / 2, 0], [-w / 2, h / 2, 0], [-w / 2, -h / 2, 0]],
+    [w, h],
+  )
   const labelY = plate.frame === 'flat' ? y0 + 0.6 : y1 - 0.7
 
   // Start where the animation is (not at the target), then follow it every frame.
@@ -24,7 +29,7 @@ export function LayerPlate({ plate, opacity }: { plate: PlatePlace; opacity: num
         <meshBasicMaterial color={plate.color} transparent opacity={0.07 * opacity} depthWrite={false} />
       </mesh>
       <Line
-        points={[[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0], [x0, y0, 0]]}
+        points={outline}
         color={plate.color}
         lineWidth={1.5}
         transparent

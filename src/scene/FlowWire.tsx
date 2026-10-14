@@ -7,6 +7,7 @@ import type { Line2 } from 'three-stdlib'
 import type { FlowEdge, ViewNode } from '../view/deriveView'
 import { animState } from './anim'
 import { archCurve, flowCurves, nodeAnchor, nodeCenter } from './curve'
+import { writeLine } from './lineBuffer'
 
 const SEGMENTS = 24
 const Y = new Vector3(0, 1, 0)
@@ -55,8 +56,7 @@ export function FlowWire({ flow, from, to, color, opacity, width }: Props) {
     line.current.visible = head.current.visible = ok
     if (!ok) return
     archCurve(a, b, curve)
-    line.current.geometry.setPositions(sample(curve, buf))
-    line.current.computeLineDistances()
+    writeLine(line.current, sample(curve, buf), true)
     line.current.material.opacity = opacity * (1 - 0.75 * animState.moving)
     // Arrowhead just short of the target, pointing along the curve.
     head.current.position.copy(curve.getPoint(0.94))
@@ -68,6 +68,7 @@ export function FlowWire({ flow, from, to, color, opacity, width }: Props) {
       <Line
         ref={line}
         points={initial}
+        frustumCulled={false}
         color={color}
         lineWidth={width}
         dashed
