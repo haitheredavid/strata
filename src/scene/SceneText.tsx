@@ -3,6 +3,7 @@ import { CARD_W, HEADER_H, ROW_H } from '../layout/geometry'
 import type { PlatePlace } from '../layout/modes'
 import type { ViewCluster, ViewEdge, ViewNode } from '../view/deriveView'
 import type { World } from '../world/world'
+import { span } from '../dev/perf'
 import { clusterSpec, KIND_LABEL } from './clusterStyle'
 import { EVENT, RACK_GAP, RACK_MAX_SHOWN, RACK_ROW, triggerText } from './labels'
 import { isNear, onNearChange } from './lod'
@@ -56,7 +57,7 @@ export function SceneText(p: Props) {
   const { world, plates } = p
   const { plateBase, fkBase } = p.anchors
 
-  const items = useMemo(() => {
+  const items = useMemo(() => span('textItems', () => {
     void nearVersion
     const out: TextItem[] = []
     const { nodes } = world
@@ -75,6 +76,16 @@ export function SceneText(p: Props) {
       }
       cardText(out, i, n, nodes.size[2 * i + 1] / 2, opacity, isNear(id))
     }
+    return out
+  }) // `p` members are listed individually; callers pass memoized functions
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  , [world, nearVersion, p.nodeById, p.clusterById, p.nodeOpacity, p.clusterOpacity, p.focused])
+
+  // Plate names and FK marks: few, but they follow every placement, so they get their own layer.
+  const overlay = useMemo(() => {
+    void nearVersion
+    const out: TextItem[] = []
+    const { nodes } = world
     plates.forEach((pl, k) => {
       const [w, h] = pl.size
       out.push({
@@ -101,11 +112,16 @@ export function SceneText(p: Props) {
         mark(fkBase + 2 * k + 1, (toCard === 'n' ? 'N' : '1') + (e.count > 1 ? `  ×${e.count}` : ''))
       })
     return out
-    // `p` members are listed individually; callers pass memoized functions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world, plates, nearVersion, p.fkEdges, p.showFk, p.nodeById, p.clusterById, p.nodeOpacity, p.clusterOpacity, p.plateOpacity, p.focused])
+  }, [world, plates, nearVersion, p.fkEdges, p.showFk, p.fkOpacity, p.plateOpacity])
 
-  return atlas ? <TextLayer atlas={atlas} anchors={p.anchors.table} items={items} /> : null
+  if (!atlas) return null
+  return (
+    <>
+      <TextLayer atlas={atlas} anchors={p.anchors.table} items={items} />
+      <TextLayer atlas={atlas} anchors={p.anchors.table} items={overlay} />
+    </>
+  )
 }
 
 function cardText(out: TextItem[], anchor: number, n: ViewNode, top: number, opacity: number, rows: boolean) {

@@ -38,7 +38,7 @@ const fragmentShader = /* glsl */ `
 `
 
 /** Draws one shape for every instance in `parts`, hung off the scene anchors (see Parts). */
-export function PartBatch({ shape, parts, anchors, renderOrder = 0 }: { shape: BufferGeometry; parts: Parts; anchors: AnchorTable; renderOrder?: number }) {
+export function PartBatch({ shape, parts, anchors, renderOrder = 0, depthWrite = true }: { shape: BufferGeometry; parts: Parts; anchors: AnchorTable; renderOrder?: number; depthWrite?: boolean }) {
   const geometry = useMemo(() => {
     const g = new InstancedBufferGeometry()
     g.index = shape.index
@@ -56,13 +56,14 @@ export function PartBatch({ shape, parts, anchors, renderOrder = 0 }: { shape: B
   const material = useMemo<Material>(() => {
     if (nodeRenderer) {
       const { material, uniforms } = partMaterial(anchors.texture)
+      material.depthWrite = depthWrite
       material.userData.u = uniforms
       return material
     }
-    const m = new ShaderMaterial({ vertexShader, fragmentShader, uniforms: { anchors: { value: anchors.texture }, time: { value: 0 } }, transparent: true })
+    const m = new ShaderMaterial({ vertexShader, fragmentShader, uniforms: { anchors: { value: anchors.texture }, time: { value: 0 } }, transparent: true, depthWrite })
     m.userData.u = m.uniforms
     return m
-  }, [anchors])
+  }, [anchors, depthWrite])
   useEffect(() => () => material.dispose(), [material])
 
   const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)

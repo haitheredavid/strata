@@ -147,3 +147,25 @@ export function packOnce(world: World): boolean {
   }
   return world.dirty.lo <= world.dirty.hi
 }
+
+/**
+ * Reuse `world` for a new placement of the same view when it places the same nodes: frames and
+ * plate indices are rewritten in place and the same object is returned, so the instanced renderers
+ * keep their buffers. Returns null when the node set differs and the world must be rebuilt.
+ */
+export function replace(world: World, view: ViewGraph, placement: Placement): World | null {
+  if (world.view !== view) return null
+  const { nodes } = world
+  let placed = 0
+  for (const id in placement.nodes) if (nodes.index.has(id)) placed++
+  if (placed !== nodes.count) return null
+  nodes.plates = placement.plates.map((p) => p.id)
+  const plateIndex = new Map(nodes.plates.map((id, i) => [id, i]))
+  for (let i = 0; i < nodes.count; i++) {
+    const place = placement.nodes[nodes.ids[i]]
+    if (!place) return null
+    nodes.frame[i] = FRAME_CODE[place.frame]
+    nodes.plate[i] = place.plateId !== undefined ? (plateIndex.get(place.plateId) ?? -1) : -1
+  }
+  return world
+}

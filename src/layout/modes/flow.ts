@@ -47,6 +47,21 @@ interface Base {
 }
 
 let cache: { view: ViewGraph; key: string; base: Base } | null = null
+let scaled: { base: Base; gap: number; out: Base } | null = null
+
+/**
+ * flowBase for a layout: the row ordering doesn't depend on the gap, only the slab x positions do
+ * (linearly), so the expensive part is cached per order and just rescaled when the gap changes.
+ */
+export function flowBase(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'layerGap' | 'groupBy'>): Base {
+  const base = flowBaseUnit(view, layout)
+  if (scaled && scaled.base === base && scaled.gap === layout.layerGap) return scaled.out
+  const pos = new Map<string, { x: number; y: number; z: number }>()
+  for (const [id, p] of base.pos) pos.set(id, { x: p.x * layout.layerGap, y: p.y, z: p.z })
+  const out = { pos, order: base.order }
+  scaled = { base, gap: layout.layerGap, out }
+  return out
+}
 
 /**
  * Left-to-right layered layout: each domain is an upright slab facing +X, upstream domains first along X.
@@ -54,9 +69,9 @@ let cache: { view: ViewGraph; key: string; base: Base } | null = null
  * domain-local FK depth with referenced tables first. Rows are ordered by barycenter sweeps against
  * neighbors in every other column to cut down crossings.
  */
-export function flowBase(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'layerGap' | 'groupBy'>): Base {
+function flowBaseUnit(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'groupBy'>): Base {
   const order = flowOrder(view, layout)
-  const key = `${layout.layerGap}|${order.join(',')}`
+  const key = order.join(',')
   if (cache && cache.view === view && cache.key === key) return cache.base
 
   const byId = new Map(view.nodes.map((n) => [n.id, n]))
@@ -102,7 +117,7 @@ export function flowBase(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'la
     const bySub: string[][] = Array.from({ length: subs }, () => [])
     for (const id of ids) bySub[depth.get(id)!].push(id)
     bySub.forEach((sub, d) => columns.push({ x: cursor, z: ((subs - 1) / 2 - d) * SUB_STEP, ids: sub }))
-    cursor += layout.layerGap * SLAB_SPACING
+    cursor += SLAB_SPACING // per unit of layer gap; flowBase scales it
   }
 
   const pos = new Map<string, { x: number; y: number; z: number }>()

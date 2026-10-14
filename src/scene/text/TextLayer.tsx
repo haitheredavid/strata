@@ -7,6 +7,7 @@ import { ANCHOR_TEX_W } from './anchors'
 import type { AnchorTable } from './anchors'
 import type { Atlas } from './atlas'
 import { layoutLine } from './layout'
+import { span } from '../../dev/perf'
 import type { AnchorX, AnchorY } from './layout'
 
 /** One line of scene text, placed in an anchor's local frame. */
@@ -105,7 +106,7 @@ export function TextLayer({ atlas, anchors, items, renderOrder = 2 }: { atlas: A
   useEffect(() => {
     const g = mesh.current?.geometry as InstancedBufferGeometry | undefined
     if (!g) return
-    const { g0, g1, g2, n } = build(atlas, items)
+    const { g0, g1, g2, n } = span('textGlyphs', () => build(atlas, items))
     g.setAttribute('g0', new InstancedBufferAttribute(g0, 4))
     g.setAttribute('g1', new InstancedBufferAttribute(g1, 4))
     g.setAttribute('g2', new InstancedBufferAttribute(g2, 4))

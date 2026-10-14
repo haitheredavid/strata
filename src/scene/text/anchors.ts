@@ -30,6 +30,23 @@ export class AnchorTable {
     this.texture.needsUpdate = true
   }
 
+  /**
+   * Make room for `count` anchors. The texture object stays the same (so materials that read it
+   * keep working, and never recompile); only its storage grows.
+   */
+  resize(count: number) {
+    this.count = count
+    const rows = Math.max(1, Math.ceil((count * 2) / ANCHOR_TEX_W))
+    if (rows * ANCHOR_TEX_W * 4 <= this.data.length) return
+    const data = new Float32Array(ANCHOR_TEX_W * rows * 4)
+    data.set(this.data)
+    for (let i = this.data.length / 8; i < count; i++) data[8 * i + 7] = 1
+    this.data = data
+    this.texture.dispose() // free the old GPU storage; the next upload allocates the new size
+    this.texture.image = { data, width: ANCHOR_TEX_W, height: rows }
+    this.dirty = true
+  }
+
   set(i: number, pos: Vector3, quat: Quaternion) {
     const o = 8 * i
     const d = this.data
@@ -81,11 +98,17 @@ export interface SceneAnchors {
   fkBase: number
 }
 
-/** The scene's anchor table for a world and its plates (rebuilt when either changes shape). */
+/**
+ * The scene's anchor table for a world and its plates. One table for the component's lifetime,
+ * resized as the world changes, so the materials that sample it are never rebuilt (on WebGPU a new
+ * node material means a synchronous shader compile).
+ */
 export function useSceneAnchors(world: World, plates: PlatePlace[]): SceneAnchors {
+  const table = useMemo(() => new AnchorTable(1), [])
   return useMemo(() => {
     const plateBase = world.nodes.count
     const fkBase = plateBase + plates.length
-    return { table: new AnchorTable(fkBase + world.fk.count * 2), plateBase, fkBase }
-  }, [world, plates.length])
+    table.resize(fkBase + world.fk.count * 2)
+    return { table, plateBase, fkBase }
+  }, [table, world, plates.length])
 }

@@ -18,7 +18,9 @@ import { FkLabels } from './FkLabels'
 import { CardBodies } from './CardBodies'
 import type { CardStyle } from './CardBodies'
 import { Color } from 'three'
-import { buildWorld } from '../world/world'
+import { buildWorld, replace } from '../world/world'
+import type { World } from '../world/world'
+import type { ViewGraph } from '../view/deriveView'
 import { fkCurves } from '../world/fkEdges'
 import { FlowWires } from './FlowWires'
 import { PlateOutlines, RingLines } from './Outlines'
@@ -38,11 +40,12 @@ import { PerfHud } from '../dev/PerfHud'
 import { createRenderer, lastDrawCalls, nodeRenderer, sdfText } from './gpu/renderer'
 import { SceneText } from './SceneText'
 import { NodeParts } from './parts/NodeParts'
+import { PlateBodies } from './parts/PlateBodies'
 import { AnchorDriver } from './text/AnchorDriver'
 import { useSceneAnchors } from './text/anchors'
 import { runBench } from '../dev/bench'
 import type { BenchOptions } from '../dev/bench'
-import { allSpans, lastSpans } from '../dev/perf'
+import { allSpans, lastSpans, span } from '../dev/perf'
 import type CameraControlsImpl from 'camera-controls'
 
 /** `?wires=legacy` keeps one drei Line per FK wire, for comparing against the instanced path. */
@@ -50,6 +53,8 @@ const legacyWires = /[?&]wires=legacy\b/.test(location.search)
 /** `?cards=legacy` keeps the per-card meshes. */
 const legacyCards = /[?&]cards=legacy\b/.test(location.search)
 const tmpColor = new Color()
+/** Last world built per view, reused across placements (see `replace`). */
+const worlds = new WeakMap<ViewGraph, World>()
 
 const showPerf = import.meta.env.DEV && /[?&](perf|synth)\b/.test(location.search)
 
@@ -103,8 +108,16 @@ function Diagram({ model }: { model: SceneModel }) {
     [pipelines, view],
   )
   const lens = useMemo(() => lit?.nodes ?? (reach ? new Set(reach.keys()) : null), [lit, reach])
-  const litPipelines = lit?.flows.size ? new Set(view.flows.filter((f) => lit.flows.has(f.id)).map((f) => f.pipelineId)) : null
+  const litPipelines = useMemo(
+    () => (lit?.flows.size ? new Set(view.flows.filter((f) => lit.flows.has(f.id)).map((f) => f.pipelineId)) : null),
+    [lit, view],
+  )
+  const laneOpacity = useCallback((id: string) => (litPipelines ? (litPipelines.has(id) ? 1.5 : 0.15) : 1), [litPipelines])
 
+  // Only orbit fades nodes; keep the set's identity while its contents hold, so placement changes
+  // that don't touch fading (layer gap, drags) don't restyle every node.
+  const fadedKey = useMemo(() => Object.keys(placement.nodes).filter((id) => placement.nodes[id].faded).join('\n'), [placement])
+  const faded = useMemo(() => new Set(fadedKey ? fadedKey.split('\n') : []), [fadedKey])
   const nodeOpacity = useCallback(
     (id: string) => {
       if (time) {
@@ -114,9 +127,9 @@ function Diagram({ model }: { model: SceneModel }) {
         return lit?.nodes.has(id) ? 0.35 : DIM
       }
       if (lens) return lens.has(id) ? 1 : DIM
-      return placement.nodes[id]?.faded ? FADED : 1
+      return faded.has(id) ? FADED : 1
     },
-    [time, lit, lens, placement],
+    [time, lit, lens, faded],
   )
   const runState = useCallback(
     (id: string): RunState => (!time ? null : time.active.has(id) ? 'active' : time.done.has(id) ? 'done' : 'pending'),
@@ -162,7 +175,13 @@ function Diagram({ model }: { model: SceneModel }) {
   }
 
   // Flat-array scene for the instanced renderers; rebuilt when the view or placement changes.
-  const world = useMemo(() => buildWorld(view, placement), [view, placement])
+  const world = useMemo(() => {
+    // Same view, same nodes: rewrite frames in place so the instanced renderers keep their buffers.
+    const prev = worlds.get(view)
+    const w = (prev && replace(prev, view, placement)) ?? span('buildWorld', () => buildWorld(view, placement))
+    worlds.set(view, w)
+    return w
+  }, [view, placement])
   const curves = useMemo(() => fkCurves(world.fk.count), [world])
   const fkEdges = useMemo(() => {
     const byId = new Map(view.edges.map((e) => [e.id, e]))
@@ -196,7 +215,7 @@ function Diagram({ model }: { model: SceneModel }) {
   const fkOpacity = useCallback((k: number) => fkStyle.style[2 * k], [fkStyle])
   const showFk = edgeLayer !== 'lineage' && !legacyWires
   const anchors = useSceneAnchors(world, placement.plates)
-  useEffect(() => () => anchors.table.dispose(), [anchors])
+  useEffect(() => () => anchors.table.dispose(), [anchors.table])
 
   const cardStyle = useMemo<CardStyle>(() => {
     const n = world.nodes.count
@@ -273,9 +292,9 @@ function Diagram({ model }: { model: SceneModel }) {
           jobVolume={jobVolume}
         />
       )}
-      {placement.plates.map((pl) => (
-        <LayerPlate key={pl.id} plate={pl} color={palette.layer(pl.id)} opacity={lens ? 0.4 : 1} />
-      ))}
+      {legacyCards
+        ? placement.plates.map((pl) => <LayerPlate key={pl.id} plate={pl} color={palette.layer(pl.id)} opacity={lens ? 0.4 : 1} />)
+        : <PlateBodies plates={placement.plates} anchors={anchors} colorOf={palette.layer} opacity={lens ? 0.4 : 1} />}
 
       <PlateOutlines plates={placement.plates} colorOf={palette.layer} opacity={lens ? 0.4 : 1} />
       {placement.rings && <RingLines rings={placement.rings} />}
@@ -351,7 +370,7 @@ function Diagram({ model }: { model: SceneModel }) {
           )
         })}
 
-      {flowWires.length > 0 && <FlowWires wires={flowWires} />}
+      <FlowWires wires={flowWires} />
 
       {legacyCards && view.clusters.map((c) =>
         placement.nodes[c.id] ? (
@@ -388,7 +407,7 @@ function Diagram({ model }: { model: SceneModel }) {
               pipelines={shownPipelines}
               colorOf={colorOf}
               spread={mode.id === 'diagram' ? 'z' : 'y'}
-              opacityOf={(id) => (litPipelines ? (litPipelines.has(id) ? 1.5 : 0.15) : 1)}
+              opacityOf={laneOpacity}
             />
           )}
         </>
@@ -411,6 +430,7 @@ function DevHandle() {
       store: useStore,
       scene: () => get().scene,
       gl: () => gl,
+      r3f: () => get(),
       info: () => ({ calls: lastDrawCalls(gl.info as never), triangles: gl.info.render.triangles, geometries: gl.info.memory.geometries }),
       advance: (n = 1) => {
         for (let i = 0; i < n; i++) advance(performance.now() + i * 16)
