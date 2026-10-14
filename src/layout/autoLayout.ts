@@ -17,6 +17,11 @@ interface Node extends SimulationNodeDatum {
 const MARGIN = 0.6
 /** Force ticks per layer: fewer on big layers, where each tick costs more and the overlap pass cleans up. */
 const ticksFor = (n: number) => (n < 500 ? 300 : n < 5000 ? 150 : 80)
+/** Past this many tables in the whole graph, every layer gets a short, fast-cooling force pass. */
+const BIG_GRAPH = 5000
+const BIG_TICKS = 90
+/** d3's default alpha decay cools to alphaMin in ~300 ticks; this cools in `ticks`. */
+const decayFor = (ticks: number) => 1 - Math.pow(0.001, 1 / ticks)
 
 function lcg(seed: number) {
   let s = seed >>> 0
@@ -71,7 +76,11 @@ export function autoLayout(graph: Graph, layerGap = 8): Layout {
 
     const links = linksOf.get(layerId)!
 
+    // Big graphs: hundreds of small layers each paying the full 300 ticks is most of the cost, and the
+    // overlap pass below cleans up what a shorter run leaves.
+    const ticks = graph.tables.length > BIG_GRAPH ? Math.min(BIG_TICKS, ticksFor(nodes.length)) : ticksFor(nodes.length)
     forceSimulation(nodes)
+      .alphaDecay(decayFor(ticks))
       .randomSource(lcg(42))
       .force('link', forceLink<Node, { source: string; target: string }>(links).id((n) => n.id).distance(6).strength(0.5))
       .force('charge', forceManyBody().strength(-20).distanceMax(12))
@@ -79,7 +88,7 @@ export function autoLayout(graph: Graph, layerGap = 8): Layout {
       .force('y', forceY<Node>((n) => n.tz).strength((n) => n.pull))
       .force('collide', forceCollide<Node>((n) => n.r).strength(1).iterations(4))
       .stop()
-      .tick(ticksFor(nodes.length))
+      .tick(ticks)
 
     for (const n of nodes) positions[n.id] = { x: n.x!, z: n.y! }
     resolveOverlaps(tables, positions)
