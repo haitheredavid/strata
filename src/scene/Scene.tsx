@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo } from 'react'
+import { Suspense, useCallback, useEffect, useMemo } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { MODES } from '../layout/modes'
 import { modeOf, scheduleFor, useStore } from '../store'
@@ -34,7 +34,8 @@ import { TriggerLinks } from './TriggerLinks'
 import { flowVolumes, formatBytes, pulseShape } from '../sim/volume'
 import { usePalette } from '../theme/palette'
 import { PerfHud } from '../dev/PerfHud'
-import { createRenderer, lastDrawCalls, nodeRenderer } from './gpu/renderer'
+import { createRenderer, lastDrawCalls, nodeRenderer, sdfText } from './gpu/renderer'
+import { SceneText } from './SceneText'
 import { runBench } from '../dev/bench'
 import type { BenchOptions } from '../dev/bench'
 import { allSpans, lastSpans } from '../dev/perf'
@@ -97,19 +98,22 @@ function Diagram({ model }: { model: SceneModel }) {
     () => pipelines.filter((p) => view.flows.some((f) => f.pipelineId === p.id)),
     [pipelines, view],
   )
-  const lens = lit?.nodes ?? (reach ? new Set(reach.keys()) : null)
+  const lens = useMemo(() => lit?.nodes ?? (reach ? new Set(reach.keys()) : null), [lit, reach])
   const litPipelines = lit?.flows.size ? new Set(view.flows.filter((f) => lit.flows.has(f.id)).map((f) => f.pipelineId)) : null
 
-  const nodeOpacity = (id: string) => {
-    if (time) {
-      if (time.active.has(id)) return 1
-      if (time.done.has(id)) return 0.8
-      if (time.reached.has(id)) return 1
-      return lit?.nodes.has(id) ? 0.35 : DIM
-    }
-    if (lens) return lens.has(id) ? 1 : DIM
-    return placement.nodes[id]?.faded ? FADED : 1
-  }
+  const nodeOpacity = useCallback(
+    (id: string) => {
+      if (time) {
+        if (time.active.has(id)) return 1
+        if (time.done.has(id)) return 0.8
+        if (time.reached.has(id)) return 1
+        return lit?.nodes.has(id) ? 0.35 : DIM
+      }
+      if (lens) return lens.has(id) ? 1 : DIM
+      return placement.nodes[id]?.faded ? FADED : 1
+    },
+    [time, lit, lens, placement],
+  )
   const runState = (id: string): RunState =>
     !time ? null : time.active.has(id) ? 'active' : time.done.has(id) ? 'done' : 'pending'
   const lineageActive = view.flows.length > 0
@@ -135,12 +139,15 @@ function Diagram({ model }: { model: SceneModel }) {
 
   // Clusters follow their jobs: lit when a job they run is lit / running.
   const clusterById = useMemo(() => new Map(view.clusters.map((c) => [c.id, c])), [view])
-  const clusterOpacity = (c: ViewCluster) => {
-    if (time) return c.jobs.some((j) => time.active.has(j)) ? 1 : c.jobs.some((j) => time.done.has(j)) ? 0.75 : 0.25
-    if (reach?.has(c.id)) return 1
-    if (lens) return c.jobs.some((j) => lens.has(j)) ? 1 : DIM
-    return 0.9
-  }
+  const clusterOpacity = useCallback(
+    (c: ViewCluster) => {
+      if (time) return c.jobs.some((j) => time.active.has(j)) ? 1 : c.jobs.some((j) => time.done.has(j)) ? 0.75 : 0.25
+      if (reach?.has(c.id)) return 1
+      if (lens) return c.jobs.some((j) => lens.has(j)) ? 1 : DIM
+      return 0.9
+    },
+    [time, reach, lens],
+  )
   const linkOpacity = (l: ComputeLink) => {
     if (time) return time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04
     if (reach) return reach.has(l.job) && reach.has(l.cluster) ? 0.9 : 0.04
@@ -179,6 +186,8 @@ function Diagram({ model }: { model: SceneModel }) {
     return { color: packColors(colors), style, hoverable: !lit && !reach }
   }, [fkEdges, placement, lit, reach, lineageActive, palette, nodeById])
 
+  const fkOpacity = useCallback((k: number) => fkStyle.style[2 * k], [fkStyle])
+
   const cardStyle = useMemo<CardStyle>(() => {
     const n = world.nodes.count
     const color = new Float32Array(n * 4)
@@ -216,6 +225,26 @@ function Diagram({ model }: { model: SceneModel }) {
   return (
     <>
       {!legacyCards && <CardBodies world={world} style={cardStyle} />}
+      {sdfText && (
+        <SceneText
+          world={world}
+          plates={placement.plates}
+          fkEdges={fkEdges}
+          fkCurves={curves}
+          fkOpacity={fkOpacity}
+          showFk={edgeLayer !== 'lineage' && !legacyWires}
+          nodeById={nodeById}
+          clusterById={clusterById}
+          nodeOpacity={nodeOpacity}
+          clusterOpacity={clusterOpacity}
+          plateOpacity={lens ? 0.4 : 1}
+          layerColor={palette.layer}
+          pipelineColor={colorOf}
+          clusterColor={palette.cluster}
+          focused={focused}
+          jobVolume={jobVolume}
+        />
+      )}
       {placement.plates.map((pl) => (
         <LayerPlate key={pl.id} plate={pl} color={palette.layer(pl.id)} opacity={lens ? 0.4 : 1} />
       ))}
@@ -257,7 +286,7 @@ function Diagram({ model }: { model: SceneModel }) {
       {edgeLayer !== 'lineage' && !legacyWires && (
         <>
           <FkEdges world={world} curves={curves} fkStyle={fkStyle} />
-          <FkLabels world={world} curves={curves} edges={fkEdges} style={fkStyle.style} hoverable={fkStyle.hoverable} />
+          {!sdfText && <FkLabels world={world} curves={curves} edges={fkEdges} style={fkStyle.style} hoverable={fkStyle.hoverable} />}
         </>
       )}
 

@@ -15,6 +15,9 @@ export const rendererKind: RendererKind = (() => {
 
 export const nodeRenderer = rendererKind !== 'classic'
 
+/** Scene text from the SDF TextLayer; `?text=legacy` keeps troika on the classic renderer. */
+export const sdfText = nodeRenderer || !/[?&]text=legacy\b/.test(location.search)
+
 /** r3f `gl` factory for the node renderers (undefined keeps r3f's default WebGLRenderer). */
 export const createRenderer = nodeRenderer
   ? async (props: { canvas: unknown }) => {

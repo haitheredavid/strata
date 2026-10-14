@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Color, DoubleSide, InstancedBufferAttribute, InstancedBufferGeometry, PlaneGeometry, ShaderMaterial } from 'three'
-import type { Material } from 'three'
+import type { Material, Mesh } from 'three'
 import { nodeRenderer } from '../gpu/renderer'
 import { textMaterial } from '../gpu/materials'
 import { ANCHOR_TEX_W } from './anchors'
@@ -101,12 +101,16 @@ export function TextLayer({ atlas, anchors, items, renderOrder = 2 }: { atlas: A
   }, [])
   useEffect(() => () => geometry.dispose(), [geometry])
 
+  const mesh = useRef<Mesh>(null)
   useEffect(() => {
+    const g = mesh.current?.geometry as InstancedBufferGeometry | undefined
+    if (!g) return
     const { g0, g1, g2, n } = build(atlas, items)
-    geometry.setAttribute('g0', new InstancedBufferAttribute(g0, 4))
-    geometry.setAttribute('g1', new InstancedBufferAttribute(g1, 4))
-    geometry.setAttribute('g2', new InstancedBufferAttribute(g2, 4))
-    geometry.instanceCount = n
+    g.setAttribute('g0', new InstancedBufferAttribute(g0, 4))
+    g.setAttribute('g1', new InstancedBufferAttribute(g1, 4))
+    g.setAttribute('g2', new InstancedBufferAttribute(g2, 4))
+    g.instanceCount = n
+    if (mesh.current) mesh.current.visible = n > 0
   }, [geometry, atlas, items])
 
   const material = useMemo<Material>(() => {
@@ -126,5 +130,5 @@ export function TextLayer({ atlas, anchors, items, renderOrder = 2 }: { atlas: A
   }, [atlas, anchors])
   useEffect(() => () => material.dispose(), [material])
 
-  return <mesh geometry={geometry} material={material} frustumCulled={false} raycast={() => null} renderOrder={renderOrder} />
+  return <mesh ref={mesh} visible={false} geometry={geometry} material={material} frustumCulled={false} raycast={() => null} renderOrder={renderOrder} />
 }
