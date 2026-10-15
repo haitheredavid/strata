@@ -19,7 +19,7 @@ import type { ViewGraph } from '../view/deriveView'
 import { fkCurves } from '../world/fkEdges'
 import { FlowWires } from './FlowWires'
 import { PlateOutlines, RingLines } from './Outlines'
-import type { FlowWireSpec } from './FlowWires'
+import type { FlowWireSpec, FlowWireStyle } from './FlowWires'
 import { Lanes } from './Lanes'
 import { Pulses } from './Pulses'
 import { TimeDriver } from './TimeDriver'
@@ -150,12 +150,16 @@ function Diagram({ model }: { model: SceneModel }) {
     },
     [time, reach, lens],
   )
-  const linkOpacity = (l: ComputeLink) => {
-    if (time) return time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04
-    if (reach) return reach.has(l.job) && reach.has(l.cluster) ? 0.9 : 0.04
-    if (lens) return lens.has(l.job) ? 0.6 : 0.04
-    return 0.22 // hover brightens it in ComputeLinks
-  }
+  const linkOpacity = useCallback(
+    (l: ComputeLink) => {
+      if (time) return time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04
+      if (reach) return reach.has(l.job) && reach.has(l.cluster) ? 0.9 : 0.04
+      if (lens) return lens.has(l.job) ? 0.6 : 0.04
+      return 0.22 // hover brightens it in ComputeLinks
+    },
+    [time, reach, lens],
+  )
+  const linkColor = useCallback((id: string) => palette.cluster(clusterById.get(id)?.cluster.kind ?? 'job'), [palette, clusterById])
 
   // Flat-array scene for the instanced renderers; rebuilt when the view or placement changes.
   const world = useMemo(() => {
@@ -217,22 +221,32 @@ function Diagram({ model }: { model: SceneModel }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [world, nodeById, palette, focused, time, lit, reach, placement])
 
+  // Which flows are drawn (changes with the view and placement) apart from how (lens, timeline).
   const flowWires = useMemo<FlowWireSpec[]>(() => {
     const out: FlowWireSpec[] = []
     for (const f of view.flows) {
       const a = nodeById.get(f.from)!
       const b = nodeById.get(f.to)!
-      if (!placement.nodes[a.id] || !placement.nodes[b.id]) continue
+      if (placement.nodes[a.id] && placement.nodes[b.id]) out.push({ flow: f, from: a, to: b })
+    }
+    return out
+  }, [view, nodeById, placement])
+  const flowStyle = useMemo<FlowWireStyle>(() => {
+    const n = flowWires.length
+    const style: FlowWireStyle = { color: new Array<string>(n), opacity: new Float32Array(n), width: new Float32Array(n) }
+    flowWires.forEach(({ flow: f }, k) => {
       const job = f.role === 'read' ? f.to : f.from
       let opacity = 0.75
       if (time) opacity = time.active.has(job) ? 1 : time.done.has(job) ? 0.55 : lit?.flows.has(f.id) ? 0.15 : 0.03
       else if (lit) opacity = lit.flows.has(f.id) ? 1 : 0.05
       else if (reach) opacity = reach.has(f.from) && reach.has(f.to) ? 1 : 0.06
       const strong = opacity === 1 && (!!lit || !!reach || !!time)
-      out.push({ flow: f, from: a, to: b, color: colorOf(f.pipelineId), opacity, width: strong ? 3 : 2 })
-    }
-    return out
-  }, [view, nodeById, placement, time, lit, reach, colorOf])
+      style.color[k] = colorOf(f.pipelineId)
+      style.opacity[k] = opacity
+      style.width[k] = strong ? 3 : 2
+    })
+    return style
+  }, [flowWires, time, lit, reach, colorOf])
 
   return (
     <>
@@ -277,11 +291,11 @@ function Diagram({ model }: { model: SceneModel }) {
       {placement.rings && <RingLines rings={placement.rings} />}
 
       {showFk && <FkEdges world={world} curves={curves} fkStyle={fkStyle} />}
-      <FlowWires wires={flowWires} />
+      <FlowWires wires={flowWires} style={flowStyle} />
 
       <ComputeLinks
         links={view.computeLinks}
-        colorOf={(id) => palette.cluster(clusterById.get(id)?.cluster.kind ?? 'job')}
+        colorOf={linkColor}
         opacityOf={linkOpacity}
         hoverable={!time && !reach && !lens}
       />

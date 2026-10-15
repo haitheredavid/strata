@@ -7,13 +7,18 @@ import { archCurve, flowCurves, nodeAnchor, nodeCenter } from './curve'
 import { CurveBatch } from './curves/CurveBatch'
 import { CURVE_WRITE, Curves } from './curves/Curves'
 
+/** A drawn lineage edge: which flow, between which nodes. */
 export interface FlowWireSpec {
   flow: FlowEdge
   from: ViewNode
   to: ViewNode
-  color: string
-  opacity: number
-  width: number
+}
+
+/** Per-wire style, in `wires` order; rebuilt on lens / focus / timeline changes without touching curves. */
+export interface FlowWireStyle {
+  color: string[]
+  opacity: Float32Array
+  width: Float32Array
 }
 
 const DASH = 0.5
@@ -29,7 +34,7 @@ const v = { a: new Vector3(), b: new Vector3(), ca: new Vector3(), cb: new Vecto
  * the target (two curves per flow). Curves are rebuilt only when an end moved, and published to
  * `flowCurves` for the pulses that ride on them.
  */
-export function FlowWires({ wires }: { wires: FlowWireSpec[] }) {
+export function FlowWires({ wires, style }: { wires: FlowWireSpec[]; style: FlowWireStyle }) {
   const batch = useMemo(() => new CurveBatch(Math.max(16, wires.length * 2)), [wires.length])
   const curves = useMemo(() => wires.map(() => new CubicBezierCurve3(new Vector3(), new Vector3(), new Vector3(), new Vector3())), [wires])
   const built = useRef<{ a: Int32Array; b: Int32Array }>({ a: new Int32Array(0), b: new Int32Array(0) })
@@ -44,8 +49,9 @@ export function FlowWires({ wires }: { wires: FlowWireSpec[] }) {
     batch.resize(wires.length * 2)
     const { a: ba, b: bb } = built.current
     wires.forEach((w, k) => {
-      batch.setStyle(2 * k, w.color, w.opacity, w.width, DASH, GAP)
-      batch.setStyle(2 * k + 1, w.color, w.opacity, -ARROW_PX)
+      const color = style.color[k]
+      batch.setStyle(2 * k, color, style.opacity[k], style.width[k], DASH, GAP)
+      batch.setStyle(2 * k + 1, color, style.opacity[k], -ARROW_PX)
       const A = anim.get(w.from.id)
       const B = anim.get(w.to.id)
       if (!A || !B) {

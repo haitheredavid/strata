@@ -43,7 +43,7 @@ export function Lanes({ view, placement, pipelines, colorOf, opacityOf, spread =
       if (list) list.push(other)
       else m.set(job, [other])
     }
-    const tubes: { geo: TubeGeometry; color: Color; alpha: number }[] = []
+    const tubes: { id: string; geo: TubeGeometry; color: Color }[] = []
     pipelines.forEach((p, k) => {
       const steps = runSteps(p).steps.map((s) => s.map((id) => `job:${id}`).filter((id) => at(id)))
       const live = steps.filter((s) => s.length)
@@ -55,15 +55,27 @@ export function Lanes({ view, placement, pipelines, colorOf, opacityOf, spread =
       const offset = (k - (pipelines.length - 1) / 2) * 0.35 // keep parallel lanes apart
       for (const v of pts) v[spread] += offset
       const geo = new TubeGeometry(new CatmullRomCurve3(pts, false, 'centripetal'), pts.length * 16, 0.22, 8, false)
-      tubes.push({ geo, color: new Color(colorOf(p.id)), alpha: LANE_OPACITY * opacityOf(p.id) })
+      tubes.push({ id: p.id, geo, color: new Color(colorOf(p.id)) })
     })
     const merged = merge(tubes)
     tubes.forEach((t) => t.geo.dispose())
     return merged
-  }, [view, placement, pipelines, colorOf, opacityOf, spread])
+  }, [view, placement, pipelines, colorOf, spread])
   useEffect(() => () => geometry.dispose(), [geometry])
 
   const mesh = useRef<Mesh<BufferGeometry, MeshBasicMaterial>>(null)
+  // Lens and timeline only change lane opacity: write the alpha channel in place, no new tubes.
+  useEffect(() => {
+    const g = mesh.current?.geometry
+    if (!g) return
+    const color = g.getAttribute('color') as BufferAttribute
+    const col = color.array as Float32Array
+    for (const { id, start, count } of g.userData.lanes as LaneRange[]) {
+      const a = LANE_OPACITY * opacityOf(id)
+      for (let k = start; k < start + count; k++) col[4 * k + 3] = a
+    }
+    color.needsUpdate = true
+  }, [geometry, opacityOf])
   useFrame(() => {
     if (mesh.current) mesh.current.material.opacity = 1 - animState.moving
   })
@@ -74,8 +86,15 @@ export function Lanes({ view, placement, pipelines, colorOf, opacityOf, spread =
   )
 }
 
-/** One indexed geometry from many tubes, with each tube's color and opacity as per-vertex rgba. */
-function merge(tubes: { geo: TubeGeometry; color: Color; alpha: number }[]) {
+/** Which vertices of the merged geometry belong to each pipeline's lane. */
+interface LaneRange {
+  id: string
+  start: number
+  count: number
+}
+
+/** One indexed geometry from many tubes, with each tube's color as per-vertex rgba (alpha set later). */
+function merge(tubes: { id: string; geo: TubeGeometry; color: Color }[]) {
   let verts = 0
   let idx = 0
   for (const t of tubes) {
@@ -87,12 +106,14 @@ function merge(tubes: { geo: TubeGeometry; color: Color; alpha: number }[]) {
   const index = new Uint32Array(idx)
   let v = 0
   let i = 0
+  const lanes: LaneRange[] = []
   for (const t of tubes) {
     const p = t.geo.getAttribute('position').array as Float32Array
     const n = p.length / 3
     pos.set(p, v * 3)
     tmp.copy(t.color)
-    for (let k = 0; k < n; k++) col.set([tmp.r, tmp.g, tmp.b, t.alpha], (v + k) * 4)
+    for (let k = 0; k < n; k++) col.set([tmp.r, tmp.g, tmp.b, LANE_OPACITY], (v + k) * 4)
+    lanes.push({ id: t.id, start: v, count: n })
     const src = t.geo.index!.array
     for (let k = 0; k < src.length; k++) index[i + k] = src[k] + v
     v += n
@@ -102,5 +123,6 @@ function merge(tubes: { geo: TubeGeometry; color: Color; alpha: number }[]) {
   g.setAttribute('position', new BufferAttribute(pos, 3))
   g.setAttribute('color', new BufferAttribute(col, 4))
   g.setIndex(new BufferAttribute(index, 1))
+  g.userData.lanes = lanes
   return g
 }

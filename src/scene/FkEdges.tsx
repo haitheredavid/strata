@@ -69,13 +69,22 @@ export function FkEdges({ world, curves, fkStyle }: { world: World; curves: FkCu
       ends[2 * k + 1] = world.fk.dst[k]
     }
     geometry.setAttribute('ends', new InstancedBufferAttribute(ends, 2))
+    // Style buffers live as long as the geometry; restyles copy into them (no new GPU buffers).
+    geometry.setAttribute('icolor', new InstancedBufferAttribute(new Float32Array(count * 3), 3).setUsage(35048))
+    geometry.setAttribute('istyle', new InstancedBufferAttribute(new Float32Array(count * 2), 2).setUsage(35048))
     geometry.instanceCount = count
     return geometry
   }, [world, count, curves])
 
+  const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)
   useEffect(() => {
-    geometry.setAttribute('icolor', new InstancedBufferAttribute(fkStyle.color, 3))
-    geometry.setAttribute('istyle', new InstancedBufferAttribute(fkStyle.style, 2))
+    const g = mesh.current?.geometry
+    if (!g) return
+    for (const [name, data] of [['icolor', fkStyle.color], ['istyle', fkStyle.style]] as const) {
+      const a = g.getAttribute(name) as InstancedBufferAttribute
+      ;(a.array as Float32Array).set(data.subarray(0, a.array.length))
+      a.needsUpdate = true
+    }
   }, [geometry, fkStyle])
 
   useEffect(() => () => geometry.dispose(), [geometry])
@@ -86,7 +95,6 @@ export function FkEdges({ world, curves, fkStyle }: { world: World; curves: FkCu
     return material
   }, [])
   useEffect(() => () => material.dispose(), [material])
-  const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)
 
   useFrame(() => {
     const m = mesh.current

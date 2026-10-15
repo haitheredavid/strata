@@ -40,13 +40,22 @@ export function CardBodies({ world, style }: { world: World; style: CardStyle })
     const meta = new Float32Array(n * 4)
     for (let i = 0; i < n; i++) meta.set([nodes.size[2 * i], nodes.size[2 * i + 1], nodes.kind[i], i], 4 * i)
     g.setAttribute('imeta', new InstancedBufferAttribute(meta, 4))
+    // Style buffers live as long as the geometry; style changes (lens, focus, timeline) copy into
+    // them, since a new attribute means new GPU buffers and bindings on every change.
+    for (const name of ['icolor', 'imedal']) g.setAttribute(name, new InstancedBufferAttribute(new Float32Array(n * 4), 4).setUsage(35048))
     g.instanceCount = n
     return g
   }, [world, n])
 
+  const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)
   useEffect(() => {
-    geometry.setAttribute('icolor', new InstancedBufferAttribute(style.color, 4))
-    geometry.setAttribute('imedal', new InstancedBufferAttribute(style.medal, 4))
+    const g = mesh.current?.geometry
+    if (!g) return
+    for (const [name, data] of [['icolor', style.color], ['imedal', style.medal]] as const) {
+      const a = g.getAttribute(name) as InstancedBufferAttribute
+      ;(a.array as Float32Array).set(data.subarray(0, a.array.length))
+      a.needsUpdate = true
+    }
   }, [geometry, style])
   useEffect(() => () => geometry.dispose(), [geometry])
 
@@ -56,7 +65,6 @@ export function CardBodies({ world, style }: { world: World; style: CardStyle })
     return material
   }, [])
   useEffect(() => () => material.dispose(), [material])
-  const mesh = useRef<Mesh<InstancedBufferGeometry, Material>>(null)
 
   useFrame(() => {
     const m = mesh.current
