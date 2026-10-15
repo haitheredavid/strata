@@ -48,6 +48,7 @@ const worlds = new WeakMap<ViewGraph, World>()
 
 const showPerf = import.meta.env.DEV && /[?&](perf|synth)\b/.test(location.search)
 
+const NO_EDGES: ReadonlySet<string> = new Set()
 const DIM = 0.1
 const FADED = 0.35
 
@@ -177,15 +178,19 @@ function Diagram({ model }: { model: SceneModel }) {
     const byId = new Map(view.edges.map((e) => [e.id, e]))
     return world.fk.ids.map((id) => byId.get(id)!)
   }, [world, view])
+  // FK styling only sees lit *edges*; the timeline and lenses light flows and give a fresh, empty edge
+  // set on every publish. Collapse those to one constant so FK styles don't rebuild per publish.
+  const litEdges = !lit ? null : lit.edges.size ? lit.edges : NO_EDGES
+  const fkColors = useMemo(() => packColors(fkEdges.map((e) => palette.layer(nodeById.get(e.from)!.layerId))), [fkEdges, palette, nodeById])
   const fkStyle = useMemo<FkStyle>(() => {
     const style = new Float32Array(fkEdges.length * 2)
-    const colors = fkEdges.map((e, k) => {
+    fkEdges.forEach((e, k) => {
       const pa = placement.nodes[e.from]
       const pb = placement.nodes[e.to]
       let opacity: number
       let active = false
-      if (lit) {
-        active = lit.edges.has(e.id)
+      if (litEdges) {
+        active = litEdges.has(e.id)
         opacity = active ? 1 : 0.04
       } else if (reach) {
         active = reach.has(e.from) && reach.has(e.to)
@@ -196,10 +201,9 @@ function Diagram({ model }: { model: SceneModel }) {
       }
       style[2 * k] = opacity
       style[2 * k + 1] = active ? 3 : 1.5
-      return palette.layer(nodeById.get(e.from)!.layerId)
     })
-    return { color: packColors(colors), style, hoverable: !lit && !reach }
-  }, [fkEdges, placement, lit, reach, lineageActive, palette, nodeById])
+    return { color: fkColors, style, hoverable: !litEdges && !reach }
+  }, [fkEdges, fkColors, placement, litEdges, reach, lineageActive])
 
   const lodCards = useMemo(() => view.nodes.filter((n) => n.kind !== 'job').map((n) => n.id), [view])
   const fkOpacity = useCallback((k: number) => fkStyle.style[2 * k], [fkStyle])

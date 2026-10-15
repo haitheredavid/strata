@@ -104,6 +104,71 @@ export function Timeline() {
     return () => el.removeEventListener('wheel', onWheel)
   }, [time.open])
 
+  // Lanes and labels don't depend on the playhead: memoized so a published t (several times a second
+  // while playing) only updates the header, not one element per run.
+  const labelRows = useMemo(
+    () => (
+      <>
+        {rows.map(({ p, height }) => (
+          <div
+            key={p.id}
+            className={`label ${lens && lens !== p.id ? 'off' : ''}`}
+            style={{ height }}
+            title={`${triggerLine(p.trigger)} — click to light up`}
+            onClick={() => setLens(lens === p.id ? null : p.id)}
+          >
+            <span className="swatch" style={{ background: palette.pipeline(p.id) }} />
+            <span className="name">{p.name}</span>
+          </div>
+        ))}
+      </>
+    ),
+    [rows, lens, palette, setLens],
+  )
+  const laneRows = useMemo(() => {
+    const pct = (t: number) => ((t - view[0]) / (view[1] - view[0])) * 100
+    return (
+      <>
+          {rows.map(({ p, placed, emits, height }) => (
+            <div key={p.id} className="lane-row" style={{ height, opacity: lens && lens !== p.id ? 0.3 : 1 }}>
+              {placed.map(({ run, lane }) => {
+                if (run.end < view[0] || run.start > view[1]) return null
+                const left = clamp(pct(run.start), 0, 100)
+                const width = Math.max(0.2, clamp(pct(run.end), 0, 100) - left)
+                const name = names.get(run.taskId) ?? run.taskId
+                const title = run.continuous
+                  ? `${name} · streaming all day`
+                  : `${name} · ${clock(run.start)}–${clock(run.end)} · ${dur(run.end - run.start)} (${dur(run.setup)} queue/start)${run.medallion ? ` · writes ${run.medallion}` : ''} · on ${clusterName.get(run.clusterId) ?? run.clusterId}`
+                return (
+                  <div
+                    key={run.id}
+                    data-run={run.id}
+                    className={`bar ${run.continuous ? 'stream' : ''}`}
+                    title={title}
+                    style={{
+                      left: `${left}%`,
+                      width: `${width}%`,
+                      top: 3 + lane * (LANE + LANE_GAP),
+                      height: LANE,
+                      background: palette.pipeline(p.id),
+                      borderLeftColor: run.medallion ? palette.medallion(run.medallion) : palette.pipeline(p.id),
+                    }}
+                  >
+                    {!run.continuous && <div className="setup" style={{ width: `${(run.setup / (run.end - run.start)) * 100}%` }} />}
+                  </div>
+                )
+              })}
+              {emits.map((ev, i) =>
+                ev.t < view[0] || ev.t > view[1] ? null : (
+                  <span key={i} className="emit" style={{ left: `${pct(ev.t)}%` }} title={`${clock(ev.t)} emits ${ev.name}`}>◆</span>
+                ),
+              )}
+            </div>
+          ))}
+      </>
+    )
+  }, [rows, view, lens, palette, names, clusterName])
+
   if (!time.open) return null
 
   const { span } = time
@@ -204,18 +269,7 @@ export function Timeline() {
       <div className="tl-body">
         <div className="labels">
           <div className="axis" />
-          {rows.map(({ p, height }) => (
-            <div
-              key={p.id}
-              className={`label ${lens && lens !== p.id ? 'off' : ''}`}
-              style={{ height }}
-              title={`${triggerLine(p.trigger)} — click to light up`}
-              onClick={() => setLens(lens === p.id ? null : p.id)}
-            >
-              <span className="swatch" style={{ background: palette.pipeline(p.id) }} />
-              <span className="name">{p.name}</span>
-            </div>
-          ))}
+          {labelRows}
         </div>
         <div className="plot" ref={plot} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
           <div className="axis">
@@ -224,42 +278,7 @@ export function Timeline() {
               <span key={t} style={{ left: `${pct(t)}%`, transform: `translateX(${pct(t) < 3 ? 0 : pct(t) > 97 ? -100 : -50}%)` }}>{clock(t)}</span>
             ))}
           </div>
-          {rows.map(({ p, placed, emits, height }) => (
-            <div key={p.id} className="lane-row" style={{ height, opacity: lens && lens !== p.id ? 0.3 : 1 }}>
-              {placed.map(({ run, lane }) => {
-                if (run.end < view[0] || run.start > view[1]) return null
-                const left = clamp(pct(run.start), 0, 100)
-                const width = Math.max(0.2, clamp(pct(run.end), 0, 100) - left)
-                const name = names.get(run.taskId) ?? run.taskId
-                const title = run.continuous
-                  ? `${name} · streaming all day`
-                  : `${name} · ${clock(run.start)}–${clock(run.end)} · ${dur(run.end - run.start)} (${dur(run.setup)} queue/start)${run.medallion ? ` · writes ${run.medallion}` : ''} · on ${clusterName.get(run.clusterId) ?? run.clusterId}`
-                return (
-                  <div
-                    key={run.id}
-                    data-run={run.id}
-                    className={`bar ${run.continuous ? 'stream' : ''}`}
-                    title={title}
-                    style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
-                      top: 3 + lane * (LANE + LANE_GAP),
-                      height: LANE,
-                      background: palette.pipeline(p.id),
-                      borderLeftColor: run.medallion ? palette.medallion(run.medallion) : palette.pipeline(p.id),
-                    }}
-                  >
-                    {!run.continuous && <div className="setup" style={{ width: `${(run.setup / (run.end - run.start)) * 100}%` }} />}
-                  </div>
-                )
-              })}
-              {emits.map((ev, i) =>
-                ev.t < view[0] || ev.t > view[1] ? null : (
-                  <span key={i} className="emit" style={{ left: `${pct(ev.t)}%` }} title={`${clock(ev.t)} emits ${ev.name}`}>◆</span>
-                ),
-              )}
-            </div>
-          ))}
+          {laneRows}
           {span && <div className="span" style={{ left: `${clamp(pct(span[0]), 0, 100)}%`, width: `${clamp(pct(span[1]), 0, 100) - clamp(pct(span[0]), 0, 100)}%` }} />}
           <div className="playhead" ref={playhead} />
         </div>
