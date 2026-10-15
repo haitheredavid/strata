@@ -9,7 +9,7 @@ export interface SpanRecord {
   at: number
 }
 
-const CAP = 256
+const CAP = 4096
 const ring: SpanRecord[] = []
 const last = new Map<string, SpanRecord>()
 

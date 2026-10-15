@@ -5,7 +5,7 @@ import type { ModeId } from '../model/types'
 import { useStore } from '../store'
 import { frameStats, startRecording, stopRecording } from './frames'
 import type { FrameStats } from './frames'
-import { clearSpans, lastSpans } from './perf'
+import { allSpans, clearSpans, lastSpans } from './perf'
 import { synthGraph, synthKey } from './synth'
 import type { SynthOptions } from './synth'
 
@@ -31,6 +31,26 @@ export interface PhaseResult extends FrameStats {
   phase: string
   /** Longest main-thread task seen in the phase (Chrome only; 0 elsewhere). */
   longTask: number
+  /** Spans that cost the most during the phase: `name total ms / count, max ms`. */
+  top: string
+}
+
+/** The three spans with the most total time since `since` (performance.now() time). */
+function topSpans(since: number) {
+  const by = new Map<string, { total: number; n: number; max: number }>()
+  for (const s of allSpans()) {
+    if (s.at < since) continue
+    const e = by.get(s.name) ?? { total: 0, n: 0, max: 0 }
+    e.total += s.ms
+    e.n++
+    e.max = Math.max(e.max, s.ms)
+    by.set(s.name, e)
+  }
+  return [...by]
+    .sort((a, b) => b[1].total - a[1].total)
+    .slice(0, 3)
+    .map(([name, e]) => `${name} ${e.total.toFixed(0)}/${e.n}, max ${e.max.toFixed(0)}`)
+    .join(' · ')
 }
 
 export interface BenchResult {
@@ -91,9 +111,10 @@ export async function runBench(ctx: BenchCtx, opts: Partial<BenchOptions> = {}):
   const phases: PhaseResult[] = []
   const phase = async (name: string, run: () => Promise<void>) => {
     lt.take()
+    const since = performance.now()
     startRecording()
     await run()
-    phases.push({ phase: name, ...frameStats(stopRecording()), longTask: lt.take() })
+    phases.push({ phase: name, ...frameStats(stopRecording()), longTask: lt.take(), top: topSpans(since) })
   }
 
   clearSpans()

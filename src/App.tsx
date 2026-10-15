@@ -5,6 +5,7 @@ import { LayerPanel } from './ui/LayerPanel'
 import { useStore } from './store'
 import { loadFiles, loadSample, loadSynth } from './ui/files'
 import { Timeline } from './ui/Timeline'
+import { Profiled } from './dev/Profiled'
 import { ComputePanel } from './ui/ComputePanel'
 import { usePalette } from './theme/palette'
 
@@ -53,11 +54,19 @@ export default function App() {
     >
       <Toolbar />
       <div className="stage">
-        <Scene />
-        <LayerPanel />
+        <Profiled id="Scene">
+          <Scene />
+        </Profiled>
+        <Profiled id="LayerPanel">
+          <LayerPanel />
+        </Profiled>
         <div className="dock">
-          <ComputePanel />
-          <Timeline />
+          <Profiled id="ComputePanel">
+            <ComputePanel />
+          </Profiled>
+          <Profiled id="Timeline">
+            <Timeline />
+          </Profiled>
         </div>
         {error && (
           <div className="error" onClick={() => useStore.setState({ error: null })}>

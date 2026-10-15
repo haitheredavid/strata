@@ -29,6 +29,7 @@ import { TriggerLinks } from './TriggerLinks'
 import { flowVolumes, formatBytes, pulseShape } from '../sim/volume'
 import { usePalette } from '../theme/palette'
 import { PerfHud } from '../dev/PerfHud'
+import { Profiled } from '../dev/Profiled'
 import { createRenderer, drawCallsCounter } from './gpu/renderer'
 import type { RunState } from './labels'
 import { SceneText } from './SceneText'
@@ -68,7 +69,9 @@ export function Scene() {
       <color attach="background" args={['#0b0e14']} />
       <CameraRig view={model.view} placement={model.placement} />
       <AnimDriver placement={model.placement} />
-      <Diagram model={model} />
+      <Profiled id="Diagram">
+        <Diagram model={model} />
+      </Profiled>
       {import.meta.env.DEV && <DevHandle />}
       {showPerf && <PerfHud />}
     </Canvas>
