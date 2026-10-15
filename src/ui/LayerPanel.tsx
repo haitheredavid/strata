@@ -60,7 +60,13 @@ export function LayerPanel() {
     () => deriveView(graph, { groupBy, lineage: lineageOn(layout.edgeLayer), hiddenPipelines: layout.hiddenPipelines }),
     [graph, groupBy, layout.edgeLayer, layout.hiddenPipelines],
   )
-  const layerById = new Map(fullView.layers.map((l) => [l.id, l]))
+  const layerById = useMemo(() => new Map(fullView.layers.map((l) => [l.id, l])), [fullView])
+  // Node count per layer, once per view (not a scan of every node per row).
+  const counts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const n of fullView.nodes) m.set(n.layerId, (m.get(n.layerId) ?? 0) + 1)
+    return m
+  }, [fullView])
   const ids = fullView.layers.map((l) => l.id)
   const fixed = groupBy === 'medallion'
   const leftToRight = modeId === 'flow' || modeId === 'diagram'
@@ -72,6 +78,9 @@ export function LayerPanel() {
           [...(fixed ? ids.filter((id) => id !== SOURCES) : layout.layerOrder)].reverse().concat(ids.includes(SOURCES) ? [SOURCES] : [])
         : ids
   const movable = ordered.filter((id) => id !== SOURCES)
+  const movableIndex = new Map(movable.map((id, i) => [id, i]))
+  const hiddenSet = new Set(hiddenLayers)
+  const collapsedSet = new Set(collapsedLayers)
   // Flow lists left to right, so "earlier" is a lower index; the stack lists top first.
   const [back, fwd] = leftToRight ? (['←', '→'] as const) : (['↑', '↓'] as const)
   const step = leftToRight ? -1 : 1
@@ -84,11 +93,11 @@ export function LayerPanel() {
           {ordered.map((id) => {
             const l = layerById.get(id)
             if (!l) return null
-            const count = fullView.nodes.filter((n) => n.layerId === id).length
-            const hidden = hiddenLayers.includes(id)
+            const count = counts.get(id) ?? 0
+            const hidden = hiddenSet.has(id)
             const isolated = isolatedLayerId === id
-            const collapsed = collapsedLayers.includes(id)
-            const i = movable.indexOf(id)
+            const collapsed = collapsedSet.has(id)
+            const i = movableIndex.get(id) ?? -1
             return (
               <li key={id} className={hidden || (isolatedLayerId && !isolated) ? 'off' : ''}>
                 <span className="swatch" style={{ background: palette.layer(id) }} />
