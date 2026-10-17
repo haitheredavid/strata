@@ -16,7 +16,7 @@ import { parse as parseYaml } from 'yaml'
 import { buildSnapshot } from '../src/ingest/databricks/buildSnapshot'
 import type { ClusterInfo, ColumnRow, DltPipeline, Job, KeyRow, LineageRow, NodeRow, RawExport, Run, StatementRow, TableRow } from '../src/ingest/databricks/raw'
 import { inLists, lit, sliceWhere } from '../src/ingest/databricks/sql'
-import { dayStart } from '../src/ingest/databricks/time'
+import { addDays, dayStart } from '../src/ingest/databricks/time'
 import { fullName } from '../src/ingest/databricks/ucToDbml'
 import { ArgError, USAGE, parseExportArgs } from './exportArgs'
 import type { ExportOptions, ParsedArgs } from './exportArgs'
@@ -318,12 +318,13 @@ async function fetchRaw(o: ExportOptions): Promise<RawExport> {
   const jobs = allJobs.filter((j) => jobIds.has(String(j.job_id)) || (j.settings.tasks ?? []).some((t) => t.pipeline_task && dltIds.has(t.pipeline_task.pipeline_id)))
   log(`jobs: ${jobs.length} of ${allJobs.length} touch the slice`)
 
-  const t0 = dayStart(day, tz)
+  // Local midnights, so a day across a DST change is 23 or 25 hours; runs from the day before count too
+  // (they may still be going).
+  const [before, t0, t1] = [-1, 0, 1].map((n) => dayStart(addDays(day, n), tz))
   const runs = await step('runs', async (warn) =>
     (await pool(jobs, 8, (j) =>
       cli<Run[]>('jobs', 'list-runs', '--job-id', String(j.job_id), '--expand-tasks',
-        // A day earlier too, for runs that started yesterday and were still going.
-        '--start-time-from', String(t0 - 86_400_000), '--start-time-to', String(t0 + 86_400_000)).catch((e) => {
+        '--start-time-from', String(before), '--start-time-to', String(t1)).catch((e) => {
         warn(`Runs of job ${j.job_id} (${j.settings.name}) unavailable: ${firstLine(e)}`)
         return [] as Run[]
       }))).flat())
@@ -356,7 +357,7 @@ async function fetchRaw(o: ExportOptions): Promise<RawExport> {
           avg(CASE WHEN NOT driver THEN cpu_user_percent + cpu_system_percent END) AS worker_cpu,
           avg(CASE WHEN driver THEN cpu_user_percent + cpu_system_percent END) AS driver_cpu
         FROM system.compute.node_timeline
-        WHERE start_time >= timestamp_millis(${t0}) AND start_time < timestamp_millis(${t0 + 86_400_000}) AND ${p}
+        WHERE start_time >= timestamp_millis(${t0}) AND start_time < timestamp_millis(${t1}) AND ${p}
         GROUP BY ALL`)
     } catch (e) {
       warn(`Node timeline unavailable (${firstLine(e)}): utilization stays simulated`)
@@ -376,7 +377,7 @@ async function fetchRaw(o: ExportOptions): Promise<RawExport> {
           total_task_duration_ms AS task_ms, read_bytes, written_bytes, shuffle_read_bytes AS shuffle_bytes,
           spilled_local_bytes AS spill_bytes, read_rows, written_rows
         FROM system.query.history
-        WHERE start_time >= timestamp_millis(${t0 - 86_400_000}) AND start_time < timestamp_millis(${t0 + 86_400_000})
+        WHERE start_time >= timestamp_millis(${before}) AND start_time < timestamp_millis(${t1})
           AND ${p} AND query_source.job_info.job_task_run_id IS NOT NULL`)
     } catch (e) {
       warn(`Query history unavailable (${firstLine(e)}): Spark stays simulated`)

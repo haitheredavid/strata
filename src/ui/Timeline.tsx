@@ -3,7 +3,7 @@ import type { PointerEvent } from 'react'
 import { scheduleOf, TIME_SPEEDS, useStore } from '../store'
 import { timeClock, TRIGGER_LABEL } from '../scene/timeClock'
 import { timeWindow } from '../scene/usePlacement'
-import { clock, DAY, eventsIn, layerTotals, packLanes, span as dur, taskRunsIn } from '../sim/schedule'
+import { clockOf, daySeconds, eventsIn, layerTotals, packLanes, span as dur, taskRunsIn } from '../sim/schedule'
 import { MEDALLIONS } from '../model/workflow'
 import type { Trigger } from '../model/workflow'
 import { hiddenPipelinesOf, jobNodeId } from '../view/deriveView'
@@ -16,8 +16,8 @@ const TICK_STEPS = [900, 1800, 3600, 7200, 10800, 21600]
 
 const speedLabel = (v: number) => (v < 3600 ? `${v / 60}m/s` : `${v / 3600}h/s`)
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
-const clampView = (a: number, w: number): [number, number] => {
-  const start = clamp(a, 0, DAY - w)
+const clampView = (a: number, w: number, len: number): [number, number] => {
+  const start = clamp(a, 0, len - w)
   return [start, start + w]
 }
 
@@ -46,7 +46,15 @@ export function Timeline() {
   const setLens = useStore((s) => s.setLens)
   const focus = useStore((s) => s.focus)
   const schedule = useStore(scheduleOf)
-  const [view, setView] = useState<[number, number]>([0, DAY])
+  // Snapshot days across a DST change are 23 or 25 hours long, and their clock is the zone's wall clock.
+  const len = daySeconds(schedule)
+  const clock = useMemo(() => clockOf(schedule), [schedule])
+  const [view, setView] = useState<[number, number]>([0, len])
+  const [viewLen, setViewLen] = useState(len)
+  if (viewLen !== len) {
+    setViewLen(len)
+    setView([0, len])
+  }
   const [showEvents, setShowEvents] = useState(false)
   const plot = useRef<HTMLDivElement>(null)
   const playhead = useRef<HTMLDivElement>(null)
@@ -96,7 +104,7 @@ export function Timeline() {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [time.open, view])
+  }, [time.open, view, clock])
 
   // Wheel zooms around the cursor; shift-wheel (or a horizontal swipe) pans. Non-passive to stop page scroll.
   useEffect(() => {
@@ -107,16 +115,16 @@ export function Timeline() {
       setView(([a, b]) => {
         const w = b - a
         const pan = e.shiftKey ? e.deltaY : Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : 0
-        if (pan) return clampView(a + (pan / el.clientWidth) * w, w)
+        if (pan) return clampView(a + (pan / el.clientWidth) * w, w, len)
         const rect = el.getBoundingClientRect()
         const f = (e.clientX - rect.left) / rect.width
-        const nw = clamp(w * Math.exp(e.deltaY * 0.002), MIN_VIEW, DAY)
-        return clampView(a + f * w - f * nw, nw)
+        const nw = clamp(w * Math.exp(e.deltaY * 0.002), MIN_VIEW, len)
+        return clampView(a + f * w - f * nw, nw, len)
       })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [time.open])
+  }, [time.open, len])
 
   // Lanes and labels don't depend on the playhead: memoized so a published t (several times a second
   // while playing) only updates the header, not one element per run.
@@ -181,14 +189,14 @@ export function Timeline() {
           ))}
       </>
     )
-  }, [rows, view, lens, palette, names, clusterName])
+  }, [rows, view, lens, palette, names, clusterName, clock])
 
   if (!time.open) return null
 
   const { span } = time
   const tAt = (clientX: number) => {
     const r = plot.current!.getBoundingClientRect()
-    return clamp(view[0] + ((clientX - r.left) / r.width) * (view[1] - view[0]), 0, DAY)
+    return clamp(view[0] + ((clientX - r.left) / r.width) * (view[1] - view[0]), 0, len)
   }
   const pxOf = (t: number) => {
     const r = plot.current!.getBoundingClientRect()
@@ -233,7 +241,7 @@ export function Timeline() {
     setTime({ t, span: span && t >= span[0] && t <= span[1] ? span : null })
   }
 
-  const end = span?.[1] ?? DAY
+  const end = span?.[1] ?? len
   const togglePlay = () => {
     const atEnd = timeClock.t >= end - 1
     setTime({ playing: !time.playing || atEnd, ...(atEnd ? { t: span?.[0] ?? 0 } : {}) })
@@ -245,7 +253,7 @@ export function Timeline() {
   const step = TICK_STEPS.find((s) => (view[1] - view[0]) / s <= 12) ?? TICK_STEPS.at(-1)!
   const ticks: number[] = []
   for (let t = Math.ceil(view[0] / step) * step; t <= view[1]; t += step) ticks.push(t)
-  const zoomed = view[1] - view[0] < DAY
+  const zoomed = view[1] - view[0] < len
 
   return (
     <div className="timeline" onPointerDown={(e) => e.stopPropagation()}>
@@ -258,8 +266,12 @@ export function Timeline() {
           Follow
         </button>
         <span className="clock" ref={readout}>{clock(time.t)}</span>
-        {schedule.origin === 'snapshot' && (
+        {schedule.origin === 'snapshot' ? (
           <span className="origin" title="Real job runs from a workspace snapshot">{schedule.day} · {schedule.tz}</span>
+        ) : (
+          <span className="origin" title="Runs generated from each pipeline's trigger and the medallion layer it writes; load a workspace snapshot for real ones">
+            simulated day
+          </span>
         )}
         {span && <span className="range">{clock(span[0])}–{clock(span[1])} · {dur(span[1] - span[0])}</span>}
         <span className="totals" title="Task run time by the medallion layer each task writes (streaming excluded)">
@@ -272,10 +284,10 @@ export function Timeline() {
           <em>{span ? 'in span' : 'so far today'}</em>
         </span>
         <span className="spacer" />
-        <button disabled={!span} onClick={() => span && setView(clampView(span[0] - (span[1] - span[0]) * 0.1, Math.max(MIN_VIEW, (span[1] - span[0]) * 1.2)))}>
+        <button disabled={!span} onClick={() => span && setView(clampView(span[0] - (span[1] - span[0]) * 0.1, Math.min(len, Math.max(MIN_VIEW, (span[1] - span[0]) * 1.2)), len))}>
           Zoom to span
         </button>
-        <button disabled={!zoomed} onClick={() => setView([0, DAY])}>Full day</button>
+        <button disabled={!zoomed} onClick={() => setView([0, len])}>Full day</button>
         <button disabled={!span} onClick={() => setTime({ span: null })}>Clear span</button>
         <button
           className={litOnly ? 'on' : ''}

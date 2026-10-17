@@ -1,8 +1,7 @@
 import type { Medallion } from '../../model/workflow'
-import { DAY } from '../../sim/schedule'
 import type { PipelineRun, RunState, Schedule, SimEvent, TaskRun } from '../../sim/schedule'
 import type { Run } from './raw'
-import { dayStart } from './time'
+import { dayLength, dayStart } from './time'
 import { taskId } from './jobsToWorkflows'
 
 const STATE: Record<string, RunState> = {
@@ -38,12 +37,14 @@ export interface RunsContext {
 
 /**
  * Real job runs as a strata `Schedule` for one day: times become seconds since that day's 00:00 in
- * `tz`, clipped to the day, and each task's queue + cluster start becomes its `setup`.
+ * `tz`, clipped to the day (23 or 25 hours across a DST change), and each task's queue + cluster start
+ * becomes its `setup`.
  */
 export function runsToSchedule(rawRuns: Run[], ctx: RunsContext): { schedule: Schedule; taskRunIds: Map<string, string>; warnings: string[] } {
   const t0 = dayStart(ctx.day, ctx.tz)
+  const len = dayLength(ctx.day, ctx.tz)
   const sec = (ms: number) => (ms - t0) / 1000
-  const clip = (s: number) => Math.min(DAY, Math.max(0, s))
+  const clip = (s: number) => Math.min(len, Math.max(0, s))
   const runs: PipelineRun[] = []
   const taskRuns: TaskRun[] = []
   const events: SimEvent[] = []
@@ -55,7 +56,7 @@ export function runsToSchedule(rawRuns: Run[], ctx: RunsContext): { schedule: Sc
     if (!pid) continue
     const end = sec(r.end_time || ctx.now)
     const start = sec(r.start_time)
-    if (end <= 0 || start >= DAY) continue
+    if (end <= 0 || start >= len) continue
     const runId = `${pid}#${r.run_id}`
     const continuous = ctx.continuous.has(pid)
     const cause = CAUSE[r.trigger ?? ''] ?? (r.trigger ?? 'run').toLowerCase()
@@ -72,7 +73,7 @@ export function runsToSchedule(rawRuns: Run[], ctx: RunsContext): { schedule: Sc
       }
       const a = sec(t.start_time)
       const b = sec(t.end_time || ctx.now)
-      if (b <= 0 || a >= DAY) continue
+      if (b <= 0 || a >= len) continue
       const setup = ((t.queue_duration ?? 0) + (t.setup_duration ?? 0)) / 1000
       const start = clip(a)
       const end = clip(b)
@@ -95,7 +96,7 @@ export function runsToSchedule(rawRuns: Run[], ctx: RunsContext): { schedule: Sc
       }
       taskRuns.push(tr)
       taskRunIds.set(String(t.run_id), tr.id)
-      if (b <= DAY && tr.state === 'success')
+      if (b <= len && tr.state === 'success')
         for (const w of writes) events.push({ t: b, kind: 'write', name: w, pipelineId: pid, taskRunId: tr.id })
     }
   }
@@ -103,5 +104,5 @@ export function runsToSchedule(rawRuns: Run[], ctx: RunsContext): { schedule: Sc
   const warnings = unknownTasks ? [`${unknownTasks} task run(s) are of tasks no longer in their job and were left out`] : []
   taskRuns.sort((a, b) => a.start - b.start)
   events.sort((a, b) => a.t - b.t)
-  return { schedule: { runs, taskRuns, events, origin: 'snapshot', day: ctx.day, tz: ctx.tz }, taskRunIds, warnings }
+  return { schedule: { runs, taskRuns, events, origin: 'snapshot', day: ctx.day, tz: ctx.tz, length: len }, taskRunIds, warnings }
 }

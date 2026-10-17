@@ -45,7 +45,7 @@ describe('store.load', () => {
     s().load(buildDataset({ origin: 'snapshot', snapshot: snapshot('2026-10-13') }))
     expect(s().notices.map((n) => [n.level, n.detail ?? n.text])).toEqual([
       ['error', 'Couldn’t open broken.dbml'],
-      ['warning', ['exported 2026-10-13']],
+      ['warning', [{ text: 'exported 2026-10-13', items: [] }]],
     ])
     s().load(sample())
     expect(s().notices.map((n) => n.level)).toEqual(['error'])

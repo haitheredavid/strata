@@ -1,4 +1,3 @@
-import { DAY } from '../../sim/schedule'
 import type { UsageSample } from '../../sim/schedule'
 import type { NodeRow, Run } from './raw'
 
@@ -18,16 +17,17 @@ export function clusterInstances(runs: Run[], logicalOf: (jobId: string, taskKey
 }
 
 /**
- * Per-minute node use, as strata clusters in seconds since `t0`. Real clusters that fold into one strata
- * cluster in the same minute (concurrent runs) add their workers; busy is averaged weighted by workers.
+ * Per-minute node use, as strata clusters in seconds since `t0` (a day `len` seconds long). Real clusters
+ * that fold into one strata cluster in the same minute (concurrent runs) add their workers; busy is
+ * averaged weighted by workers.
  */
-export function nodeUsage(rows: NodeRow[], instances: Map<string, string>, t0: number): Record<string, UsageSample[]> {
+export function nodeUsage(rows: NodeRow[], instances: Map<string, string>, t0: number, len: number): Record<string, UsageSample[]> {
   const acc = new Map<string, Map<number, { workers: number; weighted: number; weight: number }>>()
   for (const r of rows) {
     const id = instances.get(r.cluster_id)
     if (!id) continue
     const t = (Number(r.t_ms) - t0) / 1000
-    if (t < 0 || t >= DAY) continue
+    if (t < 0 || t >= len) continue
     const workers = Number(r.workers) || 0
     // Without workers (single node) the driver does the work.
     const cpu = (workers ? Number(r.worker_cpu) : Number(r.driver_cpu)) || 0

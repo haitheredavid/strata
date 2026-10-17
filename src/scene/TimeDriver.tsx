@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { scheduleOf, useStore } from '../store'
-import { DAY } from '../sim/schedule'
+import { daySeconds } from '../sim/schedule'
 import { windowKey } from '../sim/runIndex'
 import { timeWindow } from './usePlacement'
 import type { TimeView } from './usePlacement'
@@ -23,7 +23,7 @@ export function TimeDriver({ time }: { time: TimeView | null }) {
   useFrame((_, dt) => {
     const s = useStore.getState()
     if (!s.time.open) return
-    const end = s.time.span?.[1] ?? DAY
+    const end = s.time.span?.[1] ?? daySeconds(scheduleOf(s))
     if (s.time.playing) {
       // Clamp dt so a stalled or backgrounded tab doesn't skip through the day on its next frame.
       timeClock.t = Math.min(end, timeClock.t + Math.min(dt, 0.1) * s.time.speed)

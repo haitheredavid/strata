@@ -63,6 +63,24 @@ describe('flowVolumes', () => {
     }
     expect(mean('bronze')).toBeGreaterThan(mean('gold'))
   })
+
+  it('takes measured bytes from query history over a declared size, split over the tables a task reads', () => {
+    const graph = parseDbml(read('lakehouse.dbml'), read('lakehouse.workflows.yaml'))
+    const flows = deriveView(graph, { lineage: true }).flows
+    const schedule = simulateDay(graph.workflows, graph.tables)
+    const stmt = { id: 's', type: 'MERGE', text: '', status: 'FINISHED', start: 0, end: 1, waiting: 0, compiling: 0, executing: 1, taskTime: 1, shuffleMB: 0, spillMB: 0, readRows: 0, writtenRows: 0 }
+    // Two runs of ingest_orders (declared 18 GB): 600 MB and 200 MB read, 50 MB written each.
+    const runs = schedule.taskRuns.filter((r) => r.taskId === 'ingest_orders').slice(0, 2)
+    schedule.statements = Object.fromEntries(runs.map((r, i) => [r.id, [{ ...stmt, readMB: i ? 200 : 600, writtenMB: 50 }]]))
+    const volumes = flowVolumes(flows, graph, schedule)
+    const task = graph.workflows.pipelines.flatMap((p) => p.tasks).find((t) => t.id === 'ingest_orders')!
+    for (const f of flows.filter((x) => x.taskId === 'ingest_orders')) {
+      const v = volumes.get(f.id)!
+      expect(v.bytesFrom).toBe('measured')
+      expect(v.bytes).toBe(f.role === 'read' ? Math.round(400e6 / task.reads.length) : Math.round(50e6 / task.writes.length))
+    }
+    expect(volumes.get(flows.find((f) => f.taskId === 'ingest_customers')!.id)!.bytesFrom).toBe('simulated')
+  })
 })
 
 describe('pulseShape', () => {

@@ -128,21 +128,24 @@ function Diagram({ model }: { model: SceneModel }) {
   const schedule = useStore(scheduleOf)
   const volumes = useMemo(() => flowVolumes(view.flows, graph, schedule), [view, graph, schedule])
   const jobVolume = useMemo(() => {
-    const m = new Map<string, { in: number; out: number; runs: number }>()
+    const m = new Map<string, { in: number; out: number; runs: number; simulated: boolean }>()
     for (const f of view.flows) {
       const v = volumes.get(f.id)!
       const job = f.role === 'read' ? f.to : f.from
-      const e = m.get(job) ?? { in: 0, out: 0, runs: v.runsPerDay }
+      const e = m.get(job) ?? { in: 0, out: 0, runs: v.runsPerDay, simulated: false }
       e[f.role === 'read' ? 'in' : 'out'] += v.bytes
+      e.simulated ||= v.bytesFrom === 'simulated'
       m.set(job, e)
     }
+    // A snapshot's sizes are measured where query history has the job's statements; say when they aren't.
+    const real = schedule.origin === 'snapshot'
     return (id: string) => {
       const e = m.get(id)
       if (!e) return undefined
       const runs = e.runs >= 100 ? 'streaming' : `${Math.round(e.runs)}×/day`
-      return `${formatBytes(e.in)} in → ${formatBytes(e.out)} out · ${runs}`
+      return `${formatBytes(e.in)} in → ${formatBytes(e.out)} out${real && e.simulated ? ' (simulated)' : ''} · ${runs}`
     }
-  }, [view, volumes])
+  }, [view, volumes, schedule])
   const pulseShapes = useMemo(() => pulseShape(view.flows, volumes), [view, volumes])
   const pulseFlows = useMemo(() => view.flows.filter((f) => !front || front.flows.has(f.id)), [view, front])
 

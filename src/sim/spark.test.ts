@@ -44,4 +44,22 @@ describe('utilization', () => {
     expect(hint.dbu).toBeGreaterThan(0)
     expect(hint.text).not.toBe('No work in view')
   })
+
+  it('measures serverless as cores in use from statement parallelism, weighted by time executing', () => {
+    const c = cluster('serverless')
+    const run = s.taskRuns.find((r) => r.clusterId === c.id)! // the lakehouse's serverless runs are its streams
+    const base = { type: 'SELECT', text: '', status: 'FINISHED', readMB: 0, writtenMB: 0, shuffleMB: 0, spillMB: 0, readRows: 0, writtenRows: 0 }
+    // 0–60 s: 10 s waiting then 50 s executing at 8× parallelism; 60–120 s: 4× throughout.
+    const statements = [
+      { ...base, id: 'a', start: 0, end: 60, waiting: 10, compiling: 0, executing: 50, taskTime: 400 },
+      { ...base, id: 'b', start: 60, end: 120, waiting: 0, compiling: 0, executing: 60, taskTime: 240 },
+    ]
+    const measured = { ...s, statements: { [run.id]: statements } }
+    const u = utilization(measured, tasks, c, [0, 120], 2)
+    expect(u.map((x) => x.cores)).toEqual([(8 * 50) / 60, 4])
+    expect(u.map((x) => x.workers)).toEqual([(8 * 50) / 60 / c.coresPerNode, 4 / c.coresPerNode])
+    expect(sizingHint(u, c, 120).text).toBe('Serverless scales itself')
+    // Without statements it's still simulated, with no cores figure.
+    expect(utilization(s, tasks, c, [0, 120], 2).every((x) => x.cores === undefined)).toBe(true)
+  })
 })

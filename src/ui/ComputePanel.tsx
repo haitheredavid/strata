@@ -3,7 +3,7 @@ import type { MouseEvent } from 'react'
 import { scheduleOf, useStore } from '../store'
 import { clusterNodeId } from '../model/workflow'
 import type { Cluster, Task } from '../model/workflow'
-import { clock, packLanes, span as dur } from '../sim/schedule'
+import { clockOf, packLanes, span as dur } from '../sim/schedule'
 import type { Schedule, TaskRun, Window } from '../sim/schedule'
 import { measured, sizingHint, sparkRunsOn, utilization } from '../sim/spark'
 import type { SparkRun, StageOp } from '../sim/spark'
@@ -48,7 +48,7 @@ function pickWindow(s: Schedule, cluster: Cluster, taskId: string | null, t: num
   return { runs: mine, window: [a - pad, b + pad] }
 }
 
-function flameRects(spark: SparkRun[], names: Map<string, string>, palette: Palette) {
+function flameRects(spark: SparkRun[], names: Map<string, string>, palette: Palette, clock: (t: number) => string) {
   const out: (Rect & { color: string; label: string; depth: number; spill?: boolean; waves?: number; skew?: number })[] = []
   const lanes = packLanes(spark.map((sr) => ({ ...sr, start: sr.run.start, end: sr.run.end })))
   for (const { run: sr, lane } of lanes) {
@@ -131,6 +131,7 @@ export function ComputePanel() {
     setDismissed(false)
   }
   const schedule = useStore(scheduleOf)
+  const clock = useMemo(() => clockOf(schedule), [schedule])
   const tasks = useMemo(() => new Map<string, Task>(graph.workflows.pipelines.flatMap((p) => p.tasks).map((t) => [t.id, t])), [graph])
   const palette = usePalette()
 
@@ -155,7 +156,7 @@ export function ComputePanel() {
     () => (target ? sparkRunsOn(schedule, tasks, target.cluster, win).filter((sr) => !target.taskId || sr.run.taskId === target.taskId) : []),
     [schedule, tasks, target, win],
   )
-  const flame = useMemo(() => flameRects(spark, names, palette), [spark, names, palette])
+  const flame = useMemo(() => flameRects(spark, names, palette, clock), [spark, names, palette, clock])
   const realStatements = spark.some((sr) => sr.statements)
   const streaming = runs.some((r) => r.continuous)
 
@@ -169,6 +170,12 @@ export function ComputePanel() {
     [schedule, tasks, target, view, width],
   )
   const hint = useMemo(() => (target ? sizingHint(util, target.cluster, view[1] - view[0]) : null), [util, target, view])
+  // Serverless measured from statements: cores in use rather than a busy share of fixed workers.
+  const coreUse = util.some((s) => s.cores !== undefined)
+  const coreStats = useMemo(() => {
+    const xs = util.map((s) => s.cores ?? 0).filter((c) => c > 0)
+    return { avg: xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0, peak: Math.max(0, ...xs) }
+  }, [util])
 
   const box = useRef<HTMLDivElement>(null)
   const utilCanvas = useRef<HTMLCanvasElement>(null)
@@ -218,7 +225,8 @@ export function ComputePanel() {
       const u = prep(utilCanvas.current, UTIL_H)
       if (u) {
         const bw = width / Math.max(1, util.length)
-        const max = target.cluster.workers.max
+        // Measured serverless use is cores in use, not a share of a fixed cluster: scale to its peak.
+        const max = coreUse ? Math.max(1e-9, ...util.map((s) => s.workers)) : target.cluster.workers.max
         util.forEach((s, i) => {
           if (!s.up) return
           u.fillStyle = '#1e2533'
@@ -277,7 +285,7 @@ export function ComputePanel() {
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [target, view, width, util, flame, height, time.open, time.span, palette])
+  }, [target, view, width, util, coreUse, flame, height, time.open, time.span, palette])
 
   if (!target || !hint || dismissed) return null
   const c = target.cluster
@@ -300,14 +308,16 @@ export function ComputePanel() {
         {schedule.origin === 'snapshot' ? (
           <span className="sim" title={[
             'Task run times: Jobs API',
-            measured(schedule, c.id) ? 'Utilization: system.compute.node_timeline' : realStatements ? 'Utilization: from statement parallelism' : 'Utilization: generated',
-            realStatements ? 'Statements: system.query.history' : 'Spark jobs and stages: generated',
+            measured(schedule, c.id) ? 'Utilization: system.compute.node_timeline' : coreUse ? 'Utilization: statement parallelism from system.query.history' : 'Utilization: simulated',
+            realStatements ? 'Statements: system.query.history' : 'Spark jobs and stages: simulated',
           ].join('\n')}>
             {[
               'runs',
-              ...(measured(schedule, c.id) ? ['utilization'] : []),
+              ...(measured(schedule, c.id) || coreUse ? ['utilization'] : []),
               ...(realStatements ? ['statements'] : []),
-            ].join(', ')} real{realStatements ? '' : ' · Spark simulated'}
+            ].join(', ')} real
+            {measured(schedule, c.id) || coreUse ? '' : ' · utilization simulated'}
+            {realStatements ? '' : ' · Spark simulated'}
           </span>
         ) : (
           <span className="sim" title="Generated from the workflow shape, not measured">simulated</span>
@@ -317,13 +327,19 @@ export function ComputePanel() {
         <button title="Close (keeps the focus)" onClick={() => setDismissed(true)}>✕</button>
       </div>
       <div className="stats">
-        <span>avg {Math.round(hint.avg * 100)}% · p95 {Math.round(hint.p95 * 100)}% cores busy</span>
+        {coreUse ? (
+          <span title="Summed parallelism of the statements running: task time ÷ execution time">
+            avg {coreStats.avg.toFixed(1)} · peak {coreStats.peak.toFixed(1)} cores in use
+          </span>
+        ) : (
+          <span>avg {Math.round(hint.avg * 100)}% · p95 {Math.round(hint.p95 * 100)}% cores busy</span>
+        )}
         <span>≈ {hint.dbu.toFixed(1)} DBU</span>
         <span className="advice">{hint.text}</span>
         {streaming && <span className="spec">streaming micro-batches keep it busy all day</span>}
       </div>
       <div ref={box} className="charts">
-        <canvas ref={utilCanvas} style={{ width, height: UTIL_H }} title="Workers up (grey) and cores busy (color)" />
+        <canvas ref={utilCanvas} style={{ width, height: UTIL_H }} title={coreUse ? 'Cores in use, from statements' : 'Workers up (grey) and cores busy (color)'} />
         {flame.rects.length > 0 ? (
           <div className="flame">
             <canvas

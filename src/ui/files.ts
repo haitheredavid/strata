@@ -13,7 +13,7 @@ export const SYNTH_PRESETS = [
   { id: 'synth:tables:50000,pipelines:600', label: 'Synthetic 50k' },
 ]
 
-const notify = (level: 'error' | 'warning', text: string, detail?: string[]) => useStore.getState().notify(level, text, detail)
+const notify = (level: 'error' | 'warning', text: string) => useStore.getState().notify(level, text)
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** Shows `status` while `work` runs, after letting it paint (parsing a big schema blocks the thread). */

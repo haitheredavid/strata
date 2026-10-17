@@ -147,7 +147,11 @@ export function sparkRunsOn(s: Schedule, tasks: Map<string, Task>, cluster: Clus
   })
 }
 
-export interface UtilSample { t: number; workers: number; busy: number; up: boolean }
+/**
+ * Utilization over one time bucket: workers up and the share of their cores busy. `cores` is set only
+ * when it's measured from statements (serverless): cores in use, with `workers` their node-equivalents.
+ */
+export interface UtilSample { t: number; workers: number; busy: number; up: boolean; cores?: number }
 
 /** True when the schedule carries measured node use for this cluster (a snapshot with `node_timeline`). */
 export const measured = (s: Schedule, clusterId: string) => !!s.usage?.[clusterId]?.length
@@ -186,12 +190,42 @@ function measuredUtilization(xs: UsageSample[], [a, b]: Window, n: number): Util
 }
 
 /**
+ * Serverless use from its statements: cores in use is the sum, over statements executing in a bucket,
+ * of their average parallelism (task time / execution time), weighted by how much of the bucket they ran.
+ */
+function statementUtilization(statements: Statement[], cluster: Cluster, [a, b]: Window, n: number): UtilSample[] {
+  const out: UtilSample[] = []
+  const w = (b - a) / n
+  for (let i = 0; i < n; i++) {
+    const lo = a + i * w
+    const hi = lo + w
+    let cores = 0
+    let up = false
+    for (const st of statements) {
+      if (st.end <= lo || st.start >= hi) continue
+      up = true
+      const run = st.start + st.waiting + st.compiling
+      const overlap = Math.min(hi, st.end) - Math.max(lo, run)
+      if (overlap > 0 && st.executing > 0) cores += (st.taskTime / st.executing) * (overlap / w)
+    }
+    out.push({ t: lo + w / 2, workers: cores / cluster.coresPerNode, busy: cores > 0 ? 1 : 0, up, cores })
+  }
+  return out
+}
+
+/**
  * Cluster utilization over a window, in `n` buckets: workers up and the share of their cores busy.
- * Task runs sharing a cluster split its cores. Streaming tasks keep a steady ~half load.
+ * Measured when the snapshot has it: node timeline for classic clusters, statement parallelism for
+ * serverless. Otherwise simulated: task runs sharing a cluster split its cores, and streaming tasks keep
+ * a steady ~half load.
  */
 export function utilization(s: Schedule, tasks: Map<string, Task>, cluster: Cluster, [a, b]: Window, n: number): UtilSample[] {
   const real = s.usage?.[cluster.id]
   if (real?.length) return measuredUtilization(real, [a, b], n)
+  if (cluster.kind === 'serverless') {
+    const statements = s.taskRuns.filter((r) => r.clusterId === cluster.id).flatMap((r) => s.statements?.[r.id] ?? [])
+    if (statements.length) return statementUtilization(statements, cluster, [a, b], n)
+  }
   const spark = sparkRunsOn(s, tasks, cluster, [a, b])
   const streams = s.taskRuns.filter((r) => r.clusterId === cluster.id && r.continuous)
   const out: UtilSample[] = []
@@ -227,13 +261,15 @@ export function sizingHint(samples: UtilSample[], cluster: Cluster, seconds: num
   const working = samples.filter((x) => x.up && x.busy > 0.02).map((x) => x.busy).sort((p, q) => p - q)
   const avg = working.length ? working.reduce((s, x) => s + x, 0) / working.length : 0
   const p95 = working.length ? working[Math.min(working.length - 1, Math.floor(working.length * 0.95))] : 0
-  const nodeHours = samples.reduce((s, x) => s + (x.up ? x.workers + 1 : 0), 0) * (seconds / Math.max(1, samples.length)) / 3600
+  // Serverless has no driver to count; its node-equivalents are already what was in use.
+  const driver = cluster.kind === 'serverless' ? 0 : 1
+  const nodeHours = samples.reduce((s, x) => s + (x.up ? x.workers + driver : 0), 0) * (seconds / Math.max(1, samples.length)) / 3600
   const dbu = nodeHours * (cluster.kind === 'serverless' ? 1.5 : cluster.coresPerNode / 4) * 0.75
   let text = 'No work in view'
   if (working.length) {
     const target = Math.max(1, Math.ceil((cluster.workers.max * p95) / 0.8))
-    if (p95 > 0.9) text = 'Saturated at peak: more workers or larger nodes would cut run time'
-    else if (cluster.kind === 'serverless') text = 'Serverless scales itself'
+    if (cluster.kind === 'serverless') text = 'Serverless scales itself'
+    else if (p95 > 0.9) text = 'Saturated at peak: more workers or larger nodes would cut run time'
     else if (target < cluster.workers.max) text = `${target} worker${target > 1 ? 's' : ''} likely enough (now ${cluster.workers.min === cluster.workers.max ? cluster.workers.max : `${cluster.workers.min}–${cluster.workers.max}`})`
     else text = 'Sized about right'
   }

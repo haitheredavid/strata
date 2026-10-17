@@ -32,7 +32,7 @@ describe('buildDataset', () => {
     expect(d.schedule.taskRuns).toBe(snap.runs.taskRuns)
     expect(d.schedule).toMatchObject({ origin: 'snapshot', day: '2026-10-12', tz: 'America/New_York' })
     expect(d.meta).toEqual({ host: snap.host, day: '2026-10-12', tz: 'America/New_York' })
-    expect(d.warnings[0]).toBe(snap.warnings[0])
+    expect(d.warnings[0]).toEqual({ text: snap.warnings[0], items: [] })
     expect(d.label).toBe('dbc-123 · 2026-10-12')
   })
 

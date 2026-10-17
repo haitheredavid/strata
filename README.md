@@ -63,7 +63,7 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 - **Lineage drawing**:
   - Jobs are hexagons placed between what they read and what they write.
   - Lineage wires are dashed, in the pipeline's colour, with pulses moving downstream.
-  - Pulse size shows bytes per run (log scale) and the number of pulses on a wire shows runs per day: a daily batch is one dot, streaming a dense train. Set `bytes: 4GB` on a task to give its size; otherwise it is simulated from the medallion layer. Hover a job for its bytes in / out and runs a day.
+  - Pulse size shows bytes per run (log scale) and the number of pulses on a wire shows runs per day: a daily batch is one dot, streaming a dense train. In a snapshot, sizes come from the bytes the job's statements read and wrote (query history, split evenly over its tables); otherwise `bytes: 4GB` on a task gives its size, and failing that it is simulated from the medallion layer. Hover a job for its bytes in / out and runs a day; a snapshot job whose size had to be simulated says so.
   - Flow mode adds a translucent lane for each pipeline.
 - **Triggers** label each pipeline's first jobs (CRON / FILE / ON UPDATE / AFTER / STREAMING). Dotted links run from the tables or the upstream pipeline that start it.
 - **Events** are amber markers on the jobs that emit them.
@@ -76,7 +76,7 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 
 ## Day timeline
 
-**Timeline** in the toolbar (or ▶ on a pipeline) opens a simulated day of runs across every pipeline.
+**Timeline** in the toolbar (or ▶ on a pipeline) opens a day of runs across every pipeline: simulated unless a snapshot is loaded, and the header says which. A snapshot's day runs from local midnight to local midnight, so a day with a daylight-saving change is 23 or 25 hours long and its times are the zone's wall clock.
 
 - **Start times** come from each pipeline's trigger:
   - cron schedules fire at their times; file arrivals land three times a day; manual runs at 09:00; continuous runs all day.
@@ -115,7 +115,7 @@ Jobs are linked to the clusters they run on, drawn as racks under the diagram. T
   - Its flame chart runs task run → Spark jobs → stages (scan, exchange, join, write…) → task waves. A red tail marks a skewed straggler, and a red outline marks a spill.
   - Hover a bar for details, click to zoom, double-click to reset.
 
-**All compute data is simulated.** It follows the shape of the real sources, so an importer could replace it later:
+**Without a snapshot, all compute data is simulated.** It follows the shape of the real sources, which a snapshot replaces where it has them:
 
 | Shown | Real source |
 | --- | --- |
@@ -147,8 +147,12 @@ Then drop `snapshots/<host>-<day>.snapshot.json` onto the app. `snapshots/` is g
 | Pipelines, tasks, triggers, clusters | Jobs API (`jobs list --expand-tasks`), `pipelines get`, `clusters get`, `instance-pools get`, `clusters list-node-types`. Task ids are `<job>/<task_key>`. |
 | Task reads / writes, sources | `system.access.table_lineage`. Lineage only names the job run, so each edge goes to the task that was running when it was written. If that can't be found, the edge goes to a task whose key or notebook path names the layer, and failing that to the job's last task. |
 | Day timeline | `jobs list-runs --expand-tasks`. Each task's queue + setup becomes the hatched start of its bar. Failed runs get a red outline, and canceled or skipped runs are faded. |
-| Cluster utilization, worker racks | `system.compute.node_timeline` per minute, for classic clusters. Each run's job cluster folds into its job-cluster key. Serverless has no node timeline. |
+| Cluster utilization, worker racks | `system.compute.node_timeline` per minute, for classic clusters. Each run's job cluster folds into its job-cluster key. |
+| Serverless utilization | Statement parallelism (`total_task_duration_ms ÷ execution_duration_ms` from `system.query.history`), shown as cores in use rather than a busy share. |
 | Flame chart | `system.query.history` statements per task run (waiting / compiling / executing, bytes, rows, shuffle, spill) on serverless and warehouses. Classic clusters keep simulated Spark jobs, since they deliver no event logs. |
+| Pulse size | Bytes read and written by each task's statements, averaged per run. |
+
+Snapshot warnings are grouped by kind in the ⚠ notice; items naming a task focus it, and items naming a job light it up.
 
 The compute drawer's badge says which of these are real for the cluster in view.
 

@@ -36,9 +36,11 @@ Goal: exports of an active workspace can be repeated and fail loudly and partial
 - **Typecheck and tests:** move the pure SQL helpers (`sliceWhere`, `like`, `lit`, chunking) into `src/ingest/databricks/sql.ts` with tests, and bring `scripts/` under `tsc`. Add tests for store load paths, file routing and the stash.
 - **Privacy:** CI fails if `public/**/*.snapshot.json` exists.
 
-## Phase 3: Real-data fidelity
+## Phase 3: Real-data fidelity — done, except Spark event logs
 
 Goal: when a snapshot has real data, nothing on screen is simulated without saying so.
+
+*Landed 2026-10-17.* Pulse bytes are split evenly over a task's tables (statements don't say which table they touched). Serverless utilization is shown as cores in use, not a busy share. Warnings are grouped in the app from the known message templates, so snapshots exported earlier group too. **Not done: Spark event logs.** No cluster in either the prod or the test workspace configures cluster log delivery (`cluster_log_conf` is absent from every exported job and cluster), so there are no event logs to read; classic clusters' flame charts stay simulated and say so. Revisit if log delivery is turned on.
 
 - Pulse size from `system.query.history` read/written bytes when statements exist (`sim/volume.ts` ignores them today).
 - Serverless utilization from statement parallelism (the compute badge already names it).

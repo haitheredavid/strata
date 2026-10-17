@@ -10,7 +10,7 @@ import { derivedStack } from './layout/modes/stack'
 import { layerView, sceneView } from './view/deriveView'
 import type { ViewInputs } from './view/deriveView'
 import { timeClock } from './scene/timeClock'
-import { DAY } from './sim/schedule'
+import { daySeconds } from './sim/schedule'
 import type { Schedule } from './sim/schedule'
 import { isScheme } from './theme/schemes'
 import { record, span } from './dev/perf'
@@ -18,6 +18,7 @@ import type { SchemeId } from './theme/schemes'
 import { mergeLayout, normaliseLayout } from './data/dataset'
 import type { Dataset } from './data/dataset'
 import { escapeStep } from './view/escape'
+import type { WarningGroup } from './data/warnings'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
@@ -30,7 +31,8 @@ export interface Notice {
   id: number
   level: 'error' | 'warning' | 'info'
   text: string
-  detail?: string[]
+  /** A dataset's warnings, grouped by kind; items can point at a task or pipeline. */
+  detail?: WarningGroup[]
   /** About the loaded dataset: replaced when another one loads. */
   dataset?: boolean
   /** Show the detail expanded. */
@@ -62,7 +64,7 @@ interface State {
 
   /** Install a dataset: its saved layout (or a new one), with the per-dataset view state reset. */
   load: (dataset: Dataset) => void
-  notify: (level: Notice['level'], text: string, detail?: string[]) => void
+  notify: (level: Notice['level'], text: string) => void
   dismiss: (id: number) => void
   setStatus: (status: string | null) => void
   /** Bring back the dataset's warnings notice, expanded. */
@@ -299,7 +301,7 @@ export const useStore = create<State>((set, get) => ({
           }),
     })
   },
-  notify: (level, text, detail) => set((s) => ({ notices: [...s.notices, { id: ++noticeSeq, level, text, detail }] })),
+  notify: (level, text) => set((s) => ({ notices: [...s.notices, { id: ++noticeSeq, level, text }] })),
   dismiss: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   setStatus: (status) => set({ status }),
   showDatasetWarnings: () =>
@@ -392,7 +394,8 @@ export const useStore = create<State>((set, get) => ({
   openTimeline: (pipelineId) => {
     if (get().layout.edgeLayer === 'fk') get().notify('info', 'Turned lineage edges on for the timeline')
     set((s) => {
-      const runs = scheduleOf(s).runs.filter((r) => r.start > 0 || r.end < DAY) // skip all-day streams
+      const schedule = scheduleOf(s)
+      const runs = schedule.runs.filter((r) => r.start > 0 || r.end < daySeconds(schedule)) // skip all-day streams
       const first = pipelineId ? runs.find((r) => r.pipelineId === pipelineId) : runs[0]
       const t = first ? Math.max(0, first.start - 300) : s.time.open ? s.time.t : 0
       timeClock.t = t

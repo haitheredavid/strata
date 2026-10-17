@@ -83,7 +83,7 @@ export function Toolbar() {
       <button
         className={timeline ? 'on' : ''}
         disabled={!graph.workflows.pipelines.length}
-        title="Scrub a simulated day of pipeline runs"
+        title="Scrub a day of pipeline runs (simulated unless a snapshot is loaded)"
         onClick={() => (timeline ? closeTimeline() : openTimeline())}
       >
         Timeline

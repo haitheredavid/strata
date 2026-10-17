@@ -10,6 +10,9 @@ import { SYNTH_DEFAULTS, synthGraph, synthKey } from '../dev/synth'
 import type { SynthOptions } from '../dev/synth'
 import { MEDALLION_LAYERS, SOURCES } from '../view/deriveView'
 import { span } from '../dev/perf'
+import { dayLength } from '../ingest/databricks/time'
+import { groupWarnings } from './warnings'
+import type { WarningGroup } from './warnings'
 
 /** Bundled schemas in `public/`. */
 export const SAMPLES = [
@@ -37,7 +40,7 @@ export interface SampleFiles {
 export interface Dataset {
   /** One per sample, synthetic spec, schema file (by content) or snapshot (by host and day). */
   key: string
-  /** Names the saved layout: the schema content, so the same tables keep their positions. */
+  /** Names the saved layout: the schema content (a snapshot: its host and catalogs), so tables keep their positions. */
   layoutKey: string
   label: string
   source: DatasetSource
@@ -46,8 +49,8 @@ export interface Dataset {
   graph: Graph
   /** A snapshot's real runs, else the simulated day. */
   schedule: Schedule
-  /** Snapshot export notes and workflow file problems. */
-  warnings: string[]
+  /** Snapshot export notes and workflow file problems, grouped by kind. */
+  warnings: WarningGroup[]
   meta?: { host: string; day: string; tz: string }
 }
 
@@ -116,15 +119,16 @@ export function buildDataset(source: DatasetSource, sample?: SampleFiles): Datas
       source,
       dbml: snap.dbml,
       graph,
-      schedule: { ...snap.runs, origin: 'snapshot', day: snap.day, tz: snap.tz },
-      warnings: [...snap.warnings, ...graph.workflows.warnings],
+      // The day's length from its date and zone, so exports made before it was recorded get it too.
+      schedule: { ...snap.runs, origin: 'snapshot', day: snap.day, tz: snap.tz, length: dayLength(snap.day, snap.tz) },
+      warnings: groupWarnings([...snap.warnings, ...graph.workflows.warnings], graph),
       meta: { host: snap.host, day: snap.day, tz: snap.tz },
     }
   }
   if (source.origin === 'sample' && !sample) throw new Error(`${label}: files not loaded`)
   const dbml = source.origin === 'file' ? source.dbml : sample!.dbml
   const graph = parse(dbml, source.workflows ?? (source.origin === 'sample' ? sample!.workflows : null))
-  return { key, layoutKey: hash(dbml), label, source, dbml, graph, schedule: simulated(graph), warnings: graph.workflows.warnings }
+  return { key, layoutKey: hash(dbml), label, source, dbml, graph, schedule: simulated(graph), warnings: groupWarnings(graph.workflows.warnings, graph) }
 }
 
 /**

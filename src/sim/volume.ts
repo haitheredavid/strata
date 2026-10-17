@@ -2,13 +2,15 @@ import type { Graph } from '../model/types'
 import type { Medallion } from '../model/workflow'
 import type { FlowEdge } from '../view/deriveView'
 import { rand } from './rng'
-import { DAY, MICRO_BATCH } from './schedule'
+import { MICRO_BATCH, daySeconds } from './schedule'
 import type { Schedule } from './schedule'
 
 /** Data a lineage edge moves: bytes per run, and how many runs a day. */
 export interface FlowVolume {
   bytes: number
   runsPerDay: number
+  /** Where `bytes` comes from: query history (snapshots), the workflow file's `bytes:`, or a simulated draw. */
+  bytesFrom: 'measured' | 'declared' | 'simulated'
 }
 
 const GB = 1e9
@@ -30,27 +32,64 @@ function runsByTask(s: Schedule): Map<string, number> {
   let m = runCounts.get(s)
   if (m) return m
   runCounts.set(s, (m = new Map()))
-  for (const r of s.taskRuns) m.set(r.taskId, (m.get(r.taskId) ?? 0) + (r.continuous ? DAY / MICRO_BATCH : 1))
+  for (const r of s.taskRuns) m.set(r.taskId, (m.get(r.taskId) ?? 0) + (r.continuous ? daySeconds(s) / MICRO_BATCH : 1))
+  return m
+}
+
+const measuredIO = new WeakMap<Schedule, Map<string, { read: number; written: number }>>()
+
+/**
+ * Bytes read and written per run, by task id, averaged over the task's runs that recorded statements
+ * (`system.query.history`, so serverless and warehouse compute). Cached per schedule.
+ */
+function measuredByTask(s: Schedule): Map<string, { read: number; written: number }> {
+  let m = measuredIO.get(s)
+  if (m) return m
+  const sums = new Map<string, { read: number; written: number; runs: number }>()
+  for (const r of s.taskRuns) {
+    const sts = s.statements?.[r.id]
+    if (!sts?.length) continue
+    const a = sums.get(r.taskId) ?? { read: 0, written: 0, runs: 0 }
+    for (const st of sts) {
+      a.read += st.readMB * 1e6
+      a.written += st.writtenMB * 1e6
+    }
+    a.runs++
+    sums.set(r.taskId, a)
+  }
+  m = new Map([...sums].map(([id, a]) => [id, { read: a.read / a.runs, written: a.written / a.runs }]))
+  measuredIO.set(s, m)
   return m
 }
 
 /**
- * Bytes per run and runs per day for each lineage edge. Bytes come from the task's `bytes` when the
- * workflow file gives it, else a deterministic log-uniform draw by the medallion layer of the table the
- * edge touches. Runs come from the simulated day (at least one).
+ * Bytes per run and runs per day for each lineage edge. Bytes come from the task's statements when the
+ * snapshot has them (what it read split evenly over the tables it reads, what it wrote over the ones it
+ * writes), else the task's `bytes` in the workflow file, else a deterministic log-uniform draw by the
+ * medallion layer of the table the edge touches. Runs come from the day's schedule (at least one).
  */
 export function flowVolumes(flows: FlowEdge[], graph: Graph, schedule: Schedule): Map<string, FlowVolume> {
   const medallion = new Map(graph.tables.map((t) => [t.id, t.medallion]))
-  const declared = new Map(graph.workflows.pipelines.flatMap((p) => p.tasks.map((t) => [t.id, t.bytes])))
+  const tasks = new Map(graph.workflows.pipelines.flatMap((p) => p.tasks.map((t) => [t.id, t])))
+  const measured = measuredByTask(schedule)
   const runs = runsByTask(schedule)
   const out = new Map<string, FlowVolume>()
   for (const f of flows) {
     const table = f.role === 'read' ? f.from : f.to
-    const layer = table.startsWith('source:') ? 'source' : (medallion.get(table) ?? 'none')
-    const [lo, hi] = RANGE[layer]
-    const bytes = declared.get(f.taskId) ?? lo * (hi / lo) ** rand(`${f.taskId}:${table}:bytes`)
+    const task = tasks.get(f.taskId)
+    const io = measured.get(f.taskId)
+    const share = f.role === 'read' ? (io?.read ?? 0) / Math.max(1, task?.reads.length ?? 1) : (io?.written ?? 0) / Math.max(1, task?.writes.length ?? 1)
+    let bytes: number
+    let bytesFrom: FlowVolume['bytesFrom']
+    if (io && share > 0) [bytes, bytesFrom] = [share, 'measured']
+    else if (task?.bytes !== undefined) [bytes, bytesFrom] = [task.bytes, 'declared']
+    else {
+      const layer = table.startsWith('source:') ? 'source' : (medallion.get(table) ?? 'none')
+      const [lo, hi] = RANGE[layer]
+      ;[bytes, bytesFrom] = [lo * (hi / lo) ** rand(`${f.taskId}:${table}:bytes`), 'simulated']
+    }
     // At least a byte: the dot size is a log scale.
-    out.set(f.id, { bytes: Math.max(1, Math.round(bytes)), runsPerDay: Math.max(1, runs.get(f.taskId) ?? 0) })
+    out.set(f.id, { bytes: Math.max(1, Math.round(bytes)), runsPerDay: Math.max(1, runs.get(f.taskId) ?? 0), bytesFrom })
   }
   return out
 }

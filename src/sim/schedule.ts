@@ -5,6 +5,7 @@ import { runSteps } from '../view/runOrder'
 import { between } from './rng'
 import { MinHeap } from './heap'
 import { activeRuns } from './runIndex'
+import { dayStart } from '../ingest/databricks/time'
 
 /** Seconds in the simulated day. Times below are seconds since 00:00. */
 export const DAY = 86_400
@@ -88,7 +89,12 @@ export interface Schedule {
   origin?: 'sim' | 'snapshot'
   day?: string
   tz?: string
+  /** Seconds in the day: 86 400, or 23 / 25 hours for a snapshot of a day with a DST change. */
+  length?: number
 }
+
+/** Seconds in the schedule's day; times run from 0 to this. */
+export const daySeconds = (s: Schedule) => s.length ?? DAY
 
 export type Window = [number, number]
 
@@ -292,6 +298,17 @@ export function layerTotals(s: Schedule, [a, b]: Window, pipelineId?: string | n
 export const clock = (t: number) => {
   const m = Math.floor(Math.max(0, t) / 60)
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+
+/**
+ * `clock` for the schedule's day. On a snapshot day with a DST change, seconds since 00:00 stop matching
+ * the wall clock after the change, so times are shown in the day's time zone instead.
+ */
+export function clockOf(s: Schedule): (t: number) => string {
+  if (!s.day || !s.tz || daySeconds(s) === DAY) return clock
+  const t0 = dayStart(s.day, s.tz)
+  const f = new Intl.DateTimeFormat('en-GB', { timeZone: s.tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  return (t) => f.format(new Date(t0 + Math.max(0, t) * 1000))
 }
 
 /** `1h 5m`, `12m`, `40s`. */

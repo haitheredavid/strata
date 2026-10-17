@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { parseDbml } from '../../parse/dbml'
+import { clockOf } from '../../sim/schedule'
 import { measured, sparkRunsOn, usageAt, utilization } from '../../sim/spark'
 import { buildSnapshot } from './buildSnapshot'
 import { endName, pipelineIds } from './jobsToWorkflows'
-import type { RawExport } from './raw'
-import { dayStart } from './time'
+import type { RawExport, Run } from './raw'
+import { runsToSchedule } from './runsToSchedule'
+import { dayLength, dayStart, yesterday } from './time'
 import { ucToDbml } from './ucToDbml'
 
 // Synthetic workspace shaped like real API / system-table payloads (no real names).
@@ -211,6 +213,41 @@ describe('dayStart', () => {
     expect(new Date(dayStart('2026-03-08', 'America/New_York')).toISOString()).toBe('2026-03-08T05:00:00.000Z')
     expect(new Date(dayStart('2026-03-09', 'America/New_York')).toISOString()).toBe('2026-03-09T04:00:00.000Z')
     expect(new Date(dayStart('2026-07-01', 'UTC')).toISOString()).toBe('2026-07-01T00:00:00.000Z')
+  })
+})
+
+describe('days across a DST change', () => {
+  it('last 23 or 25 hours, from local midnight to local midnight', () => {
+    expect(dayLength('2026-03-08', 'America/New_York')).toBe(23 * 3600)
+    expect(dayLength('2026-11-01', 'America/New_York')).toBe(25 * 3600)
+    expect(dayLength('2026-07-01', 'America/New_York')).toBe(24 * 3600)
+  })
+
+  it('find yesterday by the calendar, not 24 hours back', () => {
+    // 00:30 on the day after spring-forward: 24 h earlier is still the 7th.
+    expect(yesterday('America/New_York', Date.parse('2026-03-09T04:30:00Z'))).toBe('2026-03-08')
+  })
+
+  it('keep runs in the extra hour of a 25-hour day, and the schedule says how long the day is', () => {
+    const t0 = dayStart('2026-11-01', 'America/New_York')
+    const lateRun: Run = {
+      run_id: 900, job_id: 1, start_time: t0 + 24.5 * 3600_000, end_time: t0 + 24.75 * 3600_000, trigger: 'PERIODIC',
+      state: { result_state: 'SUCCESS' },
+      tasks: [{ task_key: 'orders__bronze', run_id: 901, start_time: t0 + 24.5 * 3600_000, end_time: t0 + 24.75 * 3600_000, state: { result_state: 'SUCCESS' } }],
+    }
+    const { schedule } = runsToSchedule([lateRun], {
+      day: '2026-11-01', tz: 'America/New_York', pipelineOf: new Map([['1', 'acme_orders_prod']]),
+      clusterOf: new Map([['acme_orders_prod/orders__bronze', 'acme_orders_prod.etl']]), continuous: new Set(), writesOf: new Map(),
+      medallionOf: () => undefined, now: t0 + 26 * 3600_000,
+    })
+    expect(schedule.length).toBe(25 * 3600)
+    expect(schedule.taskRuns).toMatchObject([{ start: 24.5 * 3600, end: 24.75 * 3600 }])
+  })
+
+  it('show the wall clock: after fall-back, 24.5 h into the day is 23:30', () => {
+    const clock = clockOf({ runs: [], taskRuns: [], events: [], day: '2026-11-01', tz: 'America/New_York', length: 25 * 3600 })
+    expect(clock(24.5 * 3600)).toBe('23:30')
+    expect(clock(0.5 * 3600)).toBe('00:30')
   })
 })
 

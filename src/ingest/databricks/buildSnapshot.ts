@@ -7,7 +7,7 @@ import { clusterInstances, nodeUsage } from './nodeUsage'
 import type { RawExport } from './raw'
 import { runsToSchedule } from './runsToSchedule'
 import { statementsByRun } from './statements'
-import { dayStart } from './time'
+import { dayLength, dayStart } from './time'
 import { fullName, ucToDbml } from './ucToDbml'
 
 /** A workspace export as a strata snapshot: DBML from Unity Catalog, a workflow file from jobs and lineage, a day of runs. */
@@ -34,7 +34,7 @@ export function buildSnapshot(raw: RawExport, now = Date.now()): Snapshot {
       const pid = wf.pipelineOf.get(job)
       return pid ? wf.clusterOf.get(taskId(pid, key)) : undefined
     })
-    schedule.usage = nodeUsage(raw.nodeTimeline, instances, dayStart(raw.day, raw.tz))
+    schedule.usage = nodeUsage(raw.nodeTimeline, instances, dayStart(raw.day, raw.tz), dayLength(raw.day, raw.tz))
   }
 
   return {

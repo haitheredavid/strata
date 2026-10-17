@@ -33,8 +33,17 @@ export function dayStart(day: string, tz: string): number {
   return guess - tzOffset(first, tz)
 }
 
-/** `YYYY-MM-DD` of the day before `ms` in `tz`. */
+/** `YYYY-MM-DD` `n` calendar days after `day` (negative for before). */
+export function addDays(day: string, n: number): string {
+  const [y, m, d] = day.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+
+/** Seconds from 00:00 on `day` to 00:00 the next day in `tz`: 86 400, or 23 / 25 hours across a DST change. */
+export const dayLength = (day: string, tz: string) => (dayStart(addDays(day, 1), tz) - dayStart(day, tz)) / 1000
+
+/** `YYYY-MM-DD` of the day before the one `ms` falls on in `tz`. */
 export function yesterday(tz: string, ms = Date.now()): string {
   const f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
-  return f.format(new Date(ms - 86_400_000))
+  return addDays(f.format(new Date(ms)), -1)
 }
