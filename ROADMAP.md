@@ -60,3 +60,26 @@ Goal: a full catalog (thousands of tables, hundreds of pipelines) stays interact
 - Orbit: cap or cluster the out-of-range ring.
 - Pipeline lanes and colours grouped by job prefix or domain; unfocused lanes fade.
 - `test:scale` and the bench gain timing budgets for the 600-table snapshot shape (use `src/dev/synth.ts` presets, since real snapshots stay out of git).
+
+## Phase 5: Product shell (core interactions)
+
+Goal: narrow the prototype to one loop (search → select → inspect → trace up or downstream → scrub the day) in a layout where panels don't cover the scene.
+
+*Started 2026-10-17 from a UI/UX review run against the 600-table snapshot. Done so far:* the bottom dock stops at the side panel, fly-to sets its own focal offset (it kept the whole-scene framing's, which put a close-up card at the screen edge), the plain timeline opens with the whole day as its span so the scene isn't dark, timeline bars are at least 6 px and a click up to 6 px off picks the nearest run in that lane, row actions overlay the row on hover instead of reserving width (pipeline names were cut to 3–8 characters), counts sit in a fixed column, the layer list and `moveLayer` skip layers the view leaves out, and the unused `App.css` is gone.
+
+1. **Fixed shell.** Toolbar, left **Navigator**, centre canvas, right **Inspector**, bottom **Day** dock (resizable). Nothing floats over the canvas apart from the Lit-by trail and a corner camera control (Iso / Top / Side). The camera frames inside whatever the panels leave visible, replacing `PANEL_SHIFT`.
+2. **Inspector.** Replaces the Focus section, the Path section and the compute drawer.
+   - **Table:** full UC name, medallion, columns, upstream and downstream tables and jobs as links, the jobs that write it and their last run.
+   - **Job:** trigger, today's runs and failures, reads and writes, compute (spec, utilization, flame).
+   - **Cluster:** spec, utilization, the jobs it runs.
+   - **Actions:** Find path to…, Solo, Open in Day.
+   *Done when:* selecting anything shows its details without scrolling, at 1280×800.
+3. **Scope / Selection / Time.** Fold the eleven visibility and highlight inputs into three concepts:
+   - **Scope** (Navigator, saved per dataset) covers hide and only-this for layers and pipelines, tables-only and collapse.
+   - **Selection** (Inspector) covers focus, lens, path ends and hops. Selecting a pipeline lights it, so lens and focus merge.
+   - **Time** (Day dock) covers playhead, span and lit-only.
+   Group by, edges and columns move to a **View ▾** menu.
+4. **Navigator rows.** A checkbox for scope. Clicking the row selects it. Solo, fold and reorder move to a row menu, replacing the ● ○ ◐ ◎ ▶ ⊟ ↑ ↓ glyph buttons. Full names wrap or show on hover.
+5. **Two views.** **Lineage**: Diagram from above by default, with *Lift to 3D* for Flow's slabs. **Day**: the timeline full height, with the lineage view as a small view kept in sync. Stack and Orbit go behind a labs flag. If Orbit stays, it uses lineage hops, since Unity Catalog snapshots have no FKs and every table lands in its out-of-range disk.
+6. **Day dock.** Clicking a bar selects the job and moves the camera to it. Speed reads `×1800`, not `30m/s`. The header fits on one line at 1280 px. Snapshot warnings stay behind the ⚠ chip instead of opening expanded over the scene, and use user-facing wording.
+7. **Readability at 600+ tables.** Short labels (`prime_contracts`, with `gold.procore` as secondary text). Labels that appear with zoom in Diagram. Bundled edges for hub jobs (one job writing 40 tables draws a star). Pipeline colours that stay distinct past 12. The toolbar fits on one row at 1280 px.
