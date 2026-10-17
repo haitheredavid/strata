@@ -19,11 +19,11 @@ import { mergeLayout, normaliseLayout } from './data/dataset'
 import type { Dataset } from './data/dataset'
 import { escapeStep } from './view/escape'
 import type { WarningGroup } from './data/warnings'
+import { LAB_MODES, labsOn } from './labs'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
   | { kind: 'preset'; preset: CameraPreset }
-  | { kind: 'fly'; id: string }
   | { kind: 'frame'; ids: string[] }
 
 /** Something the user should know: a failed load, storage trouble, a dataset's warnings. */
@@ -35,8 +35,6 @@ export interface Notice {
   detail?: WarningGroup[]
   /** About the loaded dataset: replaced when another one loads. */
   dataset?: boolean
-  /** Show the detail expanded. */
-  open?: boolean
 }
 
 interface State {
@@ -132,7 +130,11 @@ const NO_RUNS: Schedule = { runs: [], taskRuns: [], events: [] }
 /** The loaded dataset's day of runs: a snapshot's real runs, else the simulated day. */
 export const scheduleOf = (s: State): Schedule => s.dataset?.schedule ?? NO_RUNS
 
-export const modeOf = (layout: Layout): ModeId => layout.mode ?? 'stack'
+/** The layout's mode: the 2D lineage diagram unless one was chosen. */
+export const modeOf = (layout: Layout): ModeId => layout.mode ?? 'diagram'
+
+/** `layout` in a mode that's offered: lab layouts (Stack, Orbit) fall back to the diagram when labs are off. */
+const offeredMode = (layout: Layout): Layout => (layout.mode && LAB_MODES.has(layout.mode) && !labsOn() ? { ...layout, mode: 'diagram' } : layout)
 
 /** A layout change, re-framing the camera when the pipeline table filter changes which tables show. */
 function reframed(layout: Layout, force = false) {
@@ -240,9 +242,10 @@ function freshLayout(graph: Graph, layoutKey: string, layerGap = 8, keep: Layout
 
 let noticeSeq = 0
 
-function warningsNotice(d: Dataset, open: boolean): Notice {
+/** The dataset's warnings, opened from the toolbar's ⚠ chip. */
+function warningsNotice(d: Dataset): Notice {
   const n = d.warnings.length
-  return { id: ++noticeSeq, level: 'warning', text: `${d.label}: ${n} warning${n > 1 ? 's' : ''}`, detail: d.warnings, dataset: true, open }
+  return { id: ++noticeSeq, level: 'warning', text: `${d.label}: ${n} warning${n > 1 ? 's' : ''}`, detail: d.warnings, dataset: true }
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -279,12 +282,12 @@ export const useStore = create<State>((set, get) => ({
       const fresh = freshLayout(d.graph, d.layoutKey)
       layout = d.source.origin === 'synth' ? fresh : largeDefaults(d.graph, fresh)
     }
+    // Warnings wait behind the toolbar's ⚠ chip; a notice from the previous dataset goes.
     const notices = s.notices.filter((n) => !n.dataset)
-    if (d.warnings.length) notices.push(warningsNotice(d, false))
     set({
       dataset: d,
       graph: d.graph,
-      layout: normaliseLayout(layout, d.graph),
+      layout: normaliseLayout(offeredMode(layout), d.graph),
       notices,
       lensPipeline: null,
       time: CLOSED,
@@ -305,7 +308,7 @@ export const useStore = create<State>((set, get) => ({
   dismiss: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   setStatus: (status) => set({ status }),
   showDatasetWarnings: () =>
-    set((s) => (s.dataset?.warnings.length ? { notices: [...s.notices.filter((n) => !n.dataset), warningsNotice(s.dataset, true)] } : s)),
+    set((s) => (s.dataset?.warnings.length ? { notices: [...s.notices.filter((n) => !n.dataset), warningsNotice(s.dataset)] } : s)),
 
   setLayout: (layout) => {
     if (!isLayoutFor(layout, get().graph)) return get().notify('error', 'That layout file is for a different schema')
@@ -340,7 +343,8 @@ export const useStore = create<State>((set, get) => ({
   onlyLayer: (layerId) =>
     set((s) => ({ layout: { ...s.layout, onlyLayer: s.layout.onlyLayer === layerId ? undefined : layerId } })),
   hover: (hoveredId) => set({ hoveredId }),
-  focus: (focusedId) => set({ focusedId }),
+  // One selection: focusing a node clears a selected pipeline (and the reverse, in setLens).
+  focus: (focusedId) => set(focusedId ? { focusedId, lensPipeline: null } : { focusedId }),
   setDragging: (dragging) => set({ dragging }),
   camera: (cmd) => set({ cameraCommand: { ...cmd, nonce: Date.now() } }),
   // The camera stays put across layout switches, so you can watch the cards move.
@@ -394,7 +398,7 @@ export const useStore = create<State>((set, get) => ({
   setLens: (lensPipeline) => {
     const s = get()
     if (lensPipeline && s.layout.edgeLayer === 'fk') s.notify('info', 'Turned lineage edges on to light up the pipeline')
-    set({ lensPipeline, layout: lensPipeline ? withLineage(s.layout) : s.layout })
+    set({ lensPipeline, ...(lensPipeline ? { focusedId: null } : {}), layout: lensPipeline ? withLineage(s.layout) : s.layout })
   },
   openTimeline: (pipelineId) => {
     if (get().layout.edgeLayer === 'fk') get().notify('info', 'Turned lineage edges on for the timeline')
@@ -411,7 +415,7 @@ export const useStore = create<State>((set, get) => ({
       const layout = withLineage(s.layout)
       return {
         time: { ...s.time, open: true, t, span, playing: !!pipelineId },
-        lensPipeline: pipelineId ?? s.lensPipeline,
+        ...(pipelineId ? { lensPipeline: pipelineId, focusedId: null } : {}),
         // The pipeline being played is shown, even if it was hidden or another was "only this".
         layout: pipelineId
           ? {

@@ -1,35 +1,46 @@
 # strata
 
-Prototype: DBML schemas as a 3D diagram with switchable layouts. Each `TableGroup` is a domain.
+Lineage of a Databricks workspace (or any DBML schema with a workflow file) as a diagram you can search, select, trace and scrub through a day of runs. Each `TableGroup` is a domain.
 
 ```sh
 pnpm install
-pnpm dev         # loads the last sample (commerce by default)
+pnpm dev         # loads the last dataset (the commerce sample by default)
 pnpm test
 ```
 
-## Layout modes
+## The screen
 
-The toolbar switches between modes. Switching animates, each table keeps its identity as it moves, and the camera stays where it is.
+- **Toolbar**: the dataset chip (⚠ N opens its warnings), **Open…**, search, **Lineage | Day**, **2D | 3D**, **View ▾** and **⋯** (layout file, colours).
+- **Navigator** (left, ‹ hides it): what's in the picture. Domains (or medallion layers) and pipelines, each with a checkbox to show it, a count, and a **⋯** menu: *Show only this*, *Fold into one card* and *Move* for domains, *Show only this* and *Play its day* for pipelines. Clicking a domain frames it; clicking a pipeline selects it. "Only this" shows as a badge and a *Show all* line. Long lists get a filter; pipelines past eight get **All** / **None** for what the filter matches and group by trigger or by the domain they mostly write. **Tables: In shown pipelines** leaves out tables no shown pipeline touches.
+- **Canvas**: the diagram, the **Lit by** trail at the top, notices at the top left, and camera presets (Iso / Top / Side or Front / Fit) at the bottom right.
+- **Inspector** (right, while something is selected): details of the selection, with every name a link that selects it and frames it with its neighbours.
+  - **Table**: domain, medallion, columns, the jobs that write and read it (with today's runs), FK neighbours, the focus depth, and **Find join path to…**.
+  - **Job**: its pipeline, today's runs, reads and writes, the cluster it runs on, **Open in Day**, and its compute (below).
+  - **Cluster**: spec, the jobs it runs, and its compute.
+  - **Pipeline**: trigger, today's runs, its tasks, *Show only this*, *Play its day*.
+  - A selection the current filters leave out of the diagram says so (and offers **Show all tables** when that's why).
+- **Day** dock (under the Navigator and canvas, drag its top edge to resize): the timeline, below.
 
-- **Stack**: each domain is a horizontal layer stacked on Y. Refs inside a domain stay on the plate; refs between domains wire between layers. Tables are placed with d3-force, and you can drag them.
-- **Flow**: each domain is an upright slab, ordered left to right by FK dependency. Domains that are referenced come first (upstream), and domains that reference them follow (downstream). On each slab, sub-columns follow FK depth within the domain, and rows are ordered by barycenter sweeps to reduce crossings. A sub-column too tall to read (a domain of hundreds of tables) wraps into a grid about as wide as it is tall, keeping the row order. Focusing a table lifts its neighborhood off the slab. You can drag cards on their slab and reorder domains with ←/→.
-- **Orbit**: the focused table sits at the center (or the most connected table, if nothing is focused). Tables it references sit on rings above it and tables that reference it sit below, one ring per hop. Tables outside the hop range lie faded at the equator, filling rings outward in domain order, so hundreds of them make a compact disk. Click a table to re-center on it.
-- **Diagram**: Flow's arrangement laid flat on the ground, with domains left to right and rows top to bottom. The lens narrows to a near-orthographic 3° (a dolly zoom that keeps the framing), so it reads like a 2D lineage diagram. Press Top for the straight-down view, and switch to Flow to watch each column stand up into its slab.
+## Views
+
+**Lineage** is the diagram on its own; **Day** adds the day's runs under it. **2D | 3D** switches how the diagram is drawn; each switch animates, every table keeps its identity as it moves, and the camera turns to the new mode's angle.
+
+- **2D (Diagram)**: domains left to right by FK dependency (referenced domains first), laid flat with rows top to bottom. The lens narrows to a near-orthographic 3° (a dolly zoom that keeps the framing), so it reads like a 2D lineage diagram. Within a domain, sub-columns follow FK depth and rows are ordered by barycenter sweeps to reduce crossings; a sub-column too tall to read (hundreds of tables) wraps into a grid about as wide as it is tall.
+- **3D (Flow)**: the same arrangement with each domain standing up as a slab. Selecting a table lifts its neighbourhood off the slab. You can drag cards on their slab and reorder domains from the Navigator's ⋯ menu.
+- **Labs**: Stack (domains as horizontal layers, force-placed, draggable) and Orbit (the selected table at the centre, FK hops on rings above and below) are kept for exploration. Open the app with `?labs` to offer them in **View ▾** (and on keys 3 / 4); `?labs=0` hides them again. Without labs, a layout saved in either opens as the 2D diagram.
 
 ## Exploring
 
-- **Focus depth**: `up + table + down` hop counts, as in dbt's `2+model+1`. It dims everything outside that neighborhood, in every mode.
-- **Path**: click Path, or focus a table and Shift-click a second one. This lists every join path between the two tables, up to one hop longer than the shortest, as join chains. Click a path to isolate it. "Avoid" removes hub tables from the search.
-- **Columns**: show all columns, keys only, or headers only. Double-click a card to fold just that card.
-- **Domains**: collapse a domain to a single card (refs into it are merged and shown with ×N), hide it (●/○), or show only it (◐). Hide, only-this and collapse are saved with the layout, like pipeline visibility.
-- **Search** (`/`) finds tables, jobs, clusters and sources and flies to them; ↑ / ↓ pick a result. Iso / Top / Side (Front in Flow) are camera presets.
-- **What's lit** builds up in layers: the timeline or a pipeline lens (◎) narrows the scene, and a focus or a path drills in from there, drawn in full over the rest. The panel's **Lit by** trail names each layer with ✕ to clear it, and **Esc** clears one at a time: path, focus, lens, the timeline's span, then "only this".
-- **Keys**: `/` search, `T` timeline, `1`–`4` Stack / Flow / Orbit / Diagram, Esc as above. They're ignored while you type in a field.
-- The layout (mode, positions, domain order, column detail) autosaves to localStorage for each schema. **⋯ → Export layout / Import layout** saves it as JSON; opening or dropping an exported layout applies it. Colour schemes are in the same menu.
+- **One selection**: click a table, job or cluster in the diagram, a pipeline in the Navigator, a bar in the Day timeline, a search result or any Inspector link. Selecting a pipeline lights everything it touches; selecting a node lights its neighbourhood. For tables that's `up + table + down` hops as in dbt's `2+model+1` (set in the Inspector), following FKs and lineage: one hop up reaches the jobs that write the table and the tables those jobs read.
+- **Join paths**: **Find join path to…** in a table's Inspector, or Shift-click a second table. This lists every join path between the two, up to one hop longer than the shortest, as join chains. Click a path to isolate it. "Avoid" removes hub tables from the search.
+- **Columns**: all, keys only, or headers only (View ▾). Double-click a card to fold just that card.
+- **Search** (`/`) finds tables, jobs, clusters, sources and pipelines, selects the one you pick and frames it; ↑ / ↓ pick a result.
+- **What's lit** builds up in layers: the Day timeline narrows the scene to what ran in its window, and the selection (or a join path) drills in from there, drawn in full over the rest. The **Lit by** trail names each layer with ✕ to clear it, and **Esc** clears one at a time: path, selection, the timeline's span, then "only this".
+- **Keys**: `/` search, `T` Day, `1` / `2` 2D / 3D, Esc as above. They're ignored while you type in a field. **View ▾** lists them.
+- Visibility (shown, only this, folded), mode, grouping, edges, column detail and positions autosave to localStorage for each dataset. **⋯ → Export layout / Import layout** saves them as JSON; opening or dropping an exported layout applies it. Colour schemes are in the same menu.
 - **Open…** (or a drop) takes a workspace snapshot, a `.dbml` with its workflow file, a workflow file for the open schema, or a layout, and works out which from the content.
-- The chip at the left of the toolbar names the open dataset and opens the **Datasets** menu: the samples, the last five files and snapshots you opened (✕ forgets one), and synthetic presets in dev builds. Whatever you open comes back after a reload. ⚠ N shows the dataset's warnings.
-- Load problems, workflow-file warnings and long layouts show as notices at the top left.
+- The dataset chip opens the **Datasets** menu: the samples, the last five files and snapshots you opened (✕ forgets one), and synthetic presets in dev builds. Whatever you open comes back after a reload.
+- Load problems and long layouts show as notices at the top left of the canvas. A dataset's warnings wait behind ⚠ N.
 
 ## Pipelines, jobs and medallion layers
 
@@ -62,21 +73,18 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 - **Edges**: FK, Lineage or Both.
 - **Lineage drawing**:
   - Jobs are hexagons placed between what they read and what they write.
-  - Lineage wires are dashed, in the pipeline's colour, with pulses moving downstream. Past 12 pipelines, each takes the colour of the domain it mostly writes, shaded apart from the others writing there.
+  - Lineage wires are dashed, in the pipeline's colour, with pulses moving downstream. Up to eight pipelines keep the parser's colours; past that they draw from a 32-colour list picked to stay apart, by position, so colours survive reloads and hiding others. A node with six or more wires on one side bundles them into a trunk that fans out near the far ends.
+  - Card labels show the table's short name, with its catalog and schema smaller underneath. They fade in as you zoom, and the selection, what's hovered and what's lit get a readable callout at any zoom.
   - Pulse size shows bytes per run (log scale) and the number of pulses on a wire shows runs per day: a daily batch is one dot, streaming a dense train. In a snapshot, sizes come from the bytes the job's statements read and wrote (query history, split evenly over its tables); otherwise `bytes: 4GB` on a task gives its size, and failing that it is simulated from the medallion layer. Hover a job for its bytes in / out and runs a day; a snapshot job whose size had to be simulated says so.
   - Flow mode adds a translucent lane for each pipeline; lanes not lit fade. Past 12 pipelines, only lit pipelines' lanes are drawn.
 - **Triggers** label each pipeline's first jobs (CRON / FILE / ON UPDATE / AFTER / STREAMING). Dotted links run from the tables or the upstream pipeline that start it.
 - **Events** are amber markers on the jobs that emit them.
-- **Pipelines panel**:
-  - ●/○ shows or hides a pipeline, ◐ shows only it (again to bring the others back);
-  - ◎ lights up everything a pipeline touches;
-  - ▶ opens the day timeline on that pipeline's first run, with the pipeline lit up.
-  - Lighting up a pipeline or opening the timeline turns lineage edges on if they're off, and says so.
+- **Pipelines in the Navigator**: the checkbox shows or hides a pipeline; ⋯ → *Show only this* shows only it (the badge's *Show all* brings the others back) and *Play its day* opens the Day timeline on its first run with the pipeline selected. Clicking the name selects it, lighting everything it touches. Selecting a pipeline or opening the Day timeline turns lineage edges on if they're off, and says so.
 - Opening a workflow file replaces the open dataset's jobs and is remembered with it, so a reload keeps it. A snapshot keeps its real runs.
 
 ## Day timeline
 
-**Timeline** in the toolbar (or ▶ on a pipeline) opens a day of runs across every pipeline: simulated unless a snapshot is loaded, and the header says which. A snapshot's day runs from local midnight to local midnight, so a day with a daylight-saving change is 23 or 25 hours long and its times are the zone's wall clock. It opens with the whole day as the span, so everything that ran is lit, and the playhead on the first run. **Clear span** or Esc goes back to the hour before the playhead. ▶ on a pipeline instead plays from just before its first run.
+**Day** in the toolbar (`T`, or *Play its day* on a pipeline) opens a day of runs across every shown pipeline under the diagram: simulated unless a snapshot is loaded, and the header says which. A snapshot's day runs from local midnight to local midnight, so a day with a daylight-saving change is 23 or 25 hours long and its times are the zone's wall clock. It opens with the whole day as the span, so everything that ran is lit, and the playhead on the first run; the span's ✕ (or Esc) goes back to the hour before the playhead. *Play its day* instead plays from just before the pipeline's first run. The header reads left to right: play, speed (×600 / ×1,800 / ×7,200 real time), Follow, the clock, the day, the span, medallion totals, then Zoom to span / Full day, **Lit only** and **Events**.
 
 - **Start times** come from each pipeline's trigger:
   - cron schedules fire at their times; file arrivals land three times a day; manual runs at 09:00; continuous runs all day.
@@ -85,14 +93,14 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 - **Durations** come from the medallion layer a task writes (silver heaviest), scaled by how many tables it reads. A task's `duration: 12m` in the workflow file overrides this. Job clusters add a cold start once per run.
 - **Rows**: one row per pipeline and one bar per task run.
   - The hatched start of a bar is queueing or cluster start-up. Its left edge is the medallion layer it writes, and ◆ marks an emitted event.
-  - Hover a bar for times and the cluster it ran on. Click it (or up to 6 px beside it) to focus that job.
+  - Hover a bar for times and the cluster it ran on. Click it (or up to 6 px beside it) to select that job and frame it. Click a row's name to select the pipeline.
 - **Selecting time**: click to move the playhead, drag to select a span (drag its edges to adjust), wheel to zoom, shift-wheel to pan.
 - **3D scene**: lights jobs running at the playhead, plus jobs in the span (or in the last hour). Reads pulse in, then writes pulse out, as each job progresses.
 - **Medallion totals**: the B / S / G chip shows task time per layer in the span, or so far today. It shows where silver outweighs gold.
 
 ## Compute
 
-Jobs are linked to the clusters they run on, drawn as racks under the diagram. Toggle them in the Pipelines panel.
+Jobs are linked to the clusters they run on, drawn as racks under the diagram. Toggle them in **View ▾ → Compute racks**.
 
 - **Workflow file**: declare compute the DAB way.
   ```yaml
@@ -109,9 +117,9 @@ Jobs are linked to the clusters they run on, drawn as racks under the diagram. T
         - { id: ingest_events, environment_key: default }   # serverless
   ```
   Tasks that name nothing get a job cluster for their pipeline, or serverless for streaming pipelines.
-- **Racks**: workers light up with the work at the playhead. A warm all-purpose cluster idles grey; a job cluster is dark between runs. Focus a cluster to light the jobs it runs.
-- **Compute drawer**: focus a job or a cluster to open a drawer above the timeline.
-  - It shows the cluster spec, a utilization strip (workers up in grey, cores busy in colour), avg / p95 load, estimated DBUs and a right-sizing hint.
+- **Racks**: workers light up with the work at the playhead. A warm all-purpose cluster idles grey; a job cluster is dark between runs. Select a cluster to light the jobs it runs.
+- **Compute in the Inspector**: select a job or a cluster.
+  - It shows the cluster spec, a utilization strip (workers up in grey, cores busy in colour), avg / p95 load, estimated DBUs and a right-sizing hint, over the job's run nearest the playhead (or the Day span, when it's narrower than the day).
   - Its flame chart runs task run → Spark jobs → stages (scan, exchange, join, write…) → task waves. A red tail marks a skewed straggler, and a red outline marks a spill.
   - Hover a bar for details, click to zoom, double-click to reset.
 
@@ -152,13 +160,13 @@ Then drop `snapshots/<host>-<day>.snapshot.json` onto the app. `snapshots/` is g
 | Flame chart | `system.query.history` statements per task run (waiting / compiling / executing, bytes, rows, shuffle, spill) on serverless and warehouses. Classic clusters keep simulated Spark jobs, since they deliver no event logs. |
 | Pulse size | Bytes read and written by each task's statements, averaged per run. |
 
-Snapshot warnings are grouped by kind in the ⚠ notice; items naming a task focus it, and items naming a job light it up.
+Snapshot warnings are grouped by kind behind ⚠ N, in plain wording; items naming a task select it, and items naming a job select its pipeline.
 
-The compute drawer's badge says which of these are real for the cluster in view.
+The compute section's badge (in the Inspector) says which of these are real for the cluster in view.
 
 Drop the snapshot onto the app; it's kept in IndexedDB, so a reload brings it back. A file that claims to be a snapshot but isn't usable (another version, missing fields) is reported with what's wrong. Layouts follow the workspace and catalogs rather than the file, so tomorrow's export keeps today's positions for the tables that are still there and places only the new ones.
 
-Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ shows only one pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches, and groups long lists by trigger or by the domain each pipeline mostly writes. The Layers panel gets a filter past eight layers, and row buttons show on hover unless they hold a state (hidden, only, folded). A filtered view gets its own layout in Stack; past 150 tables it's computed in a background worker, and the full layout's positions stand in until it lands. The timeline only lists visible pipelines, has a row filter and **Lit only** (the lit pipeline, or those that ran in the window), and keeps its time axis in view while you scroll.
+Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In shown pipelines**, which leaves out tables no shown pipeline touches. The Navigator filters, groups and bulk-shows pipelines (see above), and *Show only this* narrows to one. A filtered view gets its own layout in Stack (labs); past 150 tables it's computed in a background worker, and the full layout's positions stand in until it lands. The Day timeline only lists shown pipelines, has a row filter and **Lit only** (the selected pipeline, or those that ran in the window), and keeps its time axis in view while you scroll.
 
 `pnpm test:scale` and `pnpm bench` hold the load path to timing budgets at the 600-table snapshot shape (`src/bench/budgets.ts`); the **Snapshot shape (608)** dev preset loads the same synthetic graph.
 
@@ -170,7 +178,8 @@ The export also writes its raw payloads to `snapshots/.raw/`, so `--from-raw <fi
 
 - `src/view/`: `deriveView` (grouping, collapse, jobs and lineage flows), `hops`, `findPaths` and `runOrder`. All are pure.
 - `src/parse/`: DBML (`dbml.ts`), notes and medallion inference (`notes.ts`), and the workflow file and merge (`workflows.ts`).
-- `src/layout/modes/`: `stack`, `flow` and `orbit`, each turning the view into world-space positions and card orientations. `jobs.ts` then places jobs in any mode, and `compute.ts` places clusters under them.
+- `src/layout/modes/`: `diagram` (2D) and `flow` (3D), plus the lab layouts `stack` and `orbit`, each turning the view into world-space positions and card orientations. `jobs.ts` then places jobs in any mode, and `compute.ts` places clusters under them.
+- `src/ui/`: the shell. `Navigator` (scope), `Inspector` (the selection, with `ComputeSection`), `Timeline` (the Day dock), `Toolbar`, and `select.ts` (selecting and framing). `src/labs.ts` gates the lab layouts.
 - `src/ingest/`: the snapshot format, and in `databricks/` the pure mapping from workspace payloads to DBML, a workflow file and a `Schedule`. `scripts/export-databricks.ts` fetches them.
 - `src/sim/`: the simulated day (`schedule.ts`) and Spark execution and utilization (`spark.ts`). Both are pure and deterministic.
 - `src/layout/depth.ts`: FK depth (longest path, with cycles broken) and domain rank.

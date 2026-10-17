@@ -64,6 +64,14 @@ const KINDS: Kind[] = [
   },
 ]
 
+/** Exporter messages reworded for the app (snapshots carry the exporter's wording, so older ones read the same). */
+const REWORD: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^No foreign keys in Unity Catalog for these tables: only lineage edges will show$/, () => 'Unity Catalog has no foreign keys for these tables, so only lineage (job) edges are drawn'],
+  [/^(\d+) job id\(s\) in lineage aren't saved jobs \(.*\): their lineage was left out$/, (m) => `Lineage from ${plural(Number(m[1]), 'one-off or deleted job')} isn't shown (one-time runs, notebook workflows, deleted jobs)`],
+  [/^(\d+) (.+?)\(s\) no longer exist \(.*\): (.+)$/, (m) => `${plural(Number(m[1]), m[2])} in the workspace no longer ${verb(Number(m[1]), 'exists', 'exist')}: ${m[3]}`],
+  [/^(\d+) foreign key\(s\) point outside the export and were left out$/, (m) => `${plural(Number(m[1]), 'foreign key')} ${verb(Number(m[1]), 'points', 'point')} to tables outside this export and ${verb(Number(m[1]), "isn't", "aren't")} drawn`],
+]
+
 /** Groups known warning kinds into one line each with linked items, in order of first appearance. */
 export function groupWarnings(warnings: string[], graph: Graph): WarningGroup[] {
   const tasks = new Map(graph.workflows.pipelines.flatMap((p) => p.tasks.map((t) => [t.id, t.name])))
@@ -73,7 +81,8 @@ export function groupWarnings(warnings: string[], graph: Graph): WarningGroup[] 
   for (const w of warnings) {
     const kind = KINDS.find((k) => k.re.test(w))
     if (!kind) {
-      out.push({ text: w, items: [] })
+      const reword = REWORD.find(([re]) => re.test(w))
+      out.push({ text: reword ? reword[1](w.match(reword[0])!) : w, items: [] })
       continue
     }
     let group = out.find((g) => g.kind === kind)

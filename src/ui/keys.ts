@@ -1,13 +1,18 @@
 import { useEffect } from 'react'
-import { MODE_IDS } from '../layout/modes'
+import type { ModeId } from '../model/types'
+import { labsOn } from '../labs'
 import { useStore } from '../store'
+import { showMode } from './select'
 
 const typing = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')
 
+/** Number keys: 2D and 3D, then the lab layouts when labs are on. */
+const KEY_MODES: ModeId[] = ['diagram', 'flow', 'stack', 'orbit']
+
 /**
  * App-wide keys, ignored while typing: Esc clears one step (see `escapeStep`), / jumps to search,
- * T toggles the timeline, 1–4 switch layout mode.
+ * T toggles the Day view, 1 / 2 pick 2D / 3D (3 / 4 Stack / Orbit with labs).
  */
 export function useGlobalKeys() {
   useEffect(() => {
@@ -22,7 +27,7 @@ export function useGlobalKeys() {
         if (!s.graph.workflows.pipelines.length) return
         if (s.time.open) s.closeTimeline()
         else s.openTimeline()
-      } else if (e.key >= '1' && e.key <= String(MODE_IDS.length)) s.setMode(MODE_IDS[Number(e.key) - 1])
+      } else if (e.key >= '1' && e.key <= (labsOn() ? '4' : '2')) showMode(KEY_MODES[Number(e.key) - 1])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

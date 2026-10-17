@@ -6,7 +6,7 @@ import { MathUtils, Vector3 } from 'three'
 import type { PerspectiveCamera } from 'three'
 import { CARD_W, cardDepth } from '../layout/geometry'
 import { MODES } from '../layout/modes'
-import type { Frame, Placement } from '../layout/modes'
+import type { Placement } from '../layout/modes'
 import type { ViewGraph } from '../view/deriveView'
 import { modeOf, useStore } from '../store'
 
@@ -22,16 +22,6 @@ const lensScale = (fov: number) => Math.tan(MathUtils.degToRad(FOV / 2)) / Math.
 
 /** camera-controls keeps its orbit radius (now and where it is easing to) in these. */
 type Radii = { _spherical: { radius: number }; _sphericalEnd: { radius: number }; _needsUpdate: boolean }
-
-/** Where the eye sits relative to a card when flying to it. */
-const FLY_OFFSET: Record<Exclude<Frame, 'billboard'>, [number, number, number]> = {
-  flat: [4, 9, 9],
-  upright: [3, 3, 13],
-  side: [11, 4, 6],
-}
-
-/** Sideways aim shift, as a share of the eye's distance, so the right-hand panel doesn't cover the target. */
-const PANEL_SHIFT = 0.06
 
 export function CameraRig({ view, placement }: { view: ViewGraph; placement: Placement }) {
   const controls = useRef<CameraControlsImpl>(null)
@@ -95,21 +85,6 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
     // Offsets below are for a 45° lens; stretch them to the lens in use now.
     const k = lensScale((camera as PerspectiveCamera).fov ?? FOV)
 
-    if (cmd.kind === 'fly') {
-      const n = placement.nodes[cmd.id]
-      if (!n) return
-      const [x, y, z] = n.p
-      const off =
-        n.frame === 'billboard'
-          ? camera.position.clone().sub(new Vector3(x, y, z)).normalize().multiplyScalar(14).toArray()
-          : FLY_OFFSET[n.frame]
-      // Replace the whole-scene framing's offset, which would push a close-up card off screen. The lens
-      // stretch (k) keeps the view width at the card the same, so the shift doesn't scale with it.
-      c.setFocalOffset(Math.hypot(...off) * PANEL_SHIFT, 0, 0, true)
-      c.setLookAt(x + off[0] * k, y + off[1] * k, z + off[2] * k, x, y, z, true)
-      return
-    }
-
     // Frame what matters: faded nodes (orbit's outer ring) don't count unless nothing else is shown.
     const all = Object.keys(placement.nodes)
     const lit = all.filter((id) => !placement.nodes[id].faded)
@@ -132,12 +107,10 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
     if (lo[0] === Infinity) return
     const [cx, cy, cz] = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2)
     const size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 10)
-    // Aim a little right of center so the side panel doesn't cover the far end of the scene.
-    c.setFocalOffset(size * 2 * PANEL_SHIFT, 0, 0, true)
-
     const look = (dx: number, dy: number, dz: number) => c.setLookAt(cx + dx * k, cy + dy * k, cz + dz * k, cx, cy, cz, true)
     if (cmd.kind === 'frame') {
-      const dir = camera.position.clone().sub(new Vector3(cx, cy, cz)).normalize()
+      // Keep the way the camera faces now (its eye-to-target direction), so a 2D view stays square on.
+      const dir = camera.position.clone().sub(c.getTarget(new Vector3())).normalize()
       dir.multiplyScalar(size * 2)
       look(dir.x, dir.y, dir.z)
     } else if (cmd.preset === 'top') look(0, size * (flat ? 1.2 : 1.8), 0.01)

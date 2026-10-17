@@ -3,7 +3,7 @@ import type { MouseEvent } from 'react'
 import { scheduleOf, useStore } from '../store'
 import { clusterNodeId } from '../model/workflow'
 import type { Cluster, Task } from '../model/workflow'
-import { clockOf, packLanes, span as dur } from '../sim/schedule'
+import { clockOf, daySeconds, packLanes, span as dur } from '../sim/schedule'
 import type { Schedule, TaskRun, Window } from '../sim/schedule'
 import { measured, sizingHint, sparkRunsOn, utilization } from '../sim/spark'
 import type { SparkRun, StageOp } from '../sim/spark'
@@ -112,44 +112,36 @@ function flameRects(spark: SparkRun[], names: Map<string, string>, palette: Pale
 }
 
 /**
- * Compute drawer for the focused job or cluster: spec, utilization over the window, a sizing hint,
- * and a flame chart of task run → Spark jobs → stages → task waves. All simulated; the shape follows
- * the Spark event log and `system.compute.node_timeline`. Click a bar to zoom, double-click to reset,
- * click empty space to move the playhead.
+ * Compute for the selected job or cluster, shown in the Inspector: spec, utilization over the window, a
+ * sizing hint, and a flame chart of task run → Spark jobs → stages → task waves. Click a bar to zoom,
+ * double-click to reset, click empty space to move the playhead.
  */
-export function ComputePanel() {
-  const focused = useStore((s) => s.focusedId)
+export function ComputeSection({ id }: { id: string }) {
   const graph = useStore((s) => s.graph)
   const time = useStore((s) => s.time)
-  const on = useStore((s) => (s.layout.edgeLayer ?? 'both') !== 'fk' && (s.layout.showCompute ?? true))
   const setTime = useStore((s) => s.setTime)
-  // ✕ closes the drawer but keeps the focus; focusing anything (again) reopens it.
-  const [dismissed, setDismissed] = useState(false)
-  const [seenFocus, setSeenFocus] = useState(focused)
-  if (seenFocus !== focused) {
-    setSeenFocus(focused)
-    setDismissed(false)
-  }
   const schedule = useStore(scheduleOf)
   const clock = useMemo(() => clockOf(schedule), [schedule])
   const tasks = useMemo(() => new Map<string, Task>(graph.workflows.pipelines.flatMap((p) => p.tasks).map((t) => [t.id, t])), [graph])
   const palette = usePalette()
 
   const target = useMemo(() => {
-    if (!focused || !on) return null
-    const cluster = graph.workflows.clusters.find((c) => clusterNodeId(c.id) === focused)
+    const cluster = graph.workflows.clusters.find((c) => clusterNodeId(c.id) === id)
     if (cluster) return { cluster, taskId: null }
-    const task = focused.startsWith('job:') ? tasks.get(focused.slice(4)) : undefined
+    const task = id.startsWith('job:') ? tasks.get(id.slice(4)) : undefined
     const onCluster = task && graph.workflows.clusters.find((c) => c.id === task.clusterId)
     return onCluster ? { cluster: onCluster, taskId: task.id } : null
-  }, [focused, on, graph, tasks])
+  }, [id, graph, tasks])
 
-  // Without the timeline the chart anchors on the first run of the day.
+  // Without the timeline the chart anchors on the first run of the day. A span narrower than the day
+  // sets the window; the whole day (the timeline's opening span) would squash the runs to slivers.
   const firstRun = target && schedule.taskRuns.find((r) => r.clusterId === target.cluster.id && (!target.taskId || r.taskId === target.taskId) && !r.continuous)
   const t = time.open ? time.t : firstRun?.start ?? 0
+  const span = time.open && time.span && time.span[1] - time.span[0] < daySeconds(schedule) ? time.span : null
   const { window: win, runs } = useMemo(
-    () => (target ? pickWindow(schedule, target.cluster, target.taskId, t, time.open ? time.span : null) : { window: [0, 1] as Window, runs: [] }),
-    [schedule, target, t, time.open, time.span],
+    () => (target ? pickWindow(schedule, target.cluster, target.taskId, t, span) : { window: [0, 1] as Window, runs: [] }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the span by value
+    [schedule, target, t, span?.[0], span?.[1]],
   )
   const names = useMemo(() => new Map([...tasks.values()].map((x) => [x.id, x.name])), [tasks])
   const spark = useMemo(
@@ -287,7 +279,7 @@ export function ComputePanel() {
     return () => cancelAnimationFrame(raf)
   }, [target, view, width, util, coreUse, flame, height, time.open, time.span, palette])
 
-  if (!target || !hint || dismissed) return null
+  if (!target || !hint) return null
   const c = target.cluster
 
   const hit = (e: MouseEvent<HTMLCanvasElement>) => {
@@ -299,12 +291,11 @@ export function ComputePanel() {
   const tAt = (px: number) => view[0] + (px / width) * (view[1] - view[0])
 
   return (
-    <div className="compute" onPointerDown={(e) => e.stopPropagation()}>
+    <div className="compute">
       <div className="head">
         <span className="kind" style={{ color: palette.cluster(c.kind), borderColor: palette.cluster(c.kind) }}>{KIND_LABEL[c.kind]}</span>
         <span className="title">{c.name}</span>
         <span className="spec">{clusterSpec(c)}{c.sparkVersion ? ` · DBR ${c.sparkVersion.split('.x')[0]}` : ''}</span>
-        {target.taskId && <span className="spec">· running {names.get(target.taskId)}</span>}
         {schedule.origin === 'snapshot' ? (
           <span className="sim" title={[
             'Task run times: Jobs API',
@@ -322,9 +313,7 @@ export function ComputePanel() {
         ) : (
           <span className="sim" title="Generated from the workflow shape, not measured">simulated</span>
         )}
-        <span className="spacer" />
         <span className="range">{clock(view[0])}–{clock(view[1])}</span>
-        <button title="Close (keeps the focus)" onClick={() => setDismissed(true)}>✕</button>
       </div>
       <div className="stats">
         {coreUse ? (

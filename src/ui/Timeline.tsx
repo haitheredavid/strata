@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import { scheduleOf, TIME_SPEEDS, useStore } from '../store'
-import { timeClock, TRIGGER_LABEL } from '../scene/timeClock'
+import { timeClock } from '../scene/timeClock'
 import { timeWindow } from '../scene/usePlacement'
 import { clockOf, daySeconds, eventsIn, layerTotals, packLanes, span as dur, taskRunsIn } from '../sim/schedule'
 import { MEDALLIONS } from '../model/workflow'
-import type { Trigger } from '../model/workflow'
 import { hiddenPipelinesOf, jobNodeId } from '../view/deriveView'
 import { usePalette } from '../theme/palette'
+import { triggerLine } from './describe'
+import { goTo, selectPipeline } from './select'
 
 const LANE = 8
 const LANE_GAP = 2
@@ -16,17 +17,55 @@ const TICK_STEPS = [900, 1800, 3600, 7200, 10800, 21600]
 /** How far (px) a click may miss a bar and still pick it: bars of short runs are only a few px wide. */
 const HIT_SLOP = 6
 
-const speedLabel = (v: number) => (v < 3600 ? `${v / 60}m/s` : `${v / 3600}h/s`)
+/** Playback rate as a multiple of real time: `×1800`. */
+const speedLabel = (v: number) => `×${v.toLocaleString('en-US')}`
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 const clampView = (a: number, w: number, len: number): [number, number] => {
   const start = clamp(a, 0, len - w)
   return [start, start + w]
 }
 
-const triggerLine = (t?: Trigger) => {
-  if (!t) return 'no trigger'
-  const d = t.kind === 'schedule' ? t.cron : t.kind === 'file_arrival' ? t.path : t.kind === 'table_update' ? t.tables.join(', ') : t.kind === 'job' ? t.pipeline : ''
-  return `${TRIGGER_LABEL[t.kind]} ${d}`.trim()
+const DAY_H_KEY = 'strata:dayHeight'
+const DAY_H = 280
+const DAY_MIN = 120
+
+function savedHeight() {
+  try {
+    return Number(localStorage.getItem(DAY_H_KEY)) || DAY_H
+  } catch {
+    return DAY_H
+  }
+}
+
+/** The Day view's dock under the diagram: the timeline, resized by dragging its top edge. */
+export function DayDock() {
+  const open = useStore((s) => s.time.open)
+  const [height, setHeight] = useState(savedHeight)
+  const drag = useRef<{ y: number; h: number } | null>(null)
+  if (!open) return null
+  const max = () => Math.max(DAY_MIN, window.innerHeight - 220)
+  return (
+    <div className="day" style={{ height: clamp(height, DAY_MIN, max()) }}>
+      <div
+        className="day-resize"
+        title="Drag to resize"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId)
+          drag.current = { y: e.clientY, h: height }
+        }}
+        onPointerMove={(e) => drag.current && setHeight(clamp(drag.current.h + drag.current.y - e.clientY, DAY_MIN, max()))}
+        onPointerUp={() => {
+          drag.current = null
+          try {
+            localStorage.setItem(DAY_H_KEY, String(Math.round(height)))
+          } catch {
+            /* not remembered */
+          }
+        }}
+      />
+      <Timeline />
+    </div>
+  )
 }
 
 interface Drag { x: number; t: number; mode: 'new' | 'a' | 'b'; moved: boolean; taskRun?: string }
@@ -36,7 +75,7 @@ interface Drag { x: number; t: number; mode: 'new' | 'a' | 'b'; moved: boolean; 
  * queue / cluster start, left edge = medallion layer written, ◆ = emitted event). Click to move the
  * playhead, drag to select a span (drag its edges to adjust), wheel to zoom, shift-wheel to pan.
  */
-export function Timeline() {
+function Timeline() {
   const time = useStore((s) => s.time)
   const graph = useStore((s) => s.graph)
   const palette = usePalette()
@@ -44,9 +83,7 @@ export function Timeline() {
   const onlyPipeline = useStore((s) => s.layout.onlyPipeline)
   const lens = useStore((s) => s.lensPipeline)
   const setTime = useStore((s) => s.setTime)
-  const closeTimeline = useStore((s) => s.closeTimeline)
   const setLens = useStore((s) => s.setLens)
-  const focus = useStore((s) => s.focus)
   const schedule = useStore(scheduleOf)
   // Snapshot days across a DST change are 23 or 25 hours long, and their clock is the zone's wall clock.
   const len = daySeconds(schedule)
@@ -138,8 +175,8 @@ export function Timeline() {
             key={p.id}
             className={`label ${lens && lens !== p.id ? 'off' : ''}`}
             style={{ height }}
-            title={`${triggerLine(p.trigger)} — click to light up`}
-            onClick={() => setLens(lens === p.id ? null : p.id)}
+            title={`${p.name}\n${triggerLine(p.trigger)} — click to select`}
+            onClick={() => (lens === p.id ? setLens(null) : selectPipeline(p.id))}
           >
             <span className="swatch" style={{ background: palette.pipeline(p.id) }} />
             <span className="name">{p.name}</span>
@@ -253,7 +290,7 @@ export function Timeline() {
     }
     const run = d.taskRun ? runById.get(d.taskRun) : undefined
     if (run) {
-      focus(jobNodeId(run.taskId))
+      goTo(jobNodeId(run.taskId))
       setTime({ t: run.continuous ? tAt(e.clientX) : run.start })
       return
     }
@@ -293,22 +330,28 @@ export function Timeline() {
             simulated day
           </span>
         )}
-        {span && <span className="range">{clock(span[0])}–{clock(span[1])} · {dur(span[1] - span[0])}</span>}
-        <span className="totals" title="Task run time by the medallion layer each task writes (streaming excluded)">
+        {span && (
+          <span className="range" title="The span lights everything that ran in it; Esc or ✕ goes back to the hour before the playhead">
+            {clock(span[0])}–{clock(span[1])} · {dur(span[1] - span[0])}
+            <button title="Clear the span" onClick={() => setTime({ span: null })}>✕</button>
+          </span>
+        )}
+        <span className="totals" title={`Task run time by the medallion layer each task writes (streaming excluded), ${span ? 'in the span' : 'so far today'}`}>
           {MEDALLIONS.map((m) => (
             <span key={m}>
               <i style={{ background: palette.medallion(m) }} />
               {m[0].toUpperCase()} {dur(totals[m])}
             </span>
           ))}
-          <em>{span ? 'in span' : 'so far today'}</em>
         </span>
         <span className="spacer" />
-        <button disabled={!span} onClick={() => span && setView(clampView(span[0] - (span[1] - span[0]) * 0.1, Math.min(len, Math.max(MIN_VIEW, (span[1] - span[0]) * 1.2)), len))}>
-          Zoom to span
-        </button>
-        <button disabled={!zoomed} onClick={() => setView([0, len])}>Full day</button>
-        <button disabled={!span} onClick={() => setTime({ span: null })}>Clear span</button>
+        {zoomed ? (
+          <button onClick={() => setView([0, len])}>Full day</button>
+        ) : (
+          <button disabled={!span || span[1] - span[0] >= len} onClick={() => span && setView(clampView(span[0] - (span[1] - span[0]) * 0.1, Math.min(len, Math.max(MIN_VIEW, (span[1] - span[0]) * 1.2)), len))}>
+            Zoom to span
+          </button>
+        )}
         <button
           className={litOnly ? 'on' : ''}
           onClick={() => setLitOnly(!litOnly)}
@@ -319,7 +362,6 @@ export function Timeline() {
         <button className={showEvents ? 'on' : ''} onClick={() => setShowEvents(!showEvents)} title={span ? 'Events in the span' : 'Events in the last hour'}>
           Events {events.length}
         </button>
-        <button title="Close" onClick={closeTimeline}>✕</button>
       </div>
 
       <div className="tl-body">

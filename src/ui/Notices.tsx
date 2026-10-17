@@ -1,6 +1,7 @@
 import { useStore } from '../store'
 import type { WarningItem } from '../data/warnings'
 import { jobNodeId } from '../view/deriveView'
+import { goTo, selectPipeline } from './select'
 
 /** Load errors, storage trouble and dataset warnings, plus what the app is busy with. */
 export function Notices() {
@@ -20,7 +21,7 @@ export function Notices() {
             </button>
           </div>
           {n.detail && (
-            <details open={n.open}>
+            <details open>
               <summary>Details</summary>
               <ul>
                 {n.detail.map((g, i) => (
@@ -50,19 +51,13 @@ export function Notices() {
   )
 }
 
-/** A warning item; one that names a task focuses it, one that names a pipeline lights it up. */
+/** A warning item; one that names a task selects it, one that names a pipeline selects the pipeline. */
 function Item({ item }: { item: WarningItem }) {
   const link = item.link
   if (!link) return <>{item.text}</>
-  const go = () => {
-    const s = useStore.getState()
-    if (link.kind === 'pipeline') return s.setLens(link.id)
-    const id = jobNodeId(link.id)
-    s.focus(id)
-    s.camera({ kind: 'fly', id })
-  }
+  const go = () => (link.kind === 'pipeline' ? selectPipeline(link.id) : goTo(jobNodeId(link.id)))
   return (
-    <button className="link" title={link.kind === 'pipeline' ? 'Light up this pipeline' : 'Focus this task'} onClick={go}>
+    <button className="link" title={link.kind === 'pipeline' ? 'Select this pipeline' : 'Select this task'} onClick={go}>
       {item.text}
     </button>
   )

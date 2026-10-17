@@ -90,6 +90,14 @@ describe('hops', () => {
     expect(hops(v, 'a', 0, 1).get('d')).toEqual({ hop: 1, dir: 1 })
     expect(hops(v, 'a', 0, 1).has('c')).toBe(false)
   })
+
+  it('follows lineage through jobs without spending a hop on them', () => {
+    const g = parseDbml('Table a { id int }\nTable b { id int }\nTable c { id int }\n', 'pipelines: [{ id: p, tasks: [{ id: t, reads: [a], writes: [b] }, { id: u, reads: [b], writes: [c] }] }]')
+    const lv = deriveView(g, { lineage: true })
+    expect([...hops(lv, 'b', 1, 0).keys()].sort()).toEqual(['a', 'b', 'job:t'])
+    expect([...hops(lv, 'b', 0, 1).keys()].sort()).toEqual(['b', 'c', 'job:u'])
+    expect(hops(lv, 'a', 0, 2).get('c')).toEqual({ hop: 2, dir: 1 })
+  })
 })
 
 describe('findPaths', () => {

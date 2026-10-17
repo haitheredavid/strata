@@ -61,11 +61,25 @@ Goal: a full catalog (thousands of tables, hundreds of pipelines) stays interact
 - Pipeline lanes and colours grouped by job prefix or domain; unfocused lanes fade.
 - `test:scale` and the bench gain timing budgets for the 600-table snapshot shape (use `src/dev/synth.ts` presets, since real snapshots stay out of git).
 
-## Phase 5: Product shell (core interactions)
+## Phase 5: Product shell (core interactions) — done
 
 Goal: narrow the prototype to one loop (search → select → inspect → trace up or downstream → scrub the day) in a layout where panels don't cover the scene.
 
-*Started 2026-10-17 from a UI/UX review run against the 600-table snapshot. Done so far:* the bottom dock stops at the side panel, fly-to sets its own focal offset (it kept the whole-scene framing's, which put a close-up card at the screen edge), the plain timeline opens with the whole day as its span so the scene isn't dark, timeline bars are at least 6 px and a click up to 6 px off picks the nearest run in that lane, row actions overlay the row on hover instead of reserving width (pipeline names were cut to 3–8 characters), counts sit in a fixed column, the layer list and `moveLayer` skip layers the view leaves out, and the unused `App.css` is gone.
+*Started 2026-10-17 from a UI/UX review run against the 600-table snapshot.* The first fixes came before the shell: the dock stopped at the side panel, the plain timeline opens with the whole day as its span so the scene isn't dark, timeline bars are at least 6 px and a click up to 6 px off picks the nearest run in that lane, Navigator rows don't reserve width for hidden buttons (pipeline names were cut to 3–8 characters), the layer list and `moveLayer` skip layers the view leaves out, and the unused `App.css` is gone.
+
+*Landed the same day. Where it differs from the items below:*
+- **Selection state:** `focusedId` (node) and `lensPipeline` (pipeline) stay as two store fields, but they're now exclusive: setting one clears the other. Scope stays in `layout`.
+- **Selecting and framing:** selecting from search, a link or a timeline bar frames the node with its direct neighbours. This replaces the camera's `fly` command, which was removed. Framing keeps the current viewing direction, so 2D stays square on.
+- **Neighbourhood:** a table's neighbourhood (`hops`) now follows lineage as well as FKs, and jobs don't count as a hop. With no FKs in Unity Catalog, selecting a table used to light only itself. Orbit (labs) gets lineage hops through the same function.
+- **Day:** the dock sits under the Navigator and the diagram, and you drag its top edge to make it taller. There's no separate full-height Day layout.
+- **Inspector:** a table lists the jobs that write and read it, and its FK neighbours, rather than a transitive list of upstream and downstream tables. Lists longer than 12 start folded.
+- **Selection the filters hide:** the Inspector says so, and offers **Show all tables** when "In shown pipelines" is the cause.
+- **Search** finds pipelines too.
+- **Labels:**
+  - Card labels fade in by on-screen size in the text shader.
+  - The selection, hover and lit nodes get callouts while 12 or fewer are lit.
+  - A node with six or more wires on one side bundles them.
+  - Pipelines past eight take colours from a fixed 32-colour list.
 
 1. **Fixed shell.** Toolbar, left **Navigator**, centre canvas, right **Inspector**, bottom **Day** dock (resizable). Nothing floats over the canvas apart from the Lit-by trail and a corner camera control (Iso / Top / Side). The camera frames inside whatever the panels leave visible, replacing `PANEL_SHIFT`.
 2. **Inspector.** Replaces the Focus section, the Path section and the compute drawer.

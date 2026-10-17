@@ -1,35 +1,44 @@
 import { useRef } from 'react'
 import { modeOf, useStore } from '../store'
-import type { Layout } from '../model/types'
-import { MODES, MODE_IDS } from '../layout/modes'
+import type { ColumnDetail, EdgeLayer, GroupBy, Layout, ModeId } from '../model/types'
+import { MODES } from '../layout/modes'
+import { labsOn } from '../labs'
 import { TablePicker } from './TablePicker'
 import { openFiles } from './files'
 import { DatasetMenu } from './DatasetMenu'
 import { Menu } from './Menu'
 import { SCHEMES } from '../theme/schemes'
+import { goTo, selectPipeline, showMode } from './select'
+
+const DETAILS: [ColumnDetail, string][] = [['all', 'All'], ['keys', 'Keys'], ['header', 'Header']]
+const GROUPS: [GroupBy, string][] = [['domain', 'Domain'], ['medallion', 'Medallion']]
+const EDGES: [EdgeLayer, string][] = [['fk', 'FK'], ['lineage', 'Lineage'], ['both', 'Both']]
+const LAB_LAYOUTS: ModeId[] = ['stack', 'orbit']
+
+function Segmented<T extends string>({ options, value, onChange, disabled }: { options: [T, string][]; value: T; onChange: (v: T) => void; disabled?: (v: T) => boolean }) {
+  return (
+    <span className="segmented">
+      {options.map(([v, label]) => (
+        <button key={v} className={value === v ? 'on' : ''} disabled={disabled?.(v)} onClick={() => onChange(v)}>
+          {label}
+        </button>
+      ))}
+    </span>
+  )
+}
 
 export function Toolbar() {
   const graph = useStore((s) => s.graph)
-  const camera = useStore((s) => s.camera)
-  const focus = useStore((s) => s.focus)
   const setLayout = useStore((s) => s.setLayout)
-  const resetLayout = useStore((s) => s.resetLayout)
   const mode = useStore((s) => modeOf(s.layout))
-  const setMode = useStore((s) => s.setMode)
-  const pathOpen = useStore((s) => s.pathOpen)
-  const openPath = useStore((s) => s.openPath)
-  const timeline = useStore((s) => s.time.open)
+  const day = useStore((s) => s.time.open)
   const openTimeline = useStore((s) => s.openTimeline)
   const closeTimeline = useStore((s) => s.closeTimeline)
   const colorScheme = useStore((s) => s.colorScheme)
   const setColorScheme = useStore((s) => s.setColorScheme)
   const fileInput = useRef<HTMLInputElement>(null)
   const layoutInput = useRef<HTMLInputElement>(null)
-
-  const go = (id: string) => {
-    focus(id)
-    camera({ kind: 'fly', id })
-  }
+  const hasPipelines = graph.workflows.pipelines.length > 0
 
   const exportLayout = () => {
     const blob = new Blob([JSON.stringify(useStore.getState().layout, null, 2)], { type: 'application/json' })
@@ -61,36 +70,20 @@ export function Toolbar() {
         }}
       />
 
-      <div className="sep" />
-      <div className="segmented" role="group" aria-label="Layout mode">
-        {MODE_IDS.map((id) => (
-          <button key={id} className={mode === id ? 'on' : ''} onClick={() => setMode(id)}>
-            {MODES[id].label}
-          </button>
-        ))}
+      <TablePicker placeholder="Search tables, jobs, pipelines…  /" nodes="all" onPick={(id, kind) => (kind === 'pipeline' ? selectPipeline(id) : goTo(id))} />
+
+      <div className="segmented" role="group" aria-label="View">
+        <button className={day ? '' : 'on'} title="The lineage diagram on its own" onClick={closeTimeline}>Lineage</button>
+        <button className={day ? 'on' : ''} disabled={!hasPipelines} title="A day of runs under the diagram (T)" onClick={() => !day && openTimeline()}>
+          Day
+        </button>
       </div>
+      <div className="segmented" role="group" aria-label="Diagram">
+        <button className={mode === 'diagram' ? 'on' : ''} title="Flat lineage diagram, from above (1)" onClick={() => showMode('diagram')}>2D</button>
+        <button className={mode === 'flow' ? 'on' : ''} title="Each domain stands up as a slab (2)" onClick={() => showMode('flow')}>3D</button>
+      </div>
+      <ViewMenu />
 
-      <div className="sep" />
-      <button onClick={() => camera({ kind: 'preset', preset: 'iso' })}>Iso</button>
-      <button onClick={() => camera({ kind: 'preset', preset: 'top' })}>Top</button>
-      <button onClick={() => camera({ kind: 'preset', preset: 'side' })}>{mode === 'flow' ? 'Front' : 'Side'}</button>
-
-      <div className="sep" />
-      <TablePicker placeholder="Find… ( / )" nodes="all" onPick={go} />
-      <button className={pathOpen ? 'on' : ''} disabled={!graph.tables.length} onClick={() => openPath(!pathOpen)}>
-        Path
-      </button>
-      <button
-        className={timeline ? 'on' : ''}
-        disabled={!graph.workflows.pipelines.length}
-        title="Scrub a day of pipeline runs (simulated unless a snapshot is loaded)"
-        onClick={() => (timeline ? closeTimeline() : openTimeline())}
-      >
-        Timeline
-      </button>
-
-      <div className="spacer" />
-      <button onClick={resetLayout} disabled={mode === 'orbit'}>Auto layout</button>
       <Menu label="⋯" title="Layout file and colours" className="more">
         {(close) => (
           <>
@@ -150,5 +143,67 @@ export function Toolbar() {
         }}
       />
     </div>
+  )
+}
+
+/** How the diagram is drawn: grouping, edges, card detail, spacing, compute racks, and lab layouts. */
+function ViewMenu() {
+  const layout = useStore((s) => s.layout)
+  const hasPipelines = useStore((s) => s.graph.workflows.pipelines.length > 0)
+  const hasClusters = useStore((s) => s.graph.workflows.clusters.length > 0)
+  const setGroupBy = useStore((s) => s.setGroupBy)
+  const setEdgeLayer = useStore((s) => s.setEdgeLayer)
+  const setColumnDetail = useStore((s) => s.setColumnDetail)
+  const setLayerGap = useStore((s) => s.setLayerGap)
+  const toggleCompute = useStore((s) => s.toggleCompute)
+  const resetLayout = useStore((s) => s.resetLayout)
+  const mode = modeOf(layout)
+  const lineage = (layout.edgeLayer ?? 'both') !== 'fk'
+
+  return (
+    <Menu label="View ▾" title="Grouping, edges, card detail and spacing" className="view-menu">
+      {() => (
+        <div className="view-pop">
+          <div className="row">Group by <Segmented options={GROUPS} value={layout.groupBy ?? 'domain'} onChange={setGroupBy} /></div>
+          <div className="row">
+            Edges
+            <Segmented options={EDGES} value={layout.edgeLayer ?? 'both'} onChange={setEdgeLayer} disabled={(v) => v !== 'fk' && !hasPipelines} />
+          </div>
+          <div className="row">Columns <Segmented options={DETAILS} value={layout.columnDetail ?? 'all'} onChange={setColumnDetail} /></div>
+          <label className="row gap">
+            {MODES[mode].gapLabel} <span>{layout.layerGap.toFixed(0)}</span>
+            <input type="range" min={2} max={30} step={1} value={layout.layerGap} onChange={(e) => setLayerGap(Number(e.target.value))} />
+          </label>
+          {hasClusters && (
+            <div className="row">
+              <span title="The clusters jobs run on, drawn under the diagram">Compute racks</span>
+              <Segmented
+                options={[['on', 'Shown'], ['off', 'Hidden']]}
+                value={lineage && (layout.showCompute ?? true) ? 'on' : 'off'}
+                onChange={(v) => (v === 'on') !== (layout.showCompute ?? true) && toggleCompute()}
+                disabled={() => !lineage}
+              />
+            </div>
+          )}
+          <div className="row">
+            <span>Arrangement</span>
+            <button onClick={resetLayout} disabled={mode === 'orbit'} title="Re-run the automatic layout, dropping dragged positions and domain order">Auto layout</button>
+          </div>
+          {labsOn() && (
+            <div className="row">
+              <span title="Experimental layouts (labs)">Labs</span>
+              <span className="segmented">
+                {LAB_LAYOUTS.map((id) => (
+                  <button key={id} className={mode === id ? 'on' : ''} onClick={() => showMode(id)}>{MODES[id].label}</button>
+                ))}
+              </span>
+            </div>
+          )}
+          <p className="hint">
+            / search · T day · 1 2D · 2 3D{labsOn() ? ' · 3 Stack · 4 Orbit' : ''} · Esc clears one step · click selects · Shift-click a second table for join paths · double-click folds a card · right-drag pans
+          </p>
+        </div>
+      )}
+    </Menu>
   )
 }

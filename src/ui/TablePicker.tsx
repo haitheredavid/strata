@@ -3,12 +3,16 @@ import { useStore } from '../store'
 import { nodeRefs } from '../view/nodes'
 import type { NodeRef } from '../view/nodes'
 
+/** What a search result is: a node (table, job, cluster, source) or a whole pipeline. */
+export type PickKind = NodeRef['kind'] | 'pipeline'
+type Candidate = { id: string; name: string; kind: PickKind }
+
 interface Props {
   placeholder: string
-  onPick: (id: string) => void
+  onPick: (id: string, kind: PickKind) => void
   /** Shown when the input is empty and not being edited. */
   value?: string | null
-  /** What to search: tables only (path ends), or tables, jobs, clusters and sources. */
+  /** What to search: tables only (path ends), or every node and pipeline. */
   nodes?: 'tables' | 'all'
 }
 
@@ -21,12 +25,13 @@ export function TablePicker({ placeholder, onPick, value, nodes = 'tables' }: Pr
   const [editing, setEditing] = useState(false)
   const [active, setActive] = useState(0)
 
-  const candidates = useMemo(() => {
+  const candidates = useMemo((): Candidate[] => {
     const all = [...nodeRefs(graph).values()]
-    return nodes === 'all' ? all : all.filter((r) => r.kind === 'table')
+    if (nodes !== 'all') return all.filter((r) => r.kind === 'table')
+    return [...graph.workflows.pipelines.map((p): Candidate => ({ id: p.id, name: p.name, kind: 'pipeline' })), ...all]
   }, [graph, nodes])
   const q = query.trim().toLowerCase()
-  const matches: NodeRef[] = []
+  const matches: Candidate[] = []
   if (q)
     for (const r of candidates) {
       if (!r.name.toLowerCase().includes(q)) continue
@@ -34,8 +39,8 @@ export function TablePicker({ placeholder, onPick, value, nodes = 'tables' }: Pr
       if (matches.length === MAX) break
     }
 
-  const pick = (id: string) => {
-    onPick(id)
+  const pick = (r: Candidate) => {
+    onPick(r.id, r.kind)
     setQuery('')
   }
 
@@ -54,7 +59,7 @@ export function TablePicker({ placeholder, onPick, value, nodes = 'tables' }: Pr
           if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault()
             if (matches.length) setActive((i) => (i + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length)
-          } else if (e.key === 'Enter' && matches[active]) pick(matches[active].id)
+          } else if (e.key === 'Enter' && matches[active]) pick(matches[active])
           else if (e.key === 'Escape') {
             if (query) setQuery('')
             else e.currentTarget.blur()
@@ -64,7 +69,7 @@ export function TablePicker({ placeholder, onPick, value, nodes = 'tables' }: Pr
       {matches.length > 0 && (
         <ul>
           {matches.map((r, i) => (
-            <li key={r.id} className={i === active ? 'active' : ''} onMouseDown={() => pick(r.id)} onMouseEnter={() => setActive(i)}>
+            <li key={`${r.kind}:${r.id}`} className={i === active ? 'active' : ''} onMouseDown={() => pick(r)} onMouseEnter={() => setActive(i)}>
               <span className="label">{r.name}</span>
               {nodes === 'all' && r.kind !== 'table' && <span className="origin">{r.kind}</span>}
             </li>

@@ -2,17 +2,22 @@ import { useEffect, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { Scene } from './scene/Scene'
 import { Toolbar } from './ui/Toolbar'
-import { LayerPanel } from './ui/LayerPanel'
+import { Navigator } from './ui/Navigator'
+import { Inspector } from './ui/Inspector'
+import { CameraCorner, LitByTrail } from './ui/CanvasOverlay'
 import { useGlobalKeys } from './ui/keys'
 import { boot, openFiles } from './ui/files'
-import { Timeline } from './ui/Timeline'
+import { DayDock } from './ui/Timeline'
 import { Profiled } from './dev/Profiled'
-import { ComputePanel } from './ui/ComputePanel'
 import { Notices } from './ui/Notices'
 import { usePalette } from './theme/palette'
 
 const carriesFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 
+/**
+ * The shell: toolbar over three columns (Navigator · canvas · Inspector), with the Day dock under the
+ * Navigator and canvas. Nothing floats over the canvas but the Lit-by trail, notices and camera presets.
+ */
 export default function App() {
   const [dropping, setDropping] = useState(false)
   // dragenter / dragleave fire for every child crossed; count them so the overlay doesn't flicker.
@@ -49,26 +54,26 @@ export default function App() {
       }}
     >
       <Toolbar />
-      <div className="stage">
-        <Profiled id="Scene">
-          <Scene />
+      <div className="main">
+        <Profiled id="Navigator">
+          <Navigator />
         </Profiled>
-        <Profiled id="LayerPanel">
-          <LayerPanel />
-        </Profiled>
-        <div className="dock">
-          <Profiled id="ComputePanel">
-            <ComputePanel />
+        <div className="canvas">
+          <Profiled id="Scene">
+            <Scene />
           </Profiled>
-          <Profiled id="Timeline">
-            <Timeline />
-          </Profiled>
+          <LitByTrail />
+          <Notices />
+          <CameraCorner />
         </div>
-        <Notices />
-        {dropping && (
-          <div className="drop">Drop a workspace snapshot, a .dbml schema (with its workflows .yaml / .json), or a layout file</div>
-        )}
+        <Profiled id="Timeline">
+          <DayDock />
+        </Profiled>
+        <Profiled id="Inspector">
+          <Inspector />
+        </Profiled>
       </div>
+      {dropping && <div className="drop">Drop a workspace snapshot, a .dbml schema (with its workflows .yaml / .json), or a layout file</div>}
     </div>
   )
 }
