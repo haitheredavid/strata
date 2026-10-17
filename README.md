@@ -149,7 +149,7 @@ The compute drawer's badge says which of these are real for the cluster in view.
 
 Drop the snapshot onto the app; it's kept in IndexedDB, so a reload brings it back.
 
-Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ shows only one pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches. A filtered view of 150 tables or fewer gets its own layout, and the timeline only lists visible pipelines.
+Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ shows only one pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches, and groups long lists by trigger or by the domain each pipeline mostly writes. The Layers panel gets a filter past eight layers, and row buttons show on hover unless they hold a state (hidden, only, folded). A filtered view of 150 tables or fewer gets its own layout. The timeline only lists visible pipelines, has a row filter and **Lit only** (the lit pipeline, or those that ran in the window), and keeps its time axis in view while you scroll.
 
 The export also writes its raw payloads to `snapshots/.raw/`, so `--from-raw <file>` can redo the mapping offline. Anything it can't map shows up as a warning: ⚠ N next to the dataset chip. One example is lineage from `dbutils.notebook.run` runs, which carry no link to their job.
 

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { ColumnDetail, EdgeLayer, GroupBy } from '../model/types'
 import { MODES } from '../layout/modes'
@@ -7,7 +7,7 @@ import { SOURCES, layerView } from '../view/deriveView'
 import type { ViewGraph } from '../view/deriveView'
 import { litBy } from '../view/highlight'
 import type { LitBy } from '../view/highlight'
-import { nodeName } from '../view/nodes'
+import { nodeName, nodeRefs } from '../view/nodes'
 import type { Path } from '../view/paths'
 import { usePaths, useView } from '../scene/usePlacement'
 import { modeOf, useStore } from '../store'
@@ -25,6 +25,8 @@ const HINTS = {
 const DETAILS: [ColumnDetail, string][] = [['all', 'All'], ['keys', 'Keys'], ['header', 'Header']]
 const GROUPS: [GroupBy, string][] = [['domain', 'Domain'], ['medallion', 'Medallion']]
 const EDGES: [EdgeLayer, string][] = [['fk', 'FK'], ['lineage', 'Lineage'], ['both', 'Both']]
+/** Layer lists longer than this get a filter box. */
+const FILTER_AT = 8
 
 function Segmented<T extends string>({ options, value, onChange, disabled }: { options: [T, string][]; value: T; onChange: (v: T) => void; disabled?: (v: T) => boolean }) {
   return (
@@ -93,14 +95,22 @@ export function LayerPanel() {
   // Flow lists left to right, so "earlier" is a lower index; the stack lists top first.
   const [back, fwd] = leftToRight ? (['←', '→'] as const) : (['↑', '↓'] as const)
   const step = leftToRight ? -1 : 1
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const listed = q ? ordered.filter((id) => layerById.get(id)?.name.toLowerCase().includes(q)) : ordered
 
   return (
     <div className="panel">
       <LitByTrail />
       <details open>
         <summary>{groupBy === 'medallion' ? 'Medallion layers' : modeId === 'stack' ? 'Layers' : 'Domains'}</summary>
+        {ordered.length > FILTER_AT && (
+          <div className="row">
+            <input className="filter" placeholder={`Filter ${ordered.length} layers…`} value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+        )}
         <ul className="layers">
-          {ordered.map((id) => {
+          {listed.map((id) => {
             const l = layerById.get(id)
             if (!l) return null
             const count = counts.get(id) ?? 0
@@ -124,7 +134,7 @@ export function LayerPanel() {
                     {collapsed ? '⊞' : '⊟'}
                   </button>
                 )}
-                <button title={hidden ? 'Show' : 'Hide'} onClick={() => toggleLayer(id)}>{hidden ? '○' : '●'}</button>
+                <button title={hidden ? 'Show' : 'Hide'} className={hidden ? 'state' : ''} onClick={() => toggleLayer(id)}>{hidden ? '○' : '●'}</button>
                 <button title={only ? 'Show the others again' : 'Show only this one'} className={only ? 'on' : ''} onClick={() => onlyLayer(id)}>◐</button>
               </li>
             )
@@ -221,20 +231,27 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
   )
 }
 
+/** The focused node and, for tables, how many hops either way its neighbourhood reaches. */
 function FocusSection() {
   const focused = useStore((s) => s.focusedId)
+  const graph = useStore((s) => s.graph)
   const hopUp = useStore((s) => s.hopUp)
   const hopDown = useStore((s) => s.hopDown)
   const setHops = useStore((s) => s.setHops)
+  if (!focused) return null
+  const kind = nodeRefs(graph).get(focused)?.kind
+  // Jobs and clusters light a fixed neighbourhood (reads, writes, cluster / its jobs); hops are for tables.
+  const fixed = kind === 'job' || kind === 'cluster'
 
   return (
     <details open>
-      <summary>Focus depth</summary>
+      <summary>Focus</summary>
       <div className="focus">
-        <Stepper label="Upstream hops (tables it references)" value={hopUp} onChange={(v) => setHops(v, hopDown)} />
-        <span className="focus-name">{focused ?? 'table'}</span>
-        <Stepper label="Downstream hops (tables referencing it)" value={hopDown} onChange={(v) => setHops(hopUp, v)} />
+        {!fixed && <Stepper label="Upstream hops (tables it references)" value={hopUp} onChange={(v) => setHops(v, hopDown)} />}
+        <span className="focus-name" title={focused}>{nodeName(graph, focused)}</span>
+        {!fixed && <Stepper label="Downstream hops (tables referencing it)" value={hopDown} onChange={(v) => setHops(hopUp, v)} />}
       </div>
+      {fixed && <p className="hint">{kind === 'job' ? 'What it reads and writes, and the cluster it runs on' : 'The jobs it runs'}</p>}
     </details>
   )
 }

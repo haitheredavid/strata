@@ -3,7 +3,7 @@ import type { PointerEvent } from 'react'
 import { scheduleOf, TIME_SPEEDS, useStore } from '../store'
 import { timeClock, TRIGGER_LABEL } from '../scene/timeClock'
 import { timeWindow } from '../scene/usePlacement'
-import { clock, DAY, eventsIn, layerTotals, packLanes, span as dur } from '../sim/schedule'
+import { clock, DAY, eventsIn, layerTotals, packLanes, span as dur, taskRunsIn } from '../sim/schedule'
 import { MEDALLIONS } from '../model/workflow'
 import type { Trigger } from '../model/workflow'
 import { hiddenPipelinesOf, jobNodeId } from '../view/deriveView'
@@ -54,7 +54,7 @@ export function Timeline() {
   const drag = useRef<Drag | null>(null)
 
   const names = useMemo(() => new Map(graph.workflows.pipelines.flatMap((p) => p.tasks).map((t) => [t.id, t.name])), [graph])
-  const rows = useMemo(() => {
+  const allRows = useMemo(() => {
     // Hidden pipelines get no row, so an "only this" pipeline isn't lost among the rest.
     const hidden = new Set(hiddenPipelinesOf({ graph, hiddenPipelines, onlyPipeline }))
     return graph.workflows.pipelines.filter((p) => !hidden.has(p.id)).map((p) => {
@@ -64,6 +64,18 @@ export function Timeline() {
       return { p, placed, emits, height: lanes * (LANE + LANE_GAP) + 6 }
     })
   }, [graph, schedule, hiddenPipelines, onlyPipeline])
+  const [rowQuery, setRowQuery] = useState('')
+  const [litOnly, setLitOnly] = useState(false)
+  // "Lit only": the lens pipeline, else the pipelines that ran in the window, as a string key so the
+  // rows only rebuild when that set changes, not on every published playhead move.
+  const litKey = !litOnly
+    ? null
+    : lens ?? [...new Set(taskRunsIn(schedule, timeWindow(time.t, time.span)).map((r) => r.pipelineId))].sort().join('\n')
+  const rows = useMemo(() => {
+    const q = rowQuery.trim().toLowerCase()
+    const lit = litKey === null ? null : new Set(litKey.split('\n'))
+    return allRows.filter((r) => (!q || r.p.name.toLowerCase().includes(q)) && (!lit || lit.has(r.p.id)))
+  }, [allRows, rowQuery, litKey])
   const clusterName = useMemo(() => new Map(graph.workflows.clusters.map((c) => [c.id, c.name])), [graph])
   const runById = useMemo(() => new Map(schedule.taskRuns.map((r) => [r.id, r])), [schedule])
 
@@ -265,6 +277,13 @@ export function Timeline() {
         </button>
         <button disabled={!zoomed} onClick={() => setView([0, DAY])}>Full day</button>
         <button disabled={!span} onClick={() => setTime({ span: null })}>Clear span</button>
+        <button
+          className={litOnly ? 'on' : ''}
+          onClick={() => setLitOnly(!litOnly)}
+          title={lens ? 'Only the lit pipeline' : span ? 'Only pipelines that ran in the span' : 'Only pipelines that ran in the last hour'}
+        >
+          Lit only
+        </button>
         <button className={showEvents ? 'on' : ''} onClick={() => setShowEvents(!showEvents)} title={span ? 'Events in the span' : 'Events in the last hour'}>
           Events {events.length}
         </button>
@@ -273,7 +292,9 @@ export function Timeline() {
 
       <div className="tl-body">
         <div className="labels">
-          <div className="axis" />
+          <div className="axis">
+            <input className="row-filter" placeholder={`Filter ${allRows.length} rows…`} value={rowQuery} onChange={(e) => setRowQuery(e.target.value)} />
+          </div>
           {labelRows}
         </div>
         <div className="plot" ref={plot} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>

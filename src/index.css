@@ -220,7 +220,14 @@ button.on { background: var(--accent); color: #0b0e14; }
 .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 4px 0; color: var(--muted); }
 .panel .row.legend { font-size: 11px; justify-content: flex-start; }
 
-.pipelines { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; }
+.pipelines { list-style: none; margin: 0; padding: 0; }
+.pipelines li.group { padding: 6px 0 2px; color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.pipelines li.group .count { margin-left: 4px; letter-spacing: 0; }
+/* Row actions show on hover (or keyboard focus); ones holding a non-default state stay visible. */
+@media (hover: hover) {
+  .layers li button:not(.on):not(.state), .pipelines li button:not(.on):not(.state) { visibility: hidden; }
+  .layers li:hover button, .layers li:focus-within button, .pipelines li:hover button, .pipelines li:focus-within button { visibility: visible; }
+}
 .row input.filter { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 11px; }
 .pipelines li { display: flex; align-items: center; gap: 4px; padding: 3px 0; }
 .pipelines li.off .name { opacity: 0.35; }
@@ -260,15 +267,16 @@ button.on { background: var(--accent); color: #0b0e14; }
 .timeline .totals { display: flex; gap: 8px; font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums; }
 .timeline .totals i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; }
 .timeline .totals em { color: var(--muted); font-style: normal; }
-.timeline .tl-body { display: flex; overflow-y: auto; min-height: 0; }
+.timeline .tl-body { display: flex; align-items: flex-start; overflow-y: auto; min-height: 0; }
 .timeline .labels { width: 150px; flex-shrink: 0; }
-.timeline .axis { height: 16px; position: relative; color: var(--muted); font-size: 10px; }
+.timeline .axis { height: 18px; position: sticky; top: 0; z-index: 2; color: var(--muted); font-size: 10px; background: color-mix(in srgb, var(--panel) 94%, transparent); }
+.timeline .row-filter { width: calc(100% - 8px); height: 16px; padding: 0 4px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; font-size: 10px; }
 .timeline .plot .axis span { position: absolute; font-variant-numeric: tabular-nums; }
 .timeline .label { display: flex; align-items: center; gap: 6px; padding-right: 8px; font-size: 11px; cursor: pointer; min-height: 12px; }
 .timeline .label.off { opacity: 0.35; }
 .timeline .label .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timeline .label .swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-.timeline .plot { position: relative; flex: 1; min-width: 0; cursor: crosshair; user-select: none; touch-action: none; overflow: hidden; }
+.timeline .plot { position: relative; flex: 1; min-width: 0; cursor: crosshair; user-select: none; touch-action: none; overflow-x: clip; }
 .timeline .lane-row { position: relative; border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
 .timeline .bar { position: absolute; border-radius: 2px; border-left: 3px solid; overflow: hidden; cursor: pointer; opacity: 0.9; }
 .timeline .bar:hover { opacity: 1; outline: 1px solid #fff; }

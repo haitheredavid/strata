@@ -2,9 +2,11 @@
 
 strata is a prototype. It can now load a real Databricks workspace slice (`pnpm export:databricks`, then drop the `.snapshot.json`). Before pointing it at an active workspace every day, the prototype needs a solid core: one way to load data, one model for selection and visibility, visible feedback, and controls that hold up at hundreds of tables and pipelines. The phases are ordered; each leaves the app shippable.
 
-## Phase 1: Solid prototype (interfaces and interactions)
+## Phase 1: Solid prototype (interfaces and interactions) — done
 
 Goal: every load goes through one path, every highlight and visibility rule is explicit, and the UI reports what it is doing.
+
+*Landed 2026-10-17 in five slices (`c0a7d14`, `22439ed`, `a0729f9`, `4afa6b9` and the density commit). Where it differs from the items below:* highlights keep `lensPipeline` / `focusedId` / the path fields as their inputs and resolve them in `view/highlight.ts` (a scope from timeline or lens, a probe from path or focus) rather than one `highlight` field; layers get ◐ "only this" but no ◎ layer lens; datasets keep the five most recent files and snapshots, not one stash.
 
 1. **Names and dead code.** Rename `focusedTableId` → `focusedId`, `hoveredTableId` → `hoveredId` and `CameraCommand.fly.tableId` → `id`, since they hold jobs and clusters too. Delete `layerVisible` in `store.ts`, which has no callers.
 2. **One view-options source.** `sceneView` / `viewInputs` (in `view/deriveView.ts` and `store.ts`) are the canonical inputs. Move `LayerPanel`'s `fullView` and `moveLayer`'s bare `deriveView(s.graph)` onto them. This fixes `moveLayer` reordering an FK-only view in Flow/Diagram while the panel shows the lineage view.
