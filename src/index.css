@@ -20,6 +20,7 @@ html, body, #root { margin: 0; height: 100%; }
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
   padding: 8px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -27,6 +28,42 @@ html, body, #root { margin: 0; height: 100%; }
 .toolbar .brand { font-weight: 700; letter-spacing: 0.08em; margin-right: 8px; color: var(--accent); }
 .toolbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
 .toolbar .spacer { flex: 1; }
+.toolbar > button, .toolbar > select, .toolbar .menu > button { flex: none; white-space: nowrap; }
+
+.menu { position: relative; }
+.menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-width: 360px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px #0008;
+}
+.menu:has(> .more) .menu-pop { left: auto; right: 0; min-width: 160px; }
+.menu-head { padding: 6px 8px 2px; color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.menu-item { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; background: none; border-color: transparent; }
+.menu-item:hover:not(:disabled) { background: #1d2433; border-color: transparent; }
+.menu-item.current { border-color: var(--accent); }
+.menu-row { display: flex; align-items: center; }
+.menu-row .menu-item { flex: 1; }
+.menu .forget { padding: 2px 6px; background: none; border-color: transparent; color: var(--muted); }
+.menu .forget:hover { color: var(--text); }
+.origin { flex: none; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; color: var(--muted); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.menu .label, .chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolbar .menu:has(> .chip) { display: flex; flex: 0 1 auto; min-width: 150px; }
+.toolbar .menu > button.chip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; flex: 1 1 auto; min-width: 0; }
+.toolbar > .search { flex: 0 1 180px; min-width: 100px; }
+.toolbar > .search input { width: 100%; }
+button.chip.on .origin { color: inherit; border-color: currentColor; }
+.chip .caret { font-size: 11px; opacity: 0.8; }
+button.chip-warn { padding: 4px 8px; color: #f5b942; }
 
 button {
   background: #1d2433;
@@ -157,15 +194,6 @@ button.on { background: var(--accent); color: #0b0e14; }
 .paths code { font-size: 11px; color: #9ecbff; word-break: break-all; }
 .ignore { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px; color: var(--muted); font-size: 11px; }
 .ignore button { padding: 1px 6px; font-size: 11px; }
-
-select.sample {
-  background: #1d2433;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 6px;
-  font: inherit;
-}
 
 .panel details { margin-top: 10px; }
 .panel details > summary {

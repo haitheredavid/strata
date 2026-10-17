@@ -18,7 +18,7 @@ export function Notices() {
             </button>
           </div>
           {n.detail && (
-            <details>
+            <details open={n.open}>
               <summary>Details</summary>
               <ul>
                 {n.detail.map((d, i) => (

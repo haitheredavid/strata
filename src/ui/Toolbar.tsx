@@ -3,10 +3,10 @@ import { modeOf, useStore } from '../store'
 import type { Layout } from '../model/types'
 import { MODES, MODE_IDS } from '../layout/modes'
 import { TablePicker } from './TablePicker'
-import { SYNTH_PRESETS, openFiles, openSample } from './files'
-import { SAMPLES } from '../data/dataset'
+import { openFiles } from './files'
+import { DatasetMenu } from './DatasetMenu'
+import { Menu } from './Menu'
 import { SCHEMES } from '../theme/schemes'
-import type { SchemeId } from '../theme/schemes'
 
 export function Toolbar() {
   const graph = useStore((s) => s.graph)
@@ -23,9 +23,7 @@ export function Toolbar() {
   const closeTimeline = useStore((s) => s.closeTimeline)
   const colorScheme = useStore((s) => s.colorScheme)
   const setColorScheme = useStore((s) => s.setColorScheme)
-  const dbmlInput = useRef<HTMLInputElement>(null)
-  const workflowInput = useRef<HTMLInputElement>(null)
-  const hasSchema = graph.tables.length > 0
+  const fileInput = useRef<HTMLInputElement>(null)
   const layoutInput = useRef<HTMLInputElement>(null)
 
   const go = (id: string) => {
@@ -46,38 +44,15 @@ export function Toolbar() {
     <div className="toolbar">
       <span className="brand">strata</span>
 
-      <select className="sample" value="" onChange={(e) => e.target.value && openSample(e.target.value)} title="Load a sample schema">
-        <option value="">Samples…</option>
-        {SAMPLES.map((s) => (
-          <option key={s.id} value={s.id}>{s.label}</option>
-        ))}
-        {import.meta.env.DEV &&
-          SYNTH_PRESETS.map((s) => (
-            <option key={s.id} value={s.id}>{s.label}</option>
-          ))}
-      </select>
-      <button onClick={() => dbmlInput.current?.click()} title="Pick a .dbml file, optionally with its workflows .yaml/.json">
-        Open DBML
+      <DatasetMenu />
+      <button onClick={() => fileInput.current?.click()} title="Open a workspace snapshot, a .dbml schema (with its workflow file), a workflow file for the open schema, or a layout">
+        Open…
       </button>
       <input
-        ref={dbmlInput}
+        ref={fileInput}
         type="file"
-        accept=".dbml,.txt,.yaml,.yml,.json"
+        accept=".json,.dbml,.txt,.yaml,.yml"
         multiple
-        hidden
-        onChange={async (e) => {
-          const files = [...(e.target.files ?? [])]
-          e.target.value = ''
-          await openFiles(files)
-        }}
-      />
-      <button disabled={!hasSchema} onClick={() => workflowInput.current?.click()} title="Load a pipelines / jobs file for this schema">
-        Open workflows
-      </button>
-      <input
-        ref={workflowInput}
-        type="file"
-        accept=".yaml,.yml,.json"
         hidden
         onChange={async (e) => {
           const files = [...(e.target.files ?? [])]
@@ -119,14 +94,49 @@ export function Toolbar() {
       </button>
 
       <div className="spacer" />
-      <select className="sample" value={colorScheme} onChange={(e) => setColorScheme(e.target.value as SchemeId)} title="Color scheme">
-        {SCHEMES.map(([id, label]) => (
-          <option key={id} value={id}>{label}</option>
-        ))}
-      </select>
       <button onClick={resetLayout} disabled={mode === 'orbit'}>Auto layout</button>
-      <button onClick={exportLayout}>Export layout</button>
-      <button onClick={() => layoutInput.current?.click()}>Import layout</button>
+      <Menu label="⋯" title="Layout file and colours" className="more">
+        {(close) => (
+          <>
+            <div className="menu-head">Layout</div>
+            <button
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                close()
+                exportLayout()
+              }}
+            >
+              Export layout
+            </button>
+            <button
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                close()
+                layoutInput.current?.click()
+              }}
+            >
+              Import layout…
+            </button>
+            <div className="menu-head">Colours</div>
+            {SCHEMES.map(([id, label]) => (
+              <button
+                key={id}
+                role="menuitemradio"
+                aria-checked={colorScheme === id}
+                className={`menu-item${colorScheme === id ? ' current' : ''}`}
+                onClick={() => {
+                  close()
+                  setColorScheme(id)
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </>
+        )}
+      </Menu>
       <input
         ref={layoutInput}
         type="file"

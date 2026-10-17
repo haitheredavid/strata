@@ -32,6 +32,8 @@ export interface Notice {
   detail?: string[]
   /** About the loaded dataset: replaced when another one loads. */
   dataset?: boolean
+  /** Show the detail expanded. */
+  open?: boolean
 }
 
 interface State {
@@ -65,6 +67,8 @@ interface State {
   notify: (level: Notice['level'], text: string, detail?: string[]) => void
   dismiss: (id: number) => void
   setStatus: (status: string | null) => void
+  /** Bring back the dataset's warnings notice, expanded. */
+  showDatasetWarnings: () => void
   setLayout: (layout: Layout) => void
   resetLayout: () => void
   setLayerGap: (gap: number) => void
@@ -222,6 +226,11 @@ function freshLayout(graph: Graph, layoutKey: string, layerGap = 8): Layout {
 
 let noticeSeq = 0
 
+function warningsNotice(d: Dataset, open: boolean): Notice {
+  const n = d.warnings.length
+  return { id: ++noticeSeq, level: 'warning', text: `${d.label}: ${n} warning${n > 1 ? 's' : ''}`, detail: d.warnings, dataset: true, open }
+}
+
 export const useStore = create<State>((set, get) => ({
   dataset: null,
   graph: EMPTY_GRAPH,
@@ -256,8 +265,7 @@ export const useStore = create<State>((set, get) => ({
       layout = d.source.origin === 'synth' ? fresh : largeDefaults(d.graph, fresh)
     }
     const notices = s.notices.filter((n) => !n.dataset)
-    if (d.warnings.length)
-      notices.push({ id: ++noticeSeq, level: 'warning', text: `${d.label}: ${d.warnings.length} warning${d.warnings.length > 1 ? 's' : ''}`, detail: d.warnings, dataset: true })
+    if (d.warnings.length) notices.push(warningsNotice(d, false))
     set({
       dataset: d,
       graph: d.graph,
@@ -284,6 +292,8 @@ export const useStore = create<State>((set, get) => ({
   notify: (level, text, detail) => set((s) => ({ notices: [...s.notices, { id: ++noticeSeq, level, text, detail }] })),
   dismiss: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   setStatus: (status) => set({ status }),
+  showDatasetWarnings: () =>
+    set((s) => (s.dataset?.warnings.length ? { notices: [...s.notices.filter((n) => !n.dataset), warningsNotice(s.dataset, true)] } : s)),
 
   setLayout: (layout) => {
     if (!isLayoutFor(layout, get().graph)) return get().notify('error', 'That layout file is for a different schema')

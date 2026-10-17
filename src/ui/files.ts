@@ -51,7 +51,7 @@ async function install(d: Dataset, remember = true) {
 }
 
 /** Builds and installs a dataset; failures become notices. Resolves to whether it loaded. */
-async function open(source: DatasetSource, remember = true): Promise<boolean> {
+export async function openSource(source: DatasetSource, remember = true): Promise<boolean> {
   try {
     await busy(`Opening ${sourceLabel(source)}…`, async () => {
       const sample = source.origin === 'sample' ? await fetchSample(source.id) : undefined
@@ -66,7 +66,7 @@ async function open(source: DatasetSource, remember = true): Promise<boolean> {
 
 /** A sample, or a synthetic preset (`synth:<spec>`), from the sample picker. */
 export function openSample(id: string) {
-  return open(id.startsWith('synth:') ? { origin: 'synth', options: parseSynthSpec(id.slice('synth:'.length)) } : { origin: 'sample', id })
+  return openSource(id.startsWith('synth:') ? { origin: 'synth', options: parseSynthSpec(id.slice('synth:'.length)) } : { origin: 'sample', id })
 }
 
 /**
@@ -86,10 +86,10 @@ export async function openFiles(files: FileList | File[]) {
   const s = useStore.getState()
   switch (plan.kind) {
     case 'snapshot':
-      await open({ origin: 'snapshot', snapshot: plan.snapshot })
+      await openSource({ origin: 'snapshot', snapshot: plan.snapshot })
       break
     case 'schema':
-      await open({ origin: 'file', name: plan.name, dbml: plan.dbml, workflows: plan.workflows })
+      await openSource({ origin: 'file', name: plan.name, dbml: plan.dbml, workflows: plan.workflows })
       break
     case 'workflows':
       if (!s.dataset) {
@@ -115,7 +115,7 @@ export async function openFiles(files: FileList | File[]) {
 export async function boot() {
   const synth = import.meta.env.DEV ? new URLSearchParams(location.search).get('synth') : null
   if (synth) {
-    await open({ origin: 'synth', options: parseSynthSpec(synth) }, false)
+    await openSource({ origin: 'synth', options: parseSynthSpec(synth) }, false)
     return
   }
   let last: DatasetSource | null = null
@@ -124,6 +124,6 @@ export async function boot() {
   } catch {
     /* storage unavailable: start from the sample */
   }
-  if (last && (await open(last))) return
-  await open({ origin: 'sample', id: 'commerce' })
+  if (last && (await openSource(last))) return
+  await openSource({ origin: 'sample', id: 'commerce' })
 }

@@ -24,15 +24,16 @@ The toolbar switches between modes. Switching animates, each table keeps its ide
 - **Columns**: show all columns, keys only, or headers only. Double-click a card to fold just that card.
 - **Domains**: collapse a domain to a single card (refs into it are merged and shown with ×N), or hide or isolate it.
 - Search flies to a table. Iso / Top / Side (Front in Flow) are camera presets.
-- The layout (mode, positions, domain order, column detail) autosaves to localStorage for each schema. You can also export and import it as JSON; dropping an exported layout applies it.
-- Whatever you open (a sample, a dropped schema with its workflow file, a snapshot) comes back after a reload. The last five dropped files and snapshots are kept in IndexedDB.
+- The layout (mode, positions, domain order, column detail) autosaves to localStorage for each schema. **⋯ → Export layout / Import layout** saves it as JSON; opening or dropping an exported layout applies it. Colour schemes are in the same menu.
+- **Open…** (or a drop) takes a workspace snapshot, a `.dbml` with its workflow file, a workflow file for the open schema, or a layout, and works out which from the content.
+- The chip at the left of the toolbar names the open dataset and opens the **Datasets** menu: the samples, the last five files and snapshots you opened (✕ forgets one), and synthetic presets in dev builds. Whatever you open comes back after a reload. ⚠ N shows the dataset's warnings.
 - Load problems, workflow-file warnings and long layouts show as notices at the top left.
 
 ## Pipelines, jobs and medallion layers
 
-Load the **Lakehouse sample** from the Samples menu, or drop a `.dbml` together with a workflow file.
+Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together with a workflow file.
 
-- **Workflow file** (`*.workflows.yaml` or `.json`, loaded with Open DBML or Open workflows): pipelines made of tasks that read and write tables, shaped like Databricks Jobs. A DAB-style `resources.jobs` map also works.
+- **Workflow file** (`*.workflows.yaml` or `.json`, opened with the schema or on its own over the open one): pipelines made of tasks that read and write tables, shaped like Databricks Jobs. A DAB-style `resources.jobs` map also works.
   ```yaml
   pipelines:
     - id: sales_refresh

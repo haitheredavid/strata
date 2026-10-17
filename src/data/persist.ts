@@ -77,15 +77,28 @@ async function all(s: IDBObjectStore): Promise<SavedDataset[]> {
   return rows.filter(isSaved)
 }
 
+/** Recent files and snapshots, newest first. */
+async function recent(s: IDBObjectStore): Promise<SavedDataset[]> {
+  return (await all(s)).filter((x) => x.source.origin === 'file' || x.source.origin === 'snapshot').sort((a, b) => b.openedAt - a.openedAt)
+}
+
 /** Keeps `d` for the next visit and makes it the one a reload opens. Rejects when storage fails. */
 export async function rememberDataset(d: Dataset): Promise<void> {
   const saved: SavedDataset = { key: d.key, label: d.label, source: d.source, openedAt: Date.now() }
   await withStore('readwrite', async (s) => {
     await done(s.put(saved, saved.key))
-    const recent = (await all(s)).filter((x) => x.source.origin === 'file' || x.source.origin === 'snapshot').sort((a, b) => b.openedAt - a.openedAt)
-    await Promise.all(recent.slice(RECENT).map((x) => done(s.delete(x.key))))
+    await Promise.all((await recent(s)).slice(RECENT).map((x) => done(s.delete(x.key))))
   })
   localStorage.setItem(LAST, d.key)
+}
+
+/** The kept files and snapshots, newest first. */
+export const listDatasets = () => withStore('readonly', recent)
+
+/** Drops a kept dataset; if it was the last one opened, a reload starts from the sample. */
+export async function forgetDataset(key: string): Promise<void> {
+  await withStore('readwrite', (s) => done(s.delete(key)))
+  if (localStorage.getItem(LAST) === key) localStorage.removeItem(LAST)
 }
 
 /** The last opened dataset's source, or null on a first visit. */
