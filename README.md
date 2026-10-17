@@ -22,8 +22,10 @@ The toolbar switches between modes. Switching animates, each table keeps its ide
 - **Focus depth**: `up + table + down` hop counts, as in dbt's `2+model+1`. It dims everything outside that neighborhood, in every mode.
 - **Path**: click Path, or focus a table and Shift-click a second one. This lists every join path between the two tables, up to one hop longer than the shortest, as join chains. Click a path to isolate it. "Avoid" removes hub tables from the search.
 - **Columns**: show all columns, keys only, or headers only. Double-click a card to fold just that card.
-- **Domains**: collapse a domain to a single card (refs into it are merged and shown with ×N), or hide or isolate it.
-- Search flies to a table. Iso / Top / Side (Front in Flow) are camera presets.
+- **Domains**: collapse a domain to a single card (refs into it are merged and shown with ×N), hide it (●/○), or show only it (◐). Hide, only-this and collapse are saved with the layout, like pipeline visibility.
+- **Search** (`/`) finds tables, jobs, clusters and sources and flies to them; ↑ / ↓ pick a result. Iso / Top / Side (Front in Flow) are camera presets.
+- **What's lit** builds up in layers: the timeline or a pipeline lens (◎) narrows the scene, and a focus or a path drills in from there, drawn in full over the rest. The panel's **Lit by** trail names each layer with ✕ to clear it, and **Esc** clears one at a time: path, focus, lens, the timeline's span, then "only this".
+- **Keys**: `/` search, `T` timeline, `1`–`4` Stack / Flow / Orbit / Diagram, Esc as above. They're ignored while you type in a field.
 - The layout (mode, positions, domain order, column detail) autosaves to localStorage for each schema. **⋯ → Export layout / Import layout** saves it as JSON; opening or dropping an exported layout applies it. Colour schemes are in the same menu.
 - **Open…** (or a drop) takes a workspace snapshot, a `.dbml` with its workflow file, a workflow file for the open schema, or a layout, and works out which from the content.
 - The chip at the left of the toolbar names the open dataset and opens the **Datasets** menu: the samples, the last five files and snapshots you opened (✕ forgets one), and synthetic presets in dev builds. Whatever you open comes back after a reload. ⚠ N shows the dataset's warnings.
@@ -66,9 +68,10 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 - **Triggers** label each pipeline's first jobs (CRON / FILE / ON UPDATE / AFTER / STREAMING). Dotted links run from the tables or the upstream pipeline that start it.
 - **Events** are amber markers on the jobs that emit them.
 - **Pipelines panel**:
-  - show / hide each pipeline;
+  - ●/○ shows or hides a pipeline, ◐ shows only it (again to bring the others back);
   - ◎ lights up everything a pipeline touches;
   - ▶ opens the day timeline on that pipeline's first run, with the pipeline lit up.
+  - Lighting up a pipeline or opening the timeline turns lineage edges on if they're off, and says so.
 - Opening a workflow file replaces the open dataset's jobs and is remembered with it, so a reload keeps it. A snapshot keeps its real runs.
 
 ## Day timeline
@@ -146,9 +149,9 @@ The compute drawer's badge says which of these are real for the cluster in view.
 
 Drop the snapshot onto the app; it's kept in IndexedDB, so a reload brings it back.
 
-Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ solos a pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches. A filtered view of 150 tables or fewer gets its own layout, and the timeline only lists visible pipelines.
+Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ shows only one pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches. A filtered view of 150 tables or fewer gets its own layout, and the timeline only lists visible pipelines.
 
-The export also writes its raw payloads to `snapshots/.raw/`, so `--from-raw <file>` can redo the mapping offline. Anything it can't map shows up as a warning in the Pipelines panel. One example is lineage from `dbutils.notebook.run` runs, which carry no link to their job.
+The export also writes its raw payloads to `snapshots/.raw/`, so `--from-raw <file>` can redo the mapping offline. Anything it can't map shows up as a warning: ⚠ N next to the dataset chip. One example is lineage from `dbutils.notebook.run` runs, which carry no link to their job.
 
 ## Structure
 

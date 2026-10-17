@@ -6,7 +6,7 @@ import { timeWindow } from '../scene/usePlacement'
 import { clock, DAY, eventsIn, layerTotals, packLanes, span as dur } from '../sim/schedule'
 import { MEDALLIONS } from '../model/workflow'
 import type { Trigger } from '../model/workflow'
-import { jobNodeId } from '../view/deriveView'
+import { hiddenPipelinesOf, jobNodeId } from '../view/deriveView'
 import { usePalette } from '../theme/palette'
 
 const LANE = 8
@@ -38,7 +38,8 @@ export function Timeline() {
   const time = useStore((s) => s.time)
   const graph = useStore((s) => s.graph)
   const palette = usePalette()
-  const hidden = useStore((s) => s.layout.hiddenPipelines)
+  const hiddenPipelines = useStore((s) => s.layout.hiddenPipelines)
+  const onlyPipeline = useStore((s) => s.layout.onlyPipeline)
   const lens = useStore((s) => s.lensPipeline)
   const setTime = useStore((s) => s.setTime)
   const closeTimeline = useStore((s) => s.closeTimeline)
@@ -53,17 +54,16 @@ export function Timeline() {
   const drag = useRef<Drag | null>(null)
 
   const names = useMemo(() => new Map(graph.workflows.pipelines.flatMap((p) => p.tasks).map((t) => [t.id, t.name])), [graph])
-  const rows = useMemo(
-    () =>
-      // Hidden pipelines get no row, so a solo'd pipeline isn't lost among the rest.
-      graph.workflows.pipelines.filter((p) => !hidden?.includes(p.id)).map((p) => {
-        const placed = packLanes(schedule.taskRuns.filter((r) => r.pipelineId === p.id))
-        const lanes = Math.max(1, ...placed.map((x) => x.lane + 1))
-        const emits = schedule.events.filter((e) => e.kind === 'emit' && e.pipelineId === p.id)
-        return { p, placed, emits, height: lanes * (LANE + LANE_GAP) + 6 }
-      }),
-    [graph, schedule, hidden],
-  )
+  const rows = useMemo(() => {
+    // Hidden pipelines get no row, so an "only this" pipeline isn't lost among the rest.
+    const hidden = new Set(hiddenPipelinesOf({ graph, hiddenPipelines, onlyPipeline }))
+    return graph.workflows.pipelines.filter((p) => !hidden.has(p.id)).map((p) => {
+      const placed = packLanes(schedule.taskRuns.filter((r) => r.pipelineId === p.id))
+      const lanes = Math.max(1, ...placed.map((x) => x.lane + 1))
+      const emits = schedule.events.filter((e) => e.kind === 'emit' && e.pipelineId === p.id)
+      return { p, placed, emits, height: lanes * (LANE + LANE_GAP) + 6 }
+    })
+  }, [graph, schedule, hiddenPipelines, onlyPipeline])
   const clusterName = useMemo(() => new Map(graph.workflows.clusters.map((c) => [c.id, c.name])), [graph])
   const runById = useMemo(() => new Map(schedule.taskRuns.map((r) => [r.id, r])), [schedule])
 

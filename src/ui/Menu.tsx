@@ -21,12 +21,17 @@ export function Menu({ label, title, className, onOpen, children }: Props) {
     const outside = (e: PointerEvent) => {
       if (!(e.target instanceof Node) || !root.current?.contains(e.target)) setOpen(false)
     }
-    const escape = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    // Capture phase, and marked handled, so closing a menu doesn't also clear a highlight.
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setOpen(false)
+    }
     window.addEventListener('pointerdown', outside)
-    window.addEventListener('keydown', escape)
+    window.addEventListener('keydown', escape, true)
     return () => {
       window.removeEventListener('pointerdown', outside)
-      window.removeEventListener('keydown', escape)
+      window.removeEventListener('keydown', escape, true)
     }
   }, [open])
 

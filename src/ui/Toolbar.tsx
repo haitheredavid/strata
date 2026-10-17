@@ -76,7 +76,7 @@ export function Toolbar() {
       <button onClick={() => camera({ kind: 'preset', preset: 'side' })}>{mode === 'flow' ? 'Front' : 'Side'}</button>
 
       <div className="sep" />
-      <TablePicker placeholder="Find table…" onPick={go} />
+      <TablePicker placeholder="Find… ( / )" nodes="all" onPick={go} />
       <button className={pathOpen ? 'on' : ''} disabled={!graph.tables.length} onClick={() => openPath(!pathOpen)}>
         Path
       </button>
@@ -84,11 +84,7 @@ export function Toolbar() {
         className={timeline ? 'on' : ''}
         disabled={!graph.workflows.pipelines.length}
         title="Scrub a simulated day of pipeline runs"
-        onClick={() => {
-          if (timeline) return closeTimeline()
-          if ((useStore.getState().layout.edgeLayer ?? 'both') === 'fk') useStore.getState().setEdgeLayer('both')
-          openTimeline()
-        }}
+        onClick={() => (timeline ? closeTimeline() : openTimeline())}
       >
         Timeline
       </button>

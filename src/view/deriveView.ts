@@ -222,7 +222,7 @@ export function deriveView(graph: Graph, opts: ViewOptions = {}): ViewGraph {
   return { nodes, edges, flows, layers, clusters, computeLinks }
 }
 
-/** Store fields the scene's view derives from. */
+/** Store fields the scene's view derives from: the graph and the layout's view settings. */
 export interface ViewInputs {
   graph: Graph
   columnDetail?: ColumnDetail
@@ -230,28 +230,33 @@ export interface ViewInputs {
   groupBy?: GroupBy
   edgeLayer?: EdgeLayer
   hiddenPipelines?: string[]
+  onlyPipeline?: string
   pipelineTablesOnly?: boolean
   showCompute?: boolean
-  hiddenLayers: string[]
-  isolatedLayerId: string | null
-  collapsedLayers: string[]
+  hiddenLayers?: string[]
+  onlyLayer?: string
+  collapsedLayers?: string[]
 }
 
-/** Every layer the current grouping, edge layer and pipeline filter produce, ignoring hide / isolate / collapse. Pure. */
-export function layerView(s: Pick<ViewInputs, 'graph' | 'groupBy' | 'edgeLayer' | 'hiddenPipelines' | 'pipelineTablesOnly'>): ViewGraph {
+/** The pipelines not shown: all but the "only this" one, else the hidden ones. */
+export function hiddenPipelinesOf(s: Pick<ViewInputs, 'graph' | 'hiddenPipelines' | 'onlyPipeline'>): string[] {
+  if (!s.onlyPipeline) return s.hiddenPipelines ?? []
+  return s.graph.workflows.pipelines.map((p) => p.id).filter((id) => id !== s.onlyPipeline)
+}
+
+/** Every layer the current grouping, edge layer and pipeline filter produce, ignoring hide / only / collapse. Pure. */
+export function layerView(s: Pick<ViewInputs, 'graph' | 'groupBy' | 'edgeLayer' | 'hiddenPipelines' | 'onlyPipeline' | 'pipelineTablesOnly'>): ViewGraph {
   return deriveView(s.graph, {
     groupBy: s.groupBy,
     lineage: s.edgeLayer !== 'fk',
-    hiddenPipelines: s.hiddenPipelines,
+    hiddenPipelines: hiddenPipelinesOf(s),
     pipelineTablesOnly: s.pipelineTablesOnly,
   })
 }
 
-/** The scene's view: grouping, hide / isolate / collapse / column detail, visible pipelines. Pure. */
+/** The scene's view: grouping, hide / only / collapse / column detail, visible pipelines. Pure. */
 export function sceneView(s: ViewInputs): ViewGraph {
-  const hidden = s.isolatedLayerId
-    ? layerView(s).layers.map((l) => l.id).filter((id) => id !== s.isolatedLayerId)
-    : s.hiddenLayers
+  const hidden = s.onlyLayer ? layerView(s).layers.map((l) => l.id).filter((id) => id !== s.onlyLayer) : s.hiddenLayers
   return deriveView(s.graph, {
     hiddenLayers: hidden,
     collapsedLayers: s.collapsedLayers,
@@ -259,7 +264,7 @@ export function sceneView(s: ViewInputs): ViewGraph {
     collapsedCards: s.collapsedCards,
     groupBy: s.groupBy,
     lineage: s.edgeLayer !== 'fk',
-    hiddenPipelines: s.hiddenPipelines,
+    hiddenPipelines: hiddenPipelinesOf(s),
     pipelineTablesOnly: s.pipelineTablesOnly,
     compute: s.showCompute ?? true,
   })

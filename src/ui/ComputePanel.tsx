@@ -123,7 +123,13 @@ export function ComputePanel() {
   const time = useStore((s) => s.time)
   const on = useStore((s) => (s.layout.edgeLayer ?? 'both') !== 'fk' && (s.layout.showCompute ?? true))
   const setTime = useStore((s) => s.setTime)
-  const focus = useStore((s) => s.focus)
+  // ✕ closes the drawer but keeps the focus; focusing anything (again) reopens it.
+  const [dismissed, setDismissed] = useState(false)
+  const [seenFocus, setSeenFocus] = useState(focused)
+  if (seenFocus !== focused) {
+    setSeenFocus(focused)
+    setDismissed(false)
+  }
   const schedule = useStore(scheduleOf)
   const tasks = useMemo(() => new Map<string, Task>(graph.workflows.pipelines.flatMap((p) => p.tasks).map((t) => [t.id, t])), [graph])
   const palette = usePalette()
@@ -273,7 +279,7 @@ export function ComputePanel() {
     return () => cancelAnimationFrame(raf)
   }, [target, view, width, util, flame, height, time.open, time.span, palette])
 
-  if (!target || !hint) return null
+  if (!target || !hint || dismissed) return null
   const c = target.cluster
 
   const hit = (e: MouseEvent<HTMLCanvasElement>) => {
@@ -308,7 +314,7 @@ export function ComputePanel() {
         )}
         <span className="spacer" />
         <span className="range">{clock(view[0])}–{clock(view[1])}</span>
-        <button title="Close" onClick={() => focus(null)}>✕</button>
+        <button title="Close (keeps the focus)" onClick={() => setDismissed(true)}>✕</button>
       </div>
       <div className="stats">
         <span>avg {Math.round(hint.avg * 100)}% · p95 {Math.round(hint.p95 * 100)}% cores busy</span>

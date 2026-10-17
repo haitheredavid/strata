@@ -71,6 +71,14 @@ export interface Layout {
   /** Stack mode with medallion grouping: dragged card centers. */
   medallionPositions?: Record<string, Vec2>
   hiddenPipelines?: string[]
+  /** The one pipeline shown ("only this"); hiddenPipelines is kept for when it's cleared. */
+  onlyPipeline?: string
+  /** Hidden layers of the current grouping (domains, or medallion layers). */
+  hiddenLayers?: string[]
+  /** The one layer shown ("only this"); hiddenLayers is kept for when it's cleared. */
+  onlyLayer?: string
+  /** Layers folded into a single card. */
+  collapsedLayers?: string[]
   /** With lineage: show only tables the visible pipelines read or write. */
   pipelineTablesOnly?: boolean
   /** With lineage: show the clusters jobs run on (default on). */

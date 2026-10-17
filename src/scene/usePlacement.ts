@@ -13,14 +13,10 @@ import type { Path } from '../view/paths'
 import { taskRunsIn } from '../sim/schedule'
 import type { Window } from '../sim/schedule'
 import { jobNodeId } from '../view/deriveView'
+import { probeLit, scopeLit } from '../view/highlight'
+import type { Highlight } from '../view/highlight'
 import { modeOf, scheduleOf, useStore, viewInputs } from '../store'
 import { span } from '../dev/perf'
-
-export interface Lit {
-  nodes: Set<string>
-  edges: Set<string>
-  flows: Set<string>
-}
 
 /** Day timeline highlight for the current window. */
 export interface TimeView {
@@ -41,15 +37,15 @@ export const timeWindow = (t: number, span: [number, number] | null): Window => 
 export interface SceneModel {
   view: ViewGraph
   placement: Placement
-  /** Focus neighborhood, when a visible node is focused. */
+  /** Focus neighborhood, when a visible node is focused (drives orbit and flow placement too). */
   reach: Map<string, Hop> | null
   paths: Path[]
-  /** Nodes / edges / flows to light up (timeline > pipeline lens > path finder); null when none applies. */
-  lit: Lit | null
+  /** What's lit: a scope (timeline / pipeline lens) and a probe (path / focus) drilling into it. */
+  highlight: Highlight
   time: TimeView | null
 }
 
-/** graph → view: grouping, hide / isolate / collapse / column detail, visible pipelines. */
+/** graph → view: grouping, hide / only / collapse / column detail, visible pipelines. */
 export function useView(): ViewGraph {
   const s = useStore(useShallow(viewInputs))
   return useMemo(() => span('deriveView', () => sceneView(s)), [s])
@@ -63,13 +59,6 @@ export function usePaths(view: ViewGraph): Path[] {
     () => (s.open && a && b ? findPaths(view, a, b, { ignore: s.ignore }) : []),
     [view, s.open, a, b, s.ignore],
   )
-}
-
-/** Everything the pipelines touch: their jobs, their reads / writes, and the flows between them. */
-function pipelineLit(view: ViewGraph, pipelineIds: Set<string>): Lit {
-  const flows = view.flows.filter((f) => pipelineIds.has(f.pipelineId))
-  const nodes = new Set(flows.flatMap((f) => [f.from, f.to]))
-  return { nodes, edges: new Set(), flows: new Set(flows.map((f) => f.id)) }
 }
 
 /** view → mode placement (+ jobs), plus focus, path, lens and run highlights. */
@@ -138,13 +127,10 @@ export function useSceneModel(): SceneModel {
     return { active, done, reached, pipelines: new Set(inWindow.map((r) => r.pipelineId)) }
   }, [s.timeOpen, s.schedule, s.t, s.span, s.lens, view])
 
-  const lit = useMemo<Lit | null>(() => {
-    if (time) return pipelineLit(view, time.pipelines)
-    if (s.lens) return pipelineLit(view, new Set([s.lens]))
-    if (!paths.length) return null
-    const shown = s.activePath !== null && paths[s.activePath] ? [paths[s.activePath]] : paths
-    return { nodes: new Set(shown.flatMap((p) => p.nodes)), edges: new Set(shown.flatMap((p) => p.edges)), flows: new Set() }
-  }, [time, s.lens, view, paths, s.activePath])
+  // Separate memos: the timeline republishes the scope often; the probe only changes with focus / paths.
+  const scope = useMemo(() => scopeLit(view, time?.pipelines ?? null, s.lens), [view, time, s.lens])
+  const probe = useMemo(() => probeLit(view, reach, paths, s.activePath), [view, reach, paths, s.activePath])
+  const highlight = useMemo<Highlight>(() => ({ scope, probe }), [scope, probe])
 
-  return { view, placement, reach, paths, lit, time }
+  return { view, placement, reach, paths, highlight, time }
 }

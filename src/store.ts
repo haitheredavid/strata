@@ -17,6 +17,7 @@ import { record, span } from './dev/perf'
 import type { SchemeId } from './theme/schemes'
 import { normaliseLayout } from './data/dataset'
 import type { Dataset } from './data/dataset'
+import { escapeStep } from './view/escape'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
@@ -27,7 +28,7 @@ export type CameraCommand =
 /** Something the user should know: a failed load, storage trouble, a dataset's warnings. */
 export interface Notice {
   id: number
-  level: 'error' | 'warning'
+  level: 'error' | 'warning' | 'info'
   text: string
   detail?: string[]
   /** About the loaded dataset: replaced when another one loads. */
@@ -46,18 +47,15 @@ interface State {
   status: string | null
   hoveredId: string | null
   focusedId: string | null
-  hiddenLayers: string[]
-  isolatedLayerId: string | null
   dragging: boolean
   cameraCommand: (CameraCommand & { nonce: number }) | null
   hopUp: number
   hopDown: number
-  collapsedLayers: string[]
   pathOpen: boolean
   pathEnds: [string | null, string | null]
   pathIgnore: string[]
   activePath: number | null
-  /** Pipeline lit by the lens button. */
+  /** Pipeline lit by the lens button: a scope that focus and paths drill into. */
   lensPipeline: string | null
   time: TimeState
   colorScheme: SchemeId
@@ -74,7 +72,8 @@ interface State {
   setLayerGap: (gap: number) => void
   moveLayer: (layerId: string, delta: -1 | 1) => void
   toggleLayer: (layerId: string) => void
-  isolateLayer: (layerId: string | null) => void
+  /** Show only this layer; again to show them all. */
+  onlyLayer: (layerId: string) => void
   hover: (id: string | null) => void
   focus: (id: string | null) => void
   setDragging: (v: boolean) => void
@@ -93,16 +92,20 @@ interface State {
   setGroupBy: (g: GroupBy) => void
   setEdgeLayer: (e: EdgeLayer) => void
   togglePipeline: (id: string) => void
-  /** Show only this pipeline; again to show them all. */
-  soloPipeline: (id: string) => void
+  /** Show only this pipeline; again to show the ones shown before. */
+  onlyPipeline: (id: string) => void
+  /** Hidden pipelines, clearing "only this". */
   setHiddenPipelines: (ids: string[]) => void
   togglePipelineTablesOnly: () => void
   toggleCompute: () => void
+  /** Light up a pipeline (turning lineage on if it's off). */
   setLens: (id: string | null) => void
   /** Open the day timeline; with a pipeline, light it up and jump to its first run. */
   openTimeline: (pipelineId?: string) => void
   setTime: (patch: Partial<TimeState>) => void
   closeTimeline: () => void
+  /** Esc: clear the innermost of path, focus, lens, timeline span, "only this". */
+  escape: () => void
   setColorScheme: (scheme: SchemeId) => void
 }
 
@@ -143,12 +146,16 @@ export const viewInputs = (s: State): ViewInputs => ({
   groupBy: s.layout.groupBy,
   edgeLayer: s.layout.edgeLayer,
   hiddenPipelines: s.layout.hiddenPipelines,
+  onlyPipeline: s.layout.onlyPipeline,
   pipelineTablesOnly: s.layout.pipelineTablesOnly,
   showCompute: s.layout.showCompute,
-  hiddenLayers: s.hiddenLayers,
-  isolatedLayerId: s.isolatedLayerId,
-  collapsedLayers: s.collapsedLayers,
+  hiddenLayers: s.layout.hiddenLayers,
+  onlyLayer: s.layout.onlyLayer,
+  collapsedLayers: s.layout.collapsedLayers,
 })
+
+/** `layout` with lineage on, for actions that only make sense with pipelines drawn. */
+const withLineage = (layout: Layout): Layout => (layout.edgeLayer === 'fk' ? { ...layout, edgeLayer: 'both' } : layout)
 
 /** Tables above which a fresh layout starts with header-only cards and only the tables pipelines touch. */
 export const LARGE_GRAPH = 150
@@ -239,13 +246,10 @@ export const useStore = create<State>((set, get) => ({
   status: null,
   hoveredId: null,
   focusedId: null,
-  hiddenLayers: [],
-  isolatedLayerId: null,
   dragging: false,
   cameraCommand: null,
   hopUp: 1,
   hopDown: 1,
-  collapsedLayers: [],
   pathOpen: false,
   pathEnds: [null, null],
   pathIgnore: [],
@@ -280,11 +284,8 @@ export const useStore = create<State>((set, get) => ({
       ...(same
         ? {}
         : {
-            collapsedLayers: [],
             hoveredId: null,
             focusedId: null,
-            hiddenLayers: [],
-            isolatedLayerId: null,
             cameraCommand: { kind: 'preset', preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() },
           }),
     })
@@ -319,13 +320,9 @@ export const useStore = create<State>((set, get) => ({
       ;[order[i], order[j]] = [order[j], order[i]]
       return { layout: { ...s.layout, [flow ? 'flowOrder' : 'layerOrder']: order } }
     }),
-  toggleLayer: (layerId) =>
-    set((s) => ({
-      hiddenLayers: s.hiddenLayers.includes(layerId)
-        ? s.hiddenLayers.filter((l) => l !== layerId)
-        : [...s.hiddenLayers, layerId],
-    })),
-  isolateLayer: (isolatedLayerId) => set({ isolatedLayerId }),
+  toggleLayer: (layerId) => set((s) => ({ layout: { ...s.layout, hiddenLayers: toggle(s.layout.hiddenLayers ?? [], layerId) } })),
+  onlyLayer: (layerId) =>
+    set((s) => ({ layout: { ...s.layout, onlyLayer: s.layout.onlyLayer === layerId ? undefined : layerId } })),
   hover: (hoveredId) => set({ hoveredId }),
   focus: (focusedId) => set({ focusedId }),
   setDragging: (dragging) => set({ dragging }),
@@ -345,7 +342,8 @@ export const useStore = create<State>((set, get) => ({
       return s
     }),
   setHops: (hopUp, hopDown) => set({ hopUp: Math.max(0, hopUp), hopDown: Math.max(0, hopDown) }),
-  toggleCollapse: (layerId) => set((s) => ({ collapsedLayers: toggle(s.collapsedLayers, layerId), focusedId: null })),
+  toggleCollapse: (layerId) =>
+    set((s) => ({ layout: { ...s.layout, collapsedLayers: toggle(s.layout.collapsedLayers ?? [], layerId) }, focusedId: null })),
   setColumnDetail: (columnDetail) => set((s) => ({ layout: { ...s.layout, columnDetail } })),
   toggleCard: (id) =>
     set((s) => ({ layout: { ...s.layout, collapsedCards: toggle(s.layout.collapsedCards ?? [], id) } })),
@@ -363,47 +361,72 @@ export const useStore = create<State>((set, get) => ({
     }),
   togglePathIgnore: (id) => set((s) => ({ pathIgnore: toggle(s.pathIgnore, id), activePath: null })),
   setActivePath: (activePath) => set({ activePath }),
+  // Layer ids belong to a grouping, so its layer visibility starts over.
   setGroupBy: (groupBy) =>
     set((s) => ({
-      layout: { ...s.layout, groupBy },
-      hiddenLayers: [],
-      isolatedLayerId: null,
-      collapsedLayers: [],
+      layout: { ...s.layout, groupBy, hiddenLayers: undefined, onlyLayer: undefined, collapsedLayers: undefined },
       cameraCommand: { kind: 'preset', preset: MODES[modeOf(s.layout)].defaultPreset, nonce: Date.now() },
     })),
   setEdgeLayer: (edgeLayer) => set((s) => ({ layout: { ...s.layout, edgeLayer } })),
   togglePipeline: (id) =>
     set((s) => ({ layout: { ...s.layout, hiddenPipelines: toggle(s.layout.hiddenPipelines ?? [], id) } })),
-  soloPipeline: (id) =>
-    set((s) => {
-      const others = s.graph.workflows.pipelines.map((p) => p.id).filter((p) => p !== id)
-      const solo = others.every((p) => s.layout.hiddenPipelines?.includes(p)) && !s.layout.hiddenPipelines?.includes(id)
-      return reframed({ ...s.layout, hiddenPipelines: solo ? [] : others })
-    }),
-  setHiddenPipelines: (hiddenPipelines) => set((s) => reframed({ ...s.layout, hiddenPipelines })),
+  onlyPipeline: (id) =>
+    set((s) => reframed({ ...s.layout, onlyPipeline: s.layout.onlyPipeline === id ? undefined : id })),
+  setHiddenPipelines: (hiddenPipelines) => set((s) => reframed({ ...s.layout, hiddenPipelines, onlyPipeline: undefined })),
   togglePipelineTablesOnly: () => set((s) => reframed({ ...s.layout, pipelineTablesOnly: !s.layout.pipelineTablesOnly }, true)),
   toggleCompute: () => set((s) => ({ layout: { ...s.layout, showCompute: !(s.layout.showCompute ?? true) } })),
-  setLens: (lensPipeline) => set({ lensPipeline }),
-  openTimeline: (pipelineId) =>
+  setLens: (lensPipeline) => {
+    const s = get()
+    if (lensPipeline && s.layout.edgeLayer === 'fk') s.notify('info', 'Turned lineage edges on to light up the pipeline')
+    set({ lensPipeline, layout: lensPipeline ? withLineage(s.layout) : s.layout })
+  },
+  openTimeline: (pipelineId) => {
+    if (get().layout.edgeLayer === 'fk') get().notify('info', 'Turned lineage edges on for the timeline')
     set((s) => {
       const runs = scheduleOf(s).runs.filter((r) => r.start > 0 || r.end < DAY) // skip all-day streams
       const first = pipelineId ? runs.find((r) => r.pipelineId === pipelineId) : runs[0]
       const t = first ? Math.max(0, first.start - 300) : s.time.open ? s.time.t : 0
       timeClock.t = t
+      const layout = withLineage(s.layout)
       return {
         time: { ...s.time, open: true, t, span: null, playing: !!pipelineId },
-        lensPipeline: pipelineId ?? null,
+        lensPipeline: pipelineId ?? s.lensPipeline,
+        // The pipeline being played is shown, even if it was hidden or another was "only this".
         layout: pipelineId
-          ? { ...s.layout, hiddenPipelines: (s.layout.hiddenPipelines ?? []).filter((p) => p !== pipelineId) }
-          : s.layout,
+          ? {
+              ...layout,
+              hiddenPipelines: (layout.hiddenPipelines ?? []).filter((p) => p !== pipelineId),
+              onlyPipeline: layout.onlyPipeline === pipelineId ? pipelineId : undefined,
+            }
+          : layout,
       }
-    }),
+    })
+  },
   setTime: (patch) =>
     set((s) => {
       if (patch.t !== undefined) timeClock.t = patch.t
       return { time: { ...s.time, ...patch } }
     }),
   closeTimeline: () => set((s) => ({ time: { ...s.time, open: false, playing: false } })),
+  escape: () =>
+    set((s) => {
+      switch (escapeStep(s)) {
+        case 'path':
+          return { pathOpen: false, pathEnds: [null, null], activePath: null }
+        case 'focus':
+          return { focusedId: null }
+        case 'lens':
+          return { lensPipeline: null }
+        case 'span':
+          return { time: { ...s.time, span: null } }
+        case 'onlyPipeline':
+          return reframed({ ...s.layout, onlyPipeline: undefined })
+        case 'onlyLayer':
+          return { layout: { ...s.layout, onlyLayer: undefined } }
+        case null:
+          return s
+      }
+    }),
   setColorScheme: (colorScheme) => {
     storage((ls) => ls.setItem(SCHEME_KEY, colorScheme))
     set({ colorScheme })

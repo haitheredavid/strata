@@ -39,6 +39,7 @@ export function DatasetMenu() {
       <Menu
         className="chip"
         title={dataset ? `${dataset.label}: switch datasets` : 'Datasets: samples and recently opened files'}
+        onOpen={refresh}
         label={
           <>
             {dataset && <span className="origin">{ORIGIN[dataset.source.origin]}</span>}

@@ -1,9 +1,13 @@
 import { useMemo } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type { ColumnDetail, EdgeLayer, GroupBy } from '../model/types'
 import { MODES } from '../layout/modes'
 import { flowOrder } from '../layout/modes/flow'
 import { SOURCES, layerView } from '../view/deriveView'
 import type { ViewGraph } from '../view/deriveView'
+import { litBy } from '../view/highlight'
+import type { LitBy } from '../view/highlight'
+import { nodeName } from '../view/nodes'
 import type { Path } from '../view/paths'
 import { usePaths, useView } from '../scene/usePlacement'
 import { modeOf, useStore } from '../store'
@@ -37,11 +41,8 @@ function Segmented<T extends string>({ options, value, onChange, disabled }: { o
 export function LayerPanel() {
   const graph = useStore((s) => s.graph)
   const layout = useStore((s) => s.layout)
-  const hiddenLayers = useStore((s) => s.hiddenLayers)
-  const isolatedLayerId = useStore((s) => s.isolatedLayerId)
-  const collapsedLayers = useStore((s) => s.collapsedLayers)
   const toggleLayer = useStore((s) => s.toggleLayer)
-  const isolateLayer = useStore((s) => s.isolateLayer)
+  const onlyLayer = useStore((s) => s.onlyLayer)
   const toggleCollapse = useStore((s) => s.toggleCollapse)
   const moveLayer = useStore((s) => s.moveLayer)
   const setLayerGap = useStore((s) => s.setLayerGap)
@@ -55,10 +56,18 @@ export function LayerPanel() {
   const mode = MODES[modeId]
   const groupBy = layout.groupBy ?? 'domain'
   const hasPipelines = graph.workflows.pipelines.length > 0
-  // Every layer that exists for the current grouping (ignoring hide / isolate), with node counts.
+  // Every layer that exists for the current grouping (ignoring hide / only / collapse), with node counts.
   const fullView = useMemo(
-    () => layerView({ graph, groupBy, edgeLayer: layout.edgeLayer, hiddenPipelines: layout.hiddenPipelines, pipelineTablesOnly: layout.pipelineTablesOnly }),
-    [graph, groupBy, layout.edgeLayer, layout.hiddenPipelines, layout.pipelineTablesOnly],
+    () =>
+      layerView({
+        graph,
+        groupBy,
+        edgeLayer: layout.edgeLayer,
+        hiddenPipelines: layout.hiddenPipelines,
+        onlyPipeline: layout.onlyPipeline,
+        pipelineTablesOnly: layout.pipelineTablesOnly,
+      }),
+    [graph, groupBy, layout.edgeLayer, layout.hiddenPipelines, layout.onlyPipeline, layout.pipelineTablesOnly],
   )
   const layerById = useMemo(() => new Map(fullView.layers.map((l) => [l.id, l])), [fullView])
   // Node count per layer, once per view (not a scan of every node per row).
@@ -79,14 +88,15 @@ export function LayerPanel() {
         : ids
   const movable = ordered.filter((id) => id !== SOURCES)
   const movableIndex = new Map(movable.map((id, i) => [id, i]))
-  const hiddenSet = new Set(hiddenLayers)
-  const collapsedSet = new Set(collapsedLayers)
+  const hiddenSet = new Set(layout.hiddenLayers)
+  const collapsedSet = new Set(layout.collapsedLayers)
   // Flow lists left to right, so "earlier" is a lower index; the stack lists top first.
   const [back, fwd] = leftToRight ? (['←', '→'] as const) : (['↑', '↓'] as const)
   const step = leftToRight ? -1 : 1
 
   return (
     <div className="panel">
+      <LitByTrail />
       <details open>
         <summary>{groupBy === 'medallion' ? 'Medallion layers' : modeId === 'stack' ? 'Layers' : 'Domains'}</summary>
         <ul className="layers">
@@ -95,11 +105,11 @@ export function LayerPanel() {
             if (!l) return null
             const count = counts.get(id) ?? 0
             const hidden = hiddenSet.has(id)
-            const isolated = isolatedLayerId === id
+            const only = layout.onlyLayer === id
             const collapsed = collapsedSet.has(id)
             const i = movableIndex.get(id) ?? -1
             return (
-              <li key={id} className={hidden || (isolatedLayerId && !isolated) ? 'off' : ''}>
+              <li key={id} className={hidden || (layout.onlyLayer && !only) ? 'off' : ''}>
                 <span className="swatch" style={{ background: palette.layer(id) }} />
                 <span className="name">{l.name}</span>
                 <span className="count">{count}</span>
@@ -115,7 +125,7 @@ export function LayerPanel() {
                   </button>
                 )}
                 <button title={hidden ? 'Show' : 'Hide'} onClick={() => toggleLayer(id)}>{hidden ? '○' : '●'}</button>
-                <button title="Isolate" className={isolated ? 'on' : ''} onClick={() => isolateLayer(isolated ? null : id)}>◎</button>
+                <button title={only ? 'Show the others again' : 'Show only this one'} className={only ? 'on' : ''} onClick={() => onlyLayer(id)}>◐</button>
               </li>
             )
           })}
@@ -153,7 +163,50 @@ export function LayerPanel() {
       <FocusSection />
       {pathOpen && <PathSection />}
 
-      <p className="hint">{HINTS[modeId]} · Esc to clear · Right-drag to pan</p>
+      <p className="hint">{HINTS[modeId]} · Esc clears one step · / search · T timeline · 1–4 modes · Right-drag to pan</p>
+    </div>
+  )
+}
+
+/** What's lit, outermost first ("Timeline › orders_daily › orders"); ✕ clears one layer. */
+function LitByTrail() {
+  const graph = useStore((s) => s.graph)
+  const by = litBy(
+    useStore(
+      useShallow((s) => ({ time: s.time, lensPipeline: s.lensPipeline, focusedId: s.focusedId, pathOpen: s.pathOpen, pathEnds: s.pathEnds })),
+    ),
+  )
+  const closeTimeline = useStore((s) => s.closeTimeline)
+  const setLens = useStore((s) => s.setLens)
+  const focus = useStore((s) => s.focus)
+  const openPath = useStore((s) => s.openPath)
+  if (!by.length) return null
+
+  const crumb = (b: LitBy): [string, () => void] => {
+    switch (b.kind) {
+      case 'time':
+        return ['Timeline', closeTimeline]
+      case 'pipeline':
+        return [graph.workflows.pipelines.find((p) => p.id === b.id)?.name ?? b.id, () => setLens(null)]
+      case 'focus':
+        return [nodeName(graph, b.id), () => focus(null)]
+      case 'path':
+        return ['Path', () => openPath(false)]
+    }
+  }
+  return (
+    <div className="lit-by">
+      <span className="lit-by-label">Lit by</span>
+      {by.map((b, i) => {
+        const [label, clear] = crumb(b)
+        return (
+          <span key={b.kind} className="crumb">
+            {i > 0 && <span className="sep">›</span>}
+            <span className="crumb-name" title={label}>{label}</span>
+            <button title={`Clear ${b.kind}`} onClick={clear}>✕</button>
+          </span>
+        )
+      })}
     </div>
   )
 }

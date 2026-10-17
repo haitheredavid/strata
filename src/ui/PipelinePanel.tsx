@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { TRIGGER_LABEL } from '../scene/timeClock'
 import { usePalette } from '../theme/palette'
+import { hiddenPipelinesOf } from '../view/deriveView'
 
 /** Lists longer than this get a filter box. */
 const FILTER_AT = 12
@@ -9,22 +10,23 @@ const FILTER_AT = 12
 /** Pipelines from DBML notes and the workflow file: show / hide / solo, light one up, or play its day. */
 export function PipelinePanel() {
   const workflows = useStore((s) => s.graph.workflows)
+  const graph = useStore((s) => s.graph)
   const hidden = useStore((s) => s.layout.hiddenPipelines) ?? []
+  const only = useStore((s) => s.layout.onlyPipeline)
   const lineage = useStore((s) => (s.layout.edgeLayer ?? 'both') !== 'fk')
   const lens = useStore((s) => s.lensPipeline)
   const timeline = useStore((s) => s.time.open)
   const togglePipeline = useStore((s) => s.togglePipeline)
-  const soloPipeline = useStore((s) => s.soloPipeline)
+  const onlyPipeline = useStore((s) => s.onlyPipeline)
   const tablesOnly = useStore((s) => s.layout.pipelineTablesOnly ?? false)
   const toggleTablesOnly = useStore((s) => s.togglePipelineTablesOnly)
   const setHidden = useStore((s) => s.setHiddenPipelines)
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
   const listed = q ? workflows.pipelines.filter((p) => p.name.toLowerCase().includes(q) || p.id.includes(q)) : workflows.pipelines
-  const solo = (id: string) => hidden.length === workflows.pipelines.length - 1 && !hidden.includes(id)
+  const shownOff = new Set(hiddenPipelinesOf({ graph, hiddenPipelines: hidden, onlyPipeline: only }))
   const setLens = useStore((s) => s.setLens)
   const openTimeline = useStore((s) => s.openTimeline)
-  const setEdgeLayer = useStore((s) => s.setEdgeLayer)
   const showCompute = useStore((s) => s.layout.showCompute ?? true)
   const toggleCompute = useStore((s) => s.toggleCompute)
   const palette = usePalette()
@@ -48,7 +50,7 @@ export function PipelinePanel() {
       )}
       <ul className="pipelines">
         {listed.map((p) => {
-          const off = hidden.includes(p.id) || !lineage
+          const off = shownOff.has(p.id) || !lineage
           return (
             <li key={p.id} className={off ? 'off' : ''} title={p.tasks.map((t) => t.name).join(' → ')}>
               <span className="swatch" style={{ background: palette.pipeline(p.id) }} />
@@ -58,27 +60,13 @@ export function PipelinePanel() {
               <button title={hidden.includes(p.id) ? 'Show' : 'Hide'} onClick={() => togglePipeline(p.id)}>
                 {hidden.includes(p.id) ? '○' : '●'}
               </button>
-              <button title={solo(p.id) ? 'Show all pipelines' : 'Show only this pipeline'} className={solo(p.id) ? 'on' : ''} onClick={() => soloPipeline(p.id)}>
+              <button title={only === p.id ? 'Show the others again' : 'Show only this one'} className={only === p.id ? 'on' : ''} onClick={() => onlyPipeline(p.id)}>
                 ◐
               </button>
-              <button
-                title="Light up this pipeline"
-                className={lens === p.id ? 'on' : ''}
-                onClick={() => {
-                  if (!lineage) setEdgeLayer('both')
-                  setLens(lens === p.id ? null : p.id)
-                }}
-              >
+              <button title="Light up this pipeline" className={lens === p.id ? 'on' : ''} onClick={() => setLens(lens === p.id ? null : p.id)}>
                 ◎
               </button>
-              <button
-                title="Play its day on the timeline"
-                className={timeline && lens === p.id ? 'on' : ''}
-                onClick={() => {
-                  if (!lineage) setEdgeLayer('both')
-                  openTimeline(p.id)
-                }}
-              >
+              <button title="Play its day on the timeline" className={timeline && lens === p.id ? 'on' : ''} onClick={() => openTimeline(p.id)}>
                 ▶
               </button>
             </li>

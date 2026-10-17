@@ -3,7 +3,7 @@ import type { DragEvent } from 'react'
 import { Scene } from './scene/Scene'
 import { Toolbar } from './ui/Toolbar'
 import { LayerPanel } from './ui/LayerPanel'
-import { useStore } from './store'
+import { useGlobalKeys } from './ui/keys'
 import { boot, openFiles } from './ui/files'
 import { Timeline } from './ui/Timeline'
 import { Profiled } from './dev/Profiled'
@@ -27,16 +27,7 @@ export default function App() {
     void boot()
   }, [])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      const s = useStore.getState()
-      s.focus(null)
-      s.setLens(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  useGlobalKeys()
 
   return (
     <div

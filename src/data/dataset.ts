@@ -8,7 +8,7 @@ import type { Schedule } from '../sim/schedule'
 import { hash32 } from '../sim/rng'
 import { SYNTH_DEFAULTS, synthGraph, synthKey } from '../dev/synth'
 import type { SynthOptions } from '../dev/synth'
-import { SOURCES } from '../view/deriveView'
+import { MEDALLION_LAYERS, SOURCES } from '../view/deriveView'
 import { span } from '../dev/perf'
 
 /** Bundled schemas in `public/`. */
@@ -135,15 +135,24 @@ export function withWorkflows(d: Dataset, text: string): Dataset {
   return buildDataset({ ...d.source, workflows: text }, { dbml: d.dbml, workflows: null })
 }
 
-/** `layout` with ids the graph no longer has dropped (hidden pipelines, folded cards, flow order). */
+/** `layout` with ids the graph no longer has dropped (pipelines, folded cards, layers). */
 export function normaliseLayout(layout: Layout, graph: Graph): Layout {
   const pipelines = new Set(graph.workflows.pipelines.map((p) => p.id))
   const cards = new Set([...graph.tables.map((t) => t.id), ...graph.workflows.sources.map((s) => s.id)])
-  const layers = new Set([...graph.layers.map((l) => l.id), SOURCES])
+  // Layer visibility is for the current grouping: its domains, or the fixed medallion layers.
+  const layers = new Set(
+    layout.groupBy === 'medallion' ? [...MEDALLION_LAYERS.map((l) => l.id), SOURCES] : [...graph.layers.map((l) => l.id), SOURCES],
+  )
+  const flowLayers = new Set([...graph.layers.map((l) => l.id), SOURCES])
+  const keep = (id: string | undefined, ids: Set<string>) => (id && ids.has(id) ? id : undefined)
   return {
     ...layout,
     hiddenPipelines: layout.hiddenPipelines?.filter((id) => pipelines.has(id)),
+    onlyPipeline: keep(layout.onlyPipeline, pipelines),
     collapsedCards: layout.collapsedCards?.filter((id) => cards.has(id)),
-    flowOrder: layout.flowOrder?.filter((id) => layers.has(id)),
+    flowOrder: layout.flowOrder?.filter((id) => flowLayers.has(id)),
+    hiddenLayers: layout.hiddenLayers?.filter((id) => layers.has(id)),
+    onlyLayer: keep(layout.onlyLayer, layers),
+    collapsedLayers: layout.collapsedLayers?.filter((id) => layers.has(id)),
   }
 }
