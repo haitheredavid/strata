@@ -82,7 +82,7 @@ export function Scene() {
 function Diagram({ model }: { model: SceneModel }) {
   const { view, placement, reach, lit, time } = model
   const graph = useStore((s) => s.graph)
-  const focused = useStore((s) => s.focusedTableId)
+  const focused = useStore((s) => s.focusedId)
   const mode = useStore((s) => MODES[modeOf(s.layout)])
   const edgeLayer = useStore((s) => s.layout.edgeLayer ?? 'both')
   const pipelines = useStore((s) => s.graph.workflows.pipelines)

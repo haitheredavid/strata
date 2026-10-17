@@ -36,7 +36,7 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
   const cmd = useStore((s) => s.cameraCommand)
   const flat = useStore((s) => modeOf(s.layout) === 'diagram')
   const draggable = useStore((s) => MODES[modeOf(s.layout)].draggable)
-  const hovered = useStore((s) => s.hoveredTableId)
+  const hovered = useStore((s) => s.hoveredId)
   const dragging = useStore((s) => s.dragging)
   // Commands run against the placement of the render that issued them.
   const latest = useRef({ view, placement })
@@ -93,7 +93,7 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
     const k = lensScale((camera as PerspectiveCamera).fov ?? FOV)
 
     if (cmd.kind === 'fly') {
-      const n = placement.nodes[cmd.tableId]
+      const n = placement.nodes[cmd.id]
       if (!n) return
       const [x, y, z] = n.p
       const off =

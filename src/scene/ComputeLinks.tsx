@@ -27,7 +27,7 @@ export function ComputeLinks({ links, colorOf, opacityOf, hoverable }: Props) {
 
   useFrame(() => {
     batch.resize(links.length)
-    const h = hoverable ? useStore.getState().hoveredTableId : null
+    const h = hoverable ? useStore.getState().hoveredId : null
     links.forEach((link, k) => {
       const hovered = h !== null && (h === link.job || h === link.cluster)
       const opacity = hovered ? 0.9 : styles[k].opacity

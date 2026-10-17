@@ -93,7 +93,7 @@ export function NodeParts(p: Props) {
 
   useFrame((_, dt) => {
     const L = layout
-    const hovered = useStore.getState().hoveredTableId
+    const hovered = useStore.getState().hoveredId
     L.jobs.forEach(({ node }, k) => {
       const op = p.nodeOpacity(node.id)
       const high = node.id === hovered || node.id === p.focused

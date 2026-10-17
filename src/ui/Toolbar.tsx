@@ -29,7 +29,7 @@ export function Toolbar() {
 
   const go = (id: string) => {
     focus(id)
-    camera({ kind: 'fly', tableId: id })
+    camera({ kind: 'fly', id })
   }
 
   const exportLayout = () => {

@@ -8,7 +8,7 @@ import { seedLayout } from './layout/seedLayout'
 import { MODES } from './layout/modes'
 import { flowOrder } from './layout/modes/flow'
 import { derivedStack } from './layout/modes/stack'
-import { deriveView, sceneView } from './view/deriveView'
+import { layerView, sceneView } from './view/deriveView'
 import type { ViewInputs } from './view/deriveView'
 import { timeClock } from './scene/timeClock'
 import { hash32 } from './sim/rng'
@@ -22,7 +22,7 @@ import type { Snapshot } from './ingest/snapshot'
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
   | { kind: 'preset'; preset: CameraPreset }
-  | { kind: 'fly'; tableId: string }
+  | { kind: 'fly'; id: string }
   | { kind: 'frame'; ids: string[] }
 
 interface State {
@@ -30,8 +30,8 @@ interface State {
   graph: Graph
   layout: Layout
   error: string | null
-  hoveredTableId: string | null
-  focusedTableId: string | null
+  hoveredId: string | null
+  focusedId: string | null
   hiddenLayers: string[]
   isolatedLayerId: string | null
   dragging: boolean
@@ -64,8 +64,8 @@ interface State {
   moveLayer: (layerId: string, delta: -1 | 1) => void
   toggleLayer: (layerId: string) => void
   isolateLayer: (layerId: string | null) => void
-  hover: (tableId: string | null) => void
-  focus: (tableId: string | null) => void
+  hover: (id: string | null) => void
+  focus: (id: string | null) => void
   setDragging: (v: boolean) => void
   camera: (cmd: CameraCommand) => void
   setMode: (mode: ModeId) => void
@@ -74,7 +74,7 @@ interface State {
   setHops: (up: number, down: number) => void
   toggleCollapse: (layerId: string) => void
   setColumnDetail: (detail: ColumnDetail) => void
-  toggleCard: (tableId: string) => void
+  toggleCard: (id: string) => void
   openPath: (open: boolean) => void
   setPathEnd: (i: 0 | 1, id: string | null) => void
   togglePathIgnore: (id: string) => void
@@ -230,8 +230,8 @@ function installGraph(graph: Graph, schemaKey: string, source: string, sidecar: 
     graph,
     layout,
     error: null,
-    hoveredTableId: null,
-    focusedTableId: null,
+    hoveredId: null,
+    focusedId: null,
     hiddenLayers: [],
     isolatedLayerId: null,
     cameraCommand: { kind: 'preset', preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() },
@@ -243,8 +243,8 @@ export const useStore = create<State>((set, get) => ({
   graph: EMPTY_GRAPH,
   layout: { layerGap: 8, layerOrder: [], positions: {} },
   error: null,
-  hoveredTableId: null,
-  focusedTableId: null,
+  hoveredId: null,
+  focusedId: null,
   hiddenLayers: [],
   isolatedLayerId: null,
   dragging: false,
@@ -317,7 +317,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       if (s.layout.groupBy === 'medallion') return s // bronze → silver → gold is fixed
       const flow = modeOf(s.layout) === 'flow' || modeOf(s.layout) === 'diagram' // diagram shares flow's order
-      const order = flow ? flowOrder(deriveView(s.graph), s.layout) : [...s.layout.layerOrder]
+      const order = flow ? flowOrder(layerView(viewInputs(s)), s.layout) : [...s.layout.layerOrder]
       const i = order.indexOf(layerId)
       const j = i + delta
       if (i < 0 || j < 0 || j >= order.length) return s
@@ -331,8 +331,8 @@ export const useStore = create<State>((set, get) => ({
         : [...s.hiddenLayers, layerId],
     })),
   isolateLayer: (isolatedLayerId) => set({ isolatedLayerId }),
-  hover: (hoveredTableId) => set({ hoveredTableId }),
-  focus: (focusedTableId) => set({ focusedTableId }),
+  hover: (hoveredId) => set({ hoveredId }),
+  focus: (focusedId) => set({ focusedId }),
   setDragging: (dragging) => set({ dragging }),
   camera: (cmd) => set({ cameraCommand: { ...cmd, nonce: Date.now() } }),
   // The camera stays put across layout switches, so you can watch the cards move.
@@ -350,14 +350,14 @@ export const useStore = create<State>((set, get) => ({
       return s
     }),
   setHops: (hopUp, hopDown) => set({ hopUp: Math.max(0, hopUp), hopDown: Math.max(0, hopDown) }),
-  toggleCollapse: (layerId) => set((s) => ({ collapsedLayers: toggle(s.collapsedLayers, layerId), focusedTableId: null })),
+  toggleCollapse: (layerId) => set((s) => ({ collapsedLayers: toggle(s.collapsedLayers, layerId), focusedId: null })),
   setColumnDetail: (columnDetail) => set((s) => ({ layout: { ...s.layout, columnDetail } })),
-  toggleCard: (tableId) =>
-    set((s) => ({ layout: { ...s.layout, collapsedCards: toggle(s.layout.collapsedCards ?? [], tableId) } })),
+  toggleCard: (id) =>
+    set((s) => ({ layout: { ...s.layout, collapsedCards: toggle(s.layout.collapsedCards ?? [], id) } })),
   openPath: (pathOpen) =>
     set((s) => ({
       pathOpen,
-      pathEnds: pathOpen ? [s.pathEnds[0] ?? s.focusedTableId, s.pathEnds[1]] : [null, null],
+      pathEnds: pathOpen ? [s.pathEnds[0] ?? s.focusedId, s.pathEnds[1]] : [null, null],
       activePath: null,
     })),
   setPathEnd: (i, id) =>
@@ -441,7 +441,3 @@ useStore.subscribe((s, prev) => {
   saveTimer = setTimeout(() => idle(flushSave), SAVE_DELAY)
 })
 if (typeof window !== 'undefined') window.addEventListener('pagehide', flushSave)
-
-/** Whether a layer is currently shown, given hide/isolate state. */
-export const layerVisible = (s: Pick<State, 'hiddenLayers' | 'isolatedLayerId'>, layerId: string) =>
-  s.isolatedLayerId ? s.isolatedLayerId === layerId : !s.hiddenLayers.includes(layerId)

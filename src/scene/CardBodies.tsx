@@ -78,7 +78,7 @@ export function CardBodies({ world, style }: { world: World; style: CardStyle })
         a.needsUpdate = true
       }
     }
-    const h = useStore.getState().hoveredTableId
+    const h = useStore.getState().hoveredId
     ;(m.material.userData.u as Uniforms).hovered.value = h === null ? -1 : (world.nodes.index.get(h) ?? -1)
   })
 

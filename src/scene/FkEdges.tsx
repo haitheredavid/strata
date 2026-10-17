@@ -109,7 +109,7 @@ export function FkEdges({ world, curves, fkStyle }: { world: World; curves: FkCu
       }
     }
     const u = m.material.userData.u as Uniforms
-    const h = useStore.getState().hoveredTableId
+    const h = useStore.getState().hoveredId
     u.hovered.value = h === null ? -1 : (world.nodes.index.get(h) ?? -2)
     u.fade.value = 1 - 0.75 * animState.moving
     u.hoverable.value = fkStyle.hoverable ? 1 : 0

@@ -118,7 +118,7 @@ function flameRects(spark: SparkRun[], names: Map<string, string>, palette: Pale
  * click empty space to move the playhead.
  */
 export function ComputePanel() {
-  const focused = useStore((s) => s.focusedTableId)
+  const focused = useStore((s) => s.focusedId)
   const graph = useStore((s) => s.graph)
   const time = useStore((s) => s.time)
   const on = useStore((s) => (s.layout.edgeLayer ?? 'both') !== 'fk' && (s.layout.showCompute ?? true))

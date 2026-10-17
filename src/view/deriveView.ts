@@ -237,13 +237,20 @@ export interface ViewInputs {
   collapsedLayers: string[]
 }
 
-export const lineageOn = (edgeLayer: string | undefined) => edgeLayer !== 'fk'
+/** Every layer the current grouping, edge layer and pipeline filter produce, ignoring hide / isolate / collapse. Pure. */
+export function layerView(s: Pick<ViewInputs, 'graph' | 'groupBy' | 'edgeLayer' | 'hiddenPipelines' | 'pipelineTablesOnly'>): ViewGraph {
+  return deriveView(s.graph, {
+    groupBy: s.groupBy,
+    lineage: s.edgeLayer !== 'fk',
+    hiddenPipelines: s.hiddenPipelines,
+    pipelineTablesOnly: s.pipelineTablesOnly,
+  })
+}
 
 /** The scene's view: grouping, hide / isolate / collapse / column detail, visible pipelines. Pure. */
 export function sceneView(s: ViewInputs): ViewGraph {
-  const lineage = lineageOn(s.edgeLayer)
   const hidden = s.isolatedLayerId
-    ? deriveView(s.graph, { groupBy: s.groupBy, lineage }).layers.map((l) => l.id).filter((id) => id !== s.isolatedLayerId)
+    ? layerView(s).layers.map((l) => l.id).filter((id) => id !== s.isolatedLayerId)
     : s.hiddenLayers
   return deriveView(s.graph, {
     hiddenLayers: hidden,
@@ -251,7 +258,7 @@ export function sceneView(s: ViewInputs): ViewGraph {
     columnDetail: s.columnDetail,
     collapsedCards: s.collapsedCards,
     groupBy: s.groupBy,
-    lineage,
+    lineage: s.edgeLayer !== 'fk',
     hiddenPipelines: s.hiddenPipelines,
     pipelineTablesOnly: s.pipelineTablesOnly,
     compute: s.showCompute ?? true,

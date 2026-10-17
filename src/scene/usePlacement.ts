@@ -79,7 +79,7 @@ export function useSceneModel(): SceneModel {
     useShallow((s) => ({
       layout: s.layout,
       graph: s.graph,
-      focused: s.focusedTableId,
+      focused: s.focusedId,
       hopUp: s.hopUp,
       hopDown: s.hopDown,
       lens: s.lensPipeline,

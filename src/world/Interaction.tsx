@@ -71,7 +71,7 @@ export function Interaction({ world, placement, nodeById, draggable }: { world: 
       if (drag || s.dragging) return
       const i = pick(e)
       const id = i < 0 ? null : world.nodes.ids[i]
-      if (id !== s.hoveredTableId) s.hover(id)
+      if (id !== s.hoveredId) s.hover(id)
     }
 
     const onDown = (e: PointerEvent) => {
@@ -111,12 +111,12 @@ export function Interaction({ world, placement, nodeById, draggable }: { world: 
       down = null
       if (d) {
         if (d.moved) return
-        if (e.shiftKey && s.focusedTableId && s.focusedTableId !== d.id) {
-          s.setPathEnd(0, s.focusedTableId)
+        if (e.shiftKey && s.focusedId && s.focusedId !== d.id) {
+          s.setPathEnd(0, s.focusedId)
           s.setPathEnd(1, d.id)
           return
         }
-        s.focus(s.focusedTableId === d.id ? null : d.id)
+        s.focus(s.focusedId === d.id ? null : d.id)
         return
       }
       if (!press || e.button !== 0) return
@@ -127,7 +127,7 @@ export function Interaction({ world, placement, nodeById, draggable }: { world: 
         return
       }
       const id = world.nodes.ids[i]
-      s.focus(s.focusedTableId === id ? null : id) // jobs and clusters
+      s.focus(s.focusedId === id ? null : id) // jobs and clusters
     }
 
     const onDouble = (e: MouseEvent) => {
@@ -141,7 +141,7 @@ export function Interaction({ world, placement, nodeById, draggable }: { world: 
 
     const onLeave = () => {
       const s = useStore.getState()
-      if (!drag && s.hoveredTableId) s.hover(null)
+      if (!drag && s.hoveredId) s.hover(null)
     }
 
     el.addEventListener('pointermove', onMove)
@@ -166,7 +166,7 @@ export function Interaction({ world, placement, nodeById, draggable }: { world: 
   // A hovered node that left the scene (collapsed, hidden) stops being hovered.
   useEffect(() => {
     const s = useStore.getState()
-    if (s.hoveredTableId && !world.nodes.index.has(s.hoveredTableId)) s.hover(null)
+    if (s.hoveredId && !world.nodes.index.has(s.hoveredId)) s.hover(null)
   }, [world])
 
   return null

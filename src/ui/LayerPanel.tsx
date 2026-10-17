@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import type { ColumnDetail, EdgeLayer, GroupBy } from '../model/types'
 import { MODES } from '../layout/modes'
 import { flowOrder } from '../layout/modes/flow'
-import { SOURCES, deriveView, lineageOn } from '../view/deriveView'
+import { SOURCES, layerView } from '../view/deriveView'
 import type { ViewGraph } from '../view/deriveView'
 import type { Path } from '../view/paths'
 import { usePaths, useView } from '../scene/usePlacement'
@@ -57,7 +57,7 @@ export function LayerPanel() {
   const hasPipelines = graph.workflows.pipelines.length > 0
   // Every layer that exists for the current grouping (ignoring hide / isolate), with node counts.
   const fullView = useMemo(
-    () => deriveView(graph, { groupBy, lineage: lineageOn(layout.edgeLayer), hiddenPipelines: layout.hiddenPipelines, pipelineTablesOnly: layout.pipelineTablesOnly }),
+    () => layerView({ graph, groupBy, edgeLayer: layout.edgeLayer, hiddenPipelines: layout.hiddenPipelines, pipelineTablesOnly: layout.pipelineTablesOnly }),
     [graph, groupBy, layout.edgeLayer, layout.hiddenPipelines, layout.pipelineTablesOnly],
   )
   const layerById = useMemo(() => new Map(fullView.layers.map((l) => [l.id, l])), [fullView])
@@ -169,7 +169,7 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
 }
 
 function FocusSection() {
-  const focused = useStore((s) => s.focusedTableId)
+  const focused = useStore((s) => s.focusedId)
   const hopUp = useStore((s) => s.hopUp)
   const hopDown = useStore((s) => s.hopDown)
   const setHops = useStore((s) => s.setHops)
