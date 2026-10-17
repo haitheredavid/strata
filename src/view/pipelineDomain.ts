@@ -1,8 +1,8 @@
 import type { Graph } from '../model/types'
 
 /**
- * Past this many pipelines, distinct colours stop being distinguishable: pipelines take their domain's
- * hue (shaded apart within it), and flow lanes only show for lit pipelines.
+ * Past this many pipelines, a lane per pipeline is too many to read: flow lanes only show for lit
+ * pipelines.
  */
 export const MANY_PIPELINES = 12
 

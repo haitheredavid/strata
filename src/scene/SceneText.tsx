@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { CARD_W, HEADER_H, ROW_H } from '../layout/geometry'
 import type { PlatePlace } from '../layout/modes'
 import type { ViewCluster, ViewEdge, ViewNode } from '../view/deriveView'
+import { splitName } from '../view/nodes'
 import type { World } from '../world/world'
 import { span } from '../dev/perf'
+import { useStore } from '../store'
 import { clusterSpec, KIND_LABEL } from './clusterStyle'
 import { EVENT, RACK_GAP, RACK_MAX_SHOWN, RACK_ROW, triggerText } from './labels'
-import { isNear, onNearChange } from './lod'
+import { isNear, LABEL_PX, onNearChange } from './lod'
 import type { SceneAnchors } from './text/anchors'
 import { loadAtlas } from './text/atlas'
 import type { Atlas } from './text/atlas'
@@ -31,16 +33,23 @@ interface Props {
   clusterColor: (kind: ViewCluster['cluster']['kind']) => string
   /** Focused node: jobs show their volume line while highlighted. */
   focused: string | null
+  /** Lit nodes (the probe, else the scope): their names get callouts while few enough. */
+  lit: ReadonlySet<string> | null
   jobVolume: (id: string) => string | undefined
 }
 
 const CARD_Z = 0.04 // card group offset plus the label offset the old cards used
+const HEADER_SIZE = 0.32
+/** More lit nodes than this get no callouts (only the focused and hovered ones do): they would pile up. */
+const MAX_CALLOUTS = 12
 
 /**
  * Every label in the scene, built from the view in one pass and drawn by one TextLayer: card
  * headers and medallion letters, column rows on cards near the camera, job and cluster captions,
  * plate names and FK cardinality marks. Anchors: world nodes first, then plates, then two per FK
- * edge (see AnchorDriver).
+ * edge (see AnchorDriver). Labels fade in as they grow legible on screen (see LABEL_PX); the
+ * focused, hovered and lit nodes' names also get callouts, drawn over everything at a legible
+ * size until their own labels are.
  */
 export function SceneText(p: Props) {
   const [atlas, setAtlas] = useState<Atlas | null>(null)
@@ -130,30 +139,65 @@ export function SceneText(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [world, plates, nearVersion, p.fkEdges, p.showFk, p.fkOpacity, p.plateOpacity, p.focused, p.nodeById, p.jobVolume])
 
+  const hovered = useStore((s) => s.hoveredId)
+  const { focused, lit, pipelineColor } = p
+  const callouts = useMemo(() => {
+    const ids = new Set<string>()
+    if (focused) ids.add(focused)
+    if (hovered) ids.add(hovered)
+    if (lit && lit.size <= MAX_CALLOUTS) for (const id of lit) ids.add(id)
+    const out: TextItem[] = []
+    for (const id of ids) {
+      const i = world.nodes.index.get(id)
+      const n = nodeById.get(id)
+      if (i === undefined || !n) continue
+      const job = n.kind === 'job'
+      out.push({
+        anchor: i,
+        x: 0,
+        y: 0,
+        z: 0.3,
+        text: job ? n.name : headerText(n).short,
+        size: job ? 0.34 : HEADER_SIZE,
+        color: job ? pipelineColor(n.pipelineId!) : '#f8fafc',
+        opacity: 1,
+        anchorX: 'center',
+        anchorY: 'middle',
+        minPx: LABEL_PX.callout,
+        halo: true,
+      })
+    }
+    return out
+  }, [world, nodeById, focused, hovered, lit, pipelineColor])
+
   if (!atlas) return null
   return (
     <>
       <TextLayer atlas={atlas} anchors={p.anchors.table} items={items} />
       <TextLayer atlas={atlas} anchors={p.anchors.table} items={overlay} />
+      <TextLayer atlas={atlas} anchors={p.anchors.table} items={callouts} renderOrder={3} overlay />
     </>
   )
 }
 
+/** A card's header text: tables by their last name segment, with the rest as a muted prefix. */
+function headerText(n: ViewNode): { short: string; prefix: string } {
+  if (n.kind === 'table') return splitName(n.name)
+  return { short: n.kind === 'domain' ? n.name.toUpperCase() : n.name, prefix: '' }
+}
+
 function cardText(out: TextItem[], anchor: number, n: ViewNode, top: number, opacity: number, rows: boolean) {
   const headerY = top - HEADER_H / 2
-  out.push({
-    anchor,
-    x: -CARD_W / 2 + 0.2,
-    y: headerY,
-    z: CARD_Z,
-    text: n.kind === 'domain' ? n.name.toUpperCase() : n.name,
-    size: 0.32,
-    color: '#0b0e14',
-    opacity,
-    anchorX: 'left',
-    anchorY: 'middle',
-    maxWidth: CARD_W - (n.medallion ? 0.9 : 0.4),
-  })
+  const maxWidth = CARD_W - (n.medallion ? 0.9 : 0.4)
+  const { short, prefix } = headerText(n)
+  // With a prefix, the name moves up a little and the prefix sits small and muted under it.
+  const header = { anchor, x: -CARD_W / 2 + 0.2, z: CARD_Z, color: '#0b0e14', anchorX: 'left', anchorY: 'middle', maxWidth } as const
+  if (prefix) {
+    out.push({ ...header, y: headerY + 0.09, text: short, size: 0.3, opacity })
+    out.push({ ...header, y: headerY - 0.2, text: prefix, size: 0.16, opacity: opacity * 0.6 })
+  } else {
+    out.push({ ...header, y: headerY, text: short, size: HEADER_SIZE, opacity })
+  }
   if (n.medallion)
     out.push({ anchor, x: CARD_W / 2 - 0.32, y: headerY, z: CARD_Z + 0.012, text: n.medallion[0].toUpperCase(), size: 0.22, color: '#0b0e14', opacity, anchorX: 'center', anchorY: 'middle' })
   if (!rows) return

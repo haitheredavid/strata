@@ -31,3 +31,12 @@ export function nodeName(graph: Graph, id: string): string {
   if (ref) return ref.name
   return graph.layers.find((l) => domainNodeId(l.id) === id)?.name ?? id
 }
+
+/**
+ * A dotted table name split for display: the last segment, then everything before it
+ * (`gold.procore.prime_contracts` → `prime_contracts`, `gold.procore`). Undotted names have no prefix.
+ */
+export function splitName(name: string): { short: string; prefix: string } {
+  const i = name.lastIndexOf('.')
+  return i <= 0 || i === name.length - 1 ? { short: name, prefix: '' } : { short: name.slice(i + 1), prefix: name.slice(0, i) }
+}

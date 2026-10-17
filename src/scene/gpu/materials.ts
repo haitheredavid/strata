@@ -15,6 +15,7 @@ import {
   length,
   max,
   min,
+  mix,
   modelViewMatrix,
   normalize,
   positionGeometry,
@@ -33,6 +34,7 @@ import type { Node } from 'three/webgpu'
 import type { Texture } from 'three'
 import { ANCHOR_TEX_W as ANCHOR_W } from '../text/anchors'
 import { HEADER_H } from '../../layout/geometry'
+import { LABEL_PX } from '../lod'
 
 /**
  * TSL node materials for the instanced renderers, for three's WebGPURenderer on either of its
@@ -227,26 +229,48 @@ export function curveMaterial(segments: number) {
 // ---------------------------------------------------------------------------------------------
 // Scene text: glyph quads hung off an anchor texture, sampled from an SDF atlas.
 
-export function textMaterial(atlas: { texture: Texture; cols: number; rows: number }, anchors: Texture) {
+const HALO = 0.15 // SDF level of a halo's outer edge (0.5 is the glyph edge)
+
+/**
+ * Labels fade in with their on-screen size (see LABEL_PX). A glyph with a minimum size (g1.w, in px
+ * per em) is a callout: it grows about its anchor to stay that tall, ignores the anchor's opacity, and
+ * fades out once it would be legible at its own size. Glyphs flagged with g2.w get a dark halo.
+ * `overlay` draws over everything else (no depth test). Set `pxScale` every frame: viewport height in
+ * px / 2 × projection[1][1], the screen px per world unit at view depth 1.
+ */
+export function textMaterial(atlas: { texture: Texture; cols: number; rows: number; cell: number }, anchors: Texture, overlay = false) {
+  const u = { pxScale: uniform(1) }
   const g0 = attribute('g0', 'vec4') // anchor, x, y, z
-  const g1 = attribute('g1', 'vec4') // atlas cell, quad side, opacity
-  const g2 = attribute('g2', 'vec4') // rgb
+  const g1 = attribute('g1', 'vec4') // atlas cell, quad side, opacity, callout px per em (0: none)
+  const g2 = attribute('g2', 'vec4') // rgb, halo
   const corner = uv()
+
+  const texel = (i: Node<'int'>): V4 => textureLoad(anchors, ivec2(i.mod(ANCHOR_W), i.div(ANCHOR_W)))
+  // Fresh nodes per stage (vertex position, the fade varying), as the anchor alpha used to be read.
+  const sizing = () => {
+    const a = int(g0.x.add(0.5)).mul(2)
+    const anchor = texel(a)
+    // Clip w is the view depth under a perspective lens and 1 under an orthographic one (whose zoom is in pxScale).
+    const depth = cameraProjectionMatrix.mul(modelViewMatrix.mul(vec4(anchor.xyz, 1))).w
+    const emPx = g1.y.div(atlas.cell).mul(u.pxScale).div(max(depth, 1e-4))
+    return { a, anchor, emPx, callout: g1.w.greaterThan(0) }
+  }
 
   const mat = new MeshBasicNodeMaterial()
   mat.vertexNode = Fn(() => {
-    const a = int(g0.x.add(0.5)).mul(2)
-    const at = (i: Node<'int'>): V4 => textureLoad(anchors, ivec2(i.mod(ANCHOR_W), i.div(ANCHOR_W)))
-    const apos = at(a).xyz
-    const aquat = at(a.add(1))
-    const local = vec3(g0.y.add(corner.x.mul(g1.y)), g0.z.add(corner.y.mul(g1.y)), g0.w)
-    return cameraProjectionMatrix.mul(modelViewMatrix.mul(vec4(apos.add(rotate(aquat, local)), 1)))
+    const { a, anchor, emPx, callout } = sizing()
+    const grow = select(callout, max(float(1), g1.w.div(emPx)), float(1))
+    const local = vec3(g0.y.add(corner.x.mul(g1.y)).mul(grow), g0.z.add(corner.y.mul(g1.y)).mul(grow), g0.w)
+    // Callouts face the camera, upright, so they never read mirrored or upside down; the rest lie in their anchor's frame.
+    const facing = cameraProjectionMatrix.mul(vec4(modelViewMatrix.mul(vec4(anchor.xyz, 1)).xyz.add(vec3(local.xy, 0)), 1))
+    const placed = cameraProjectionMatrix.mul(modelViewMatrix.mul(vec4(anchor.xyz.add(rotate(texel(a.add(1)), local)), 1)))
+    return select(callout, facing, placed)
   })()
-  // The anchor's opacity (position texel .w), passed down from the vertex stage.
-  const anchorAlpha = varying(
+  const fade = varying(
     Fn(() => {
-      const a = int(g0.x.add(0.5)).mul(2)
-      return textureLoad(anchors, ivec2(a.mod(ANCHOR_W), a.div(ANCHOR_W))).w
+      const { anchor, emPx, callout } = sizing()
+      const legible = smoothstep(float(LABEL_PX.hidden), float(LABEL_PX.full), emPx)
+      return select(callout, float(1).sub(legible), legible.mul(anchor.w))
     })(),
   )
   const col = g1.x.mod(atlas.cols)
@@ -254,14 +278,18 @@ export function textMaterial(atlas: { texture: Texture; cols: number; rows: numb
   const auv = vec2(col.add(corner.x), row.add(float(1).sub(corner.y))).div(vec2(atlas.cols, atlas.rows))
   const d = texture(atlas.texture, auv).r
   const w = max(fwidth(d).mul(0.7), 0.001)
-  mat.colorNode = g2.xyz
-  mat.opacityNode = smoothstep(float(0.5).sub(w), float(0.5).add(w), d).mul(g1.z).mul(anchorAlpha)
+  const fill = smoothstep(float(0.5).sub(w), float(0.5).add(w), d)
+  const halo = g2.w.greaterThan(0.5)
+  const ring = smoothstep(float(HALO).sub(w), float(HALO).add(w), d)
+  mat.colorNode = select(halo, mix(vec3(rgb('#0b0e14')), g2.xyz, fill), g2.xyz)
+  mat.opacityNode = select(halo, max(fill, ring.mul(0.85)), fill).mul(g1.z).mul(fade)
   mat.alphaTest = 0.01
   mat.transparent = true
   mat.depthWrite = false
+  mat.depthTest = !overlay
   mat.side = DoubleSide
   mat.forceSinglePass = true
-  return mat
+  return { material: mat, uniforms: u as unknown as Uniforms }
 }
 
 // ---------------------------------------------------------------------------------------------

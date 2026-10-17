@@ -3,8 +3,8 @@ import type { Graph } from '../model/types'
 import type { ClusterKind } from '../model/workflow'
 import type { StageOp } from '../sim/spark'
 import { CLUSTER_COLOR, OP_COLOR } from '../scene/clusterStyle'
+import { PIPELINE_COLORS } from '../parse/workflows'
 import { MEDALLION_LAYERS, SOURCES_LAYER, UNASSIGNED } from '../view/deriveView'
-import { MANY_PIPELINES, pipelineDomains } from '../view/pipelineDomain'
 import { useStore } from '../store'
 import { accentOf, spread } from './schemes'
 import type { SchemeId } from './schemes'
@@ -32,25 +32,40 @@ const MEDALLIONS = MEDALLION_LAYERS.filter((l) => l.id !== UNASSIGNED).map((l) =
 
 const zip = (ids: string[], colors: string[]) => new Map(ids.map((id, i) => [id, colors[i]]))
 
-/** Lightness steps for the pipelines sharing a domain's hue: the hue itself, then lighter and darker. */
-const SHADES = [0, 0.14, -0.14, 0.24, -0.24, 0.07, -0.07, 0.19, -0.19]
+/**
+ * Pipeline colors for workspaces with more pipelines than the parser's eight: those eight, then
+ * colors picked greedily to be as far as possible (OKLab distance) from every earlier one, within a
+ * lightness and chroma band that reads on the dark background. The closest pair here is further
+ * apart than the closest pair of the original eight.
+ */
+export const PIPELINE_PALETTE = [
+  ...PIPELINE_COLORS,
+  '#ebc8fa', '#919600', '#469ba5', '#0091fa', '#bee1b4', '#aa7da0', '#b4b478', '#c37837',
+  '#e1a5af', '#ff96ff', '#00aa69', '#a0b9ff', '#c35fcd', '#05fad2', '#91be00', '#ffc396',
+  '#a5e1ff', '#3cafe6', '#73b9af', '#7887cd', '#e15087', '#b49bcd', '#cd9b00', '#c88c82',
+]
 
-/** Pipelines in their domain's hue, shaded apart within it; ones writing no table keep `fallback`. */
-function domainHued(graph: Graph, layer: (id: string) => string, fallback: Map<string, string>): Map<string, string> {
-  const domains = pipelineDomains(graph)
-  const seen = new Map<string, number>()
-  const out = new Map<string, string>()
-  for (const p of graph.workflows.pipelines) {
-    const d = domains.get(p.id)
-    if (!d) {
-      out.set(p.id, fallback.get(p.id) ?? FALLBACK)
-      continue
-    }
-    const k = seen.get(d) ?? 0
-    seen.set(d, k + 1)
-    out.set(p.id, `#${new Color(layer(d)).offsetHSL(0, 0, SHADES[k % SHADES.length]).getHexString()}`)
-  }
-  return out
+/** Lightness offsets for each further pass through the palette. */
+const PASSES = [0, -0.16, 0.12, -0.26]
+
+/** The `i`th categorical pipeline color: the palette, then it again darker / lighter. */
+export function pipelineColor(i: number): string {
+  const n = PIPELINE_PALETTE.length
+  const base = PIPELINE_PALETTE[i % n]
+  const pass = Math.floor(i / n) % PASSES.length
+  return pass === 0 ? base : `#${new Color(base).offsetHSL(0, 0, PASSES[pass]).getHexString()}`
+}
+
+/**
+ * Pipeline colors in the default scheme. Up to the parser's eight, the parsed colors as they are.
+ * Past that the parser cycles its eight, so each pipeline still showing a parser color takes the
+ * palette color for its position instead; `color:` overrides from the workflow file stay. Position in
+ * the graph's pipeline list, so a pipeline keeps its color across reloads and while others are hidden.
+ */
+function defaultPipelineColors(graph: Graph): Map<string, string> {
+  const { pipelines } = graph.workflows
+  const many = pipelines.length > PIPELINE_COLORS.length
+  return new Map(pipelines.map((p, i) => [p.id, many && PIPELINE_COLORS.includes(p.color) ? pipelineColor(i) : p.color]))
 }
 
 function build(graph: Graph, scheme: SchemeId): Palette {
@@ -61,7 +76,7 @@ function build(graph: Graph, scheme: SchemeId): Palette {
     scheme === 'default'
       ? [
           new Map(graph.layers.map((l) => [l.id, l.color])),
-          new Map(graph.workflows.pipelines.map((p) => [p.id, p.color])),
+          defaultPipelineColors(graph),
           new Map(MEDALLION_LAYERS.map((l) => [l.id, l.color])),
           new Map(Object.entries(CLUSTER_COLOR)),
           new Map(Object.entries(OP_COLOR)),
@@ -77,10 +92,9 @@ function build(graph: Graph, scheme: SchemeId): Palette {
         ]
   const medallion = (id: string) => medallions.get(id) ?? NEUTRAL.get(id) ?? FALLBACK
   const layer = (id: string) => layers.get(id) ?? (NEUTRAL.has(id) ? NEUTRAL.get(id)! : medallion(id))
-  const pipelineColors = pipelineIds.length > MANY_PIPELINES ? domainHued(graph, layer, pipelines) : pipelines
   return {
     layer,
-    pipeline: (id) => pipelineColors.get(id) ?? FALLBACK,
+    pipeline: (id) => pipelines.get(id) ?? FALLBACK,
     medallion,
     cluster: (kind) => clusters.get(kind) ?? FALLBACK,
     op: (op) => ops.get(op) ?? FALLBACK,

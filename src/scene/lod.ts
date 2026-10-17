@@ -4,13 +4,21 @@ import { PerspectiveCamera, Vector3 } from 'three'
 import { anim } from './anim'
 
 /**
+ * Label legibility, in screen pixels per em of a label's font size. The text shader fades every label
+ * in between `hidden` and `full`, per label, from its anchor's depth, so labels appear progressively as
+ * the camera closes in (bigger text first: plates, then headers, then rows). Callouts for lit, hovered
+ * and focused nodes are drawn at least `callout` px tall and fade out as the label itself becomes legible.
+ */
+export const LABEL_PX = { hidden: 6, full: 10, callout: 14 }
+
+/**
  * Column labels are most of the scene's text (two per row), and only legible up close. A driver ranks
  * the cards by camera distance a few times a second and keeps the set of cards near enough to show
- * their rows. A card shows rows when its row text would be at least MIN_PX tall and it is among the
- * MAX_NEAR nearest; it hides them again only past a margin, so cards don't flicker at the edge.
- * Graphs with at most MAX_NEAR cards always show every row.
+ * their rows. A card shows rows when its row text would be at least MIN_PX tall (where the shader
+ * starts fading it in) and it is among the MAX_NEAR nearest; it hides them again only past a margin,
+ * so cards don't flicker at the edge. Graphs with at most MAX_NEAR cards always show every row.
  */
-const MIN_PX = 5
+const MIN_PX = LABEL_PX.hidden
 const ROW_FONT = 0.22
 const MAX_NEAR = 300
 const HYSTERESIS = 1.25

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
 import { Color, InstancedBufferAttribute, InstancedBufferGeometry, PlaneGeometry } from 'three'
 import type { Material, Mesh } from 'three'
 import { textMaterial } from '../gpu/materials'
+import type { Uniforms } from '../gpu/materials'
 import type { AnchorTable } from './anchors'
 import type { Atlas } from './atlas'
 import { layoutLine } from './layout'
@@ -21,6 +23,14 @@ export interface TextItem {
   anchorX: AnchorX
   anchorY: AnchorY
   maxWidth?: number
+  /**
+   * A callout: faces the camera, drawn at least this many px per em, grown about the anchor (so place
+   * it at x = y = 0), at full strength whatever the anchor's opacity, and gone once the text is legible
+   * at `size`.
+   */
+  minPx?: number
+  /** A dark outline, for text drawn over wires and other cards. */
+  halo?: boolean
 }
 
 const tmp = new Color()
@@ -38,8 +48,8 @@ function build(atlas: Atlas, items: TextItem[]) {
     tmp.set(t.color)
     for (let j = 0; j < l.cells.length; j++, k++) {
       g0.set([t.anchor, t.x + l.xy[2 * j], t.y + l.xy[2 * j + 1], t.z], 4 * k)
-      g1.set([l.cells[j], l.quad, t.opacity, 0], 4 * k)
-      g2.set([tmp.r, tmp.g, tmp.b, 0], 4 * k)
+      g1.set([l.cells[j], l.quad, t.opacity, t.minPx ?? 0], 4 * k)
+      g2.set([tmp.r, tmp.g, tmp.b, t.halo ? 1 : 0], 4 * k)
     }
   })
   return { g0, g1, g2, n }
@@ -47,9 +57,10 @@ function build(atlas: Atlas, items: TextItem[]) {
 
 /**
  * All scene text in one instanced draw: one quad per glyph, sampled from the SDF atlas, hung off
- * the anchor table. Rebuilds the glyph buffers when `items` changes; anchors move every frame.
+ * the anchor table. Rebuilds the glyph buffers when `items` changes; anchors move every frame. Text
+ * fades with its size on screen (see LABEL_PX). `overlay` draws over everything (callouts).
  */
-export function TextLayer({ atlas, anchors, items, renderOrder = 2 }: { atlas: Atlas; anchors: AnchorTable; items: TextItem[]; renderOrder?: number }) {
+export function TextLayer({ atlas, anchors, items, renderOrder = 2, overlay = false }: { atlas: Atlas; anchors: AnchorTable; items: TextItem[]; renderOrder?: number; overlay?: boolean }) {
   const geometry = useMemo(() => {
     const g = new InstancedBufferGeometry()
     const quad = new PlaneGeometry(1, 1)
@@ -73,8 +84,16 @@ export function TextLayer({ atlas, anchors, items, renderOrder = 2 }: { atlas: A
     if (mesh.current) mesh.current.visible = n > 0
   }, [geometry, atlas, items])
 
-  const material = useMemo<Material>(() => textMaterial(atlas, anchors.texture), [atlas, anchors])
+  const material = useMemo<Material>(() => {
+    const { material, uniforms } = textMaterial(atlas, anchors.texture, overlay)
+    material.userData.u = uniforms
+    return material
+  }, [atlas, anchors, overlay])
   useEffect(() => () => material.dispose(), [material])
+  useFrame(({ camera, size }) => {
+    const m = mesh.current
+    if (m) ((m.material as Material).userData.u as Uniforms).pxScale.value = (size.height / 2) * camera.projectionMatrix.elements[5]
+  })
 
   return <mesh ref={mesh} visible={false} geometry={geometry} material={material} frustumCulled={false} raycast={() => null} renderOrder={renderOrder} />
 }

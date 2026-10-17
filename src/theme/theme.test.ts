@@ -1,11 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { Color } from 'three'
 import { describe, expect, it } from 'vitest'
 import { parseDbml } from '../parse/dbml'
 import { synthGraph } from '../dev/synth'
 import { SOURCES } from '../view/deriveView'
-import { pipelineDomains } from '../view/pipelineDomain'
-import { paletteFor } from './palette'
+import { paletteFor, PIPELINE_PALETTE } from './palette'
 import { accentOf, sample, spread } from './schemes'
 
 const read = (f: string) => readFileSync(new URL(`../../public/${f}`, import.meta.url), 'utf8')
@@ -77,18 +75,18 @@ describe('paletteFor', () => {
     expect(paletteFor(lakehouse, 'plasma')).not.toBe(paletteFor(lakehouse, 'inferno'))
   })
 
-  it('hues many pipelines by the domain they write, shaded apart within it', () => {
+  it('gives many pipelines distinct colors from a fixed order, keeping overrides', () => {
     const g = synthGraph({ tables: 300, layers: 4, pipelines: 40, seed: 2 })
     const p = paletteFor(g, 'default')
-    const domains = pipelineDomains(g)
-    const hue = (hex: string) => new Color(hex).getHSL({ h: 0, s: 0, l: 0 }).h
-    for (const x of g.workflows.pipelines) {
-      const d = domains.get(x.id)
-      if (d) expect(hue(p.pipeline(x.id))).toBeCloseTo(hue(p.layer(d)), 2)
-    }
-    for (const l of g.layers) {
-      const mine = g.workflows.pipelines.filter((x) => domains.get(x.id) === l.id).slice(0, 9).map((x) => p.pipeline(x.id))
-      expect(new Set(mine).size).toBe(mine.length)
-    }
+    const colors = g.workflows.pipelines.map((x) => p.pipeline(x.id))
+    expect(new Set(colors).size).toBe(colors.length)
+    expect(colors.slice(0, PIPELINE_PALETTE.length)).toEqual(PIPELINE_PALETTE)
+
+    const sidecar = (n: number) =>
+      `pipelines:\n${Array.from({ length: n }, (_, i) => `  - id: p${i}\n${i === 3 ? '    color: "#123456"\n' : ''}    tasks: [{ id: t${i}, writes: [a] }]`).join('\n')}`
+    const sixteen = parseDbml('Table a { id int [pk] }', sidecar(16))
+    const q = paletteFor(sixteen, 'default')
+    expect(q.pipeline('p3')).toBe('#123456')
+    expect(new Set(sixteen.workflows.pipelines.map((x) => q.pipeline(x.id))).size).toBe(16)
   })
 })

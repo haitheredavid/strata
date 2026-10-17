@@ -301,6 +301,7 @@ function Diagram({ model }: { model: SceneModel }) {
           pipelineColor={colorOf}
           clusterColor={palette.cluster}
           focused={focused}
+          lit={front?.nodes ?? null}
           jobVolume={jobVolume}
       />
       <PlateBodies plates={placement.plates} anchors={anchors} colorOf={palette.layer} opacity={front ? 0.4 : 1} />
