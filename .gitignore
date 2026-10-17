@@ -32,3 +32,6 @@ skills-lock.json
 
 # Workspace exports (real metadata): never commit or deploy
 snapshots/
+
+# Agent worktrees
+.claude/
