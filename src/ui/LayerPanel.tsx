@@ -81,13 +81,15 @@ export function LayerPanel() {
   const ids = fullView.layers.map((l) => l.id)
   const fixed = groupBy === 'medallion'
   const leftToRight = modeId === 'flow' || modeId === 'diagram'
-  const ordered =
+  // The saved stack order also names layers this view leaves out (pipeline filters); list only the present ones.
+  const ordered = (
     leftToRight
       ? flowOrder(fullView, layout)
       : modeId === 'stack'
         ? // top of the stack first, matching what you see in 3D; sources sit underneath
           [...(fixed ? ids.filter((id) => id !== SOURCES) : layout.layerOrder)].reverse().concat(ids.includes(SOURCES) ? [SOURCES] : [])
         : ids
+  ).filter((id) => layerById.has(id))
   const movable = ordered.filter((id) => id !== SOURCES)
   const movableIndex = new Map(movable.map((id, i) => [id, i]))
   const hiddenSet = new Set(layout.hiddenLayers)
@@ -123,19 +125,21 @@ export function LayerPanel() {
                 <span className="swatch" style={{ background: palette.layer(id) }} />
                 <span className="name">{l.name}</span>
                 <span className="count">{count}</span>
-                {modeId !== 'orbit' && !fixed && i >= 0 && (
-                  <>
-                    <button title="Move earlier" disabled={i === 0} onClick={() => moveLayer(id, step as 1 | -1)}>{back}</button>
-                    <button title="Move later" disabled={i === movable.length - 1} onClick={() => moveLayer(id, -step as 1 | -1)}>{fwd}</button>
-                  </>
-                )}
-                {id !== SOURCES && (
-                  <button title={collapsed ? 'Expand' : 'Collapse to one card'} className={collapsed ? 'on' : ''} onClick={() => toggleCollapse(id)}>
-                    {collapsed ? '⊞' : '⊟'}
-                  </button>
-                )}
-                <button title={hidden ? 'Show' : 'Hide'} className={hidden ? 'state' : ''} onClick={() => toggleLayer(id)}>{hidden ? '○' : '●'}</button>
-                <button title={only ? 'Show the others again' : 'Show only this one'} className={only ? 'on' : ''} onClick={() => onlyLayer(id)}>◐</button>
+                <span className="actions">
+                  {modeId !== 'orbit' && !fixed && i >= 0 && (
+                    <>
+                      <button title="Move earlier" disabled={i === 0} onClick={() => moveLayer(id, step as 1 | -1)}>{back}</button>
+                      <button title="Move later" disabled={i === movable.length - 1} onClick={() => moveLayer(id, -step as 1 | -1)}>{fwd}</button>
+                    </>
+                  )}
+                  {id !== SOURCES && (
+                    <button title={collapsed ? 'Expand' : 'Collapse to one card'} className={collapsed ? 'on' : ''} onClick={() => toggleCollapse(id)}>
+                      {collapsed ? '⊞' : '⊟'}
+                    </button>
+                  )}
+                  <button title={hidden ? 'Show' : 'Hide'} className={hidden ? 'state' : ''} onClick={() => toggleLayer(id)}>{hidden ? '○' : '●'}</button>
+                  <button title={only ? 'Show the others again' : 'Show only this one'} className={only ? 'on' : ''} onClick={() => onlyLayer(id)}>◐</button>
+                </span>
               </li>
             )
           })}

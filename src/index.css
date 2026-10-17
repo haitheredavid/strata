@@ -5,6 +5,8 @@
   --text: #d7dce5;
   --muted: #7d8799;
   --accent: #4f9dff;
+  /* Right-hand panel width; the bottom dock stops short of it. */
+  --panel-w: 260px;
   font-family: Inter, system-ui, -apple-system, sans-serif;
   font-size: 13px;
   color: var(--text);
@@ -119,7 +121,7 @@ button.on { background: var(--accent); color: #0b0e14; }
   position: absolute;
   top: 12px;
   right: 12px;
-  width: 260px;
+  width: var(--panel-w);
   padding: 12px;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   border: 1px solid var(--border);
@@ -130,9 +132,11 @@ button.on { background: var(--accent); color: #0b0e14; }
 .layers li { display: flex; align-items: center; gap: 4px; padding: 3px 0; }
 .layers li.off .name, .layers li.off .swatch { opacity: 0.35; }
 .layers .swatch { width: 10px; height: 10px; border-radius: 3px; }
-.layers .name { flex: 1; }
-.layers .count { color: var(--muted); margin-right: 4px; }
+.layers .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layers .count, .pipelines li > .count { min-width: 3ch; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .layers button { padding: 1px 6px; font-size: 11px; }
+.layers li, .pipelines li:not(.group) { position: relative; }
+.actions { display: inline-flex; flex: none; gap: 4px; }
 
 .gap { display: flex; flex-wrap: wrap; justify-content: space-between; color: var(--muted); }
 .gap input { width: 100%; margin-top: 4px; }
@@ -228,10 +232,14 @@ button.on { background: var(--accent); color: #0b0e14; }
 .pipelines { list-style: none; margin: 0; padding: 0; }
 .pipelines li.group { padding: 6px 0 2px; color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 .pipelines li.group .count { margin-left: 4px; letter-spacing: 0; }
-/* Row actions show on hover (or keyboard focus); ones holding a non-default state stay visible. */
+/* Row actions show on hover (or keyboard focus) over the row's right end, so at rest they take no
+   width from the name; ones holding a non-default state stay visible. */
 @media (hover: hover) {
-  .layers li button:not(.on):not(.state), .pipelines li button:not(.on):not(.state) { visibility: hidden; }
-  .layers li:hover button, .layers li:focus-within button, .pipelines li:hover button, .pipelines li:focus-within button { visibility: visible; }
+  li:not(:hover):not(:focus-within) > .actions button:not(.on):not(.state) { display: none; }
+  li:hover > .actions, li:focus-within > .actions {
+    position: absolute; top: 0; bottom: 0; right: 0; align-items: center; padding-left: 16px;
+    background: linear-gradient(to right, transparent, var(--panel) 14px);
+  }
 }
 .row input.filter { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 11px; }
 .pipelines li { display: flex; align-items: center; gap: 4px; padding: 3px 0; }
@@ -243,10 +251,11 @@ button.on { background: var(--accent); color: #0b0e14; }
 /* Bottom dock: compute drawer above the timeline. */
 .dock {
   position: absolute;
-  left: 50%;
+  left: 12px;
+  right: calc(var(--panel-w) + 24px);
   bottom: 16px;
-  transform: translateX(-50%);
-  width: min(1100px, calc(100% - 320px));
+  max-width: 1100px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -283,7 +292,7 @@ button.on { background: var(--accent); color: #0b0e14; }
 .timeline .label .swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .timeline .plot { position: relative; flex: 1; min-width: 0; cursor: crosshair; user-select: none; touch-action: none; overflow-x: clip; }
 .timeline .lane-row { position: relative; border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
-.timeline .bar { position: absolute; border-radius: 2px; border-left: 3px solid; overflow: hidden; cursor: pointer; opacity: 0.9; }
+.timeline .bar { position: absolute; min-width: 6px; border-radius: 2px; border-left: 3px solid; overflow: hidden; cursor: pointer; opacity: 0.9; }
 .timeline .bar:hover { opacity: 1; outline: 1px solid #fff; }
 .timeline .bar .setup {
   position: absolute; inset: 0 auto 0 0;

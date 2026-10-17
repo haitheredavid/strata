@@ -76,7 +76,7 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 
 ## Day timeline
 
-**Timeline** in the toolbar (or ▶ on a pipeline) opens a day of runs across every pipeline: simulated unless a snapshot is loaded, and the header says which. A snapshot's day runs from local midnight to local midnight, so a day with a daylight-saving change is 23 or 25 hours long and its times are the zone's wall clock.
+**Timeline** in the toolbar (or ▶ on a pipeline) opens a day of runs across every pipeline: simulated unless a snapshot is loaded, and the header says which. A snapshot's day runs from local midnight to local midnight, so a day with a daylight-saving change is 23 or 25 hours long and its times are the zone's wall clock. It opens with the whole day as the span, so everything that ran is lit, and the playhead on the first run. **Clear span** or Esc goes back to the hour before the playhead. ▶ on a pipeline instead plays from just before its first run.
 
 - **Start times** come from each pipeline's trigger:
   - cron schedules fire at their times; file arrivals land three times a day; manual runs at 09:00; continuous runs all day.
@@ -85,7 +85,7 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 - **Durations** come from the medallion layer a task writes (silver heaviest), scaled by how many tables it reads. A task's `duration: 12m` in the workflow file overrides this. Job clusters add a cold start once per run.
 - **Rows**: one row per pipeline and one bar per task run.
   - The hatched start of a bar is queueing or cluster start-up. Its left edge is the medallion layer it writes, and ◆ marks an emitted event.
-  - Hover a bar for times and the cluster it ran on. Click it to focus that job.
+  - Hover a bar for times and the cluster it ran on. Click it (or up to 6 px beside it) to focus that job.
 - **Selecting time**: click to move the playhead, drag to select a span (drag its edges to adjust), wheel to zoom, shift-wheel to pan.
 - **3D scene**: lights jobs running at the playhead, plus jobs in the span (or in the last hour). Reads pulse in, then writes pulse out, as each job progresses.
 - **Medallion totals**: the B / S / G chip shows task time per layer in the span, or so far today. It shows where silver outweighs gold.

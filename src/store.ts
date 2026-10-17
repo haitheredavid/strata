@@ -102,7 +102,7 @@ interface State {
   toggleCompute: () => void
   /** Light up a pipeline (turning lineage on if it's off). */
   setLens: (id: string | null) => void
-  /** Open the day timeline; with a pipeline, light it up and jump to its first run. */
+  /** Open the day timeline: with a pipeline, light it up and play from its first run; else span the whole day. */
   openTimeline: (pipelineId?: string) => void
   setTime: (patch: Partial<TimeState>) => void
   closeTimeline: () => void
@@ -324,9 +324,14 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       if (s.layout.groupBy === 'medallion') return s // bronze → silver → gold is fixed
       const flow = modeOf(s.layout) === 'flow' || modeOf(s.layout) === 'diagram' // diagram shares flow's order
-      const order = flow ? flowOrder(layerView(viewInputs(s)), s.layout) : [...s.layout.layerOrder]
+      const view = layerView(viewInputs(s))
+      const order = flow ? flowOrder(view, s.layout) : [...s.layout.layerOrder]
+      // The saved order also holds layers the view leaves out (filtered by pipeline); step over them so
+      // each move visibly swaps two listed layers.
+      const present = new Set(view.layers.map((l) => l.id))
       const i = order.indexOf(layerId)
-      const j = i + delta
+      let j = i + delta
+      while (j >= 0 && j < order.length && !present.has(order[j])) j += delta
       if (i < 0 || j < 0 || j >= order.length) return s
       ;[order[i], order[j]] = [order[j], order[i]]
       return { layout: { ...s.layout, [flow ? 'flowOrder' : 'layerOrder']: order } }
@@ -395,13 +400,17 @@ export const useStore = create<State>((set, get) => ({
     if (get().layout.edgeLayer === 'fk') get().notify('info', 'Turned lineage edges on for the timeline')
     set((s) => {
       const schedule = scheduleOf(s)
-      const runs = schedule.runs.filter((r) => r.start > 0 || r.end < daySeconds(schedule)) // skip all-day streams
+      const len = daySeconds(schedule)
+      const runs = schedule.runs.filter((r) => r.start > 0 || r.end < len) // skip all-day streams
       const first = pipelineId ? runs.find((r) => r.pipelineId === pipelineId) : runs[0]
-      const t = first ? Math.max(0, first.start - 300) : s.time.open ? s.time.t : 0
+      // A pipeline plays from just before its first run. The plain timeline opens on the whole day as
+      // its span, so everything that ran today is lit rather than the (often empty) hour before the playhead.
+      const t = first ? (pipelineId ? Math.max(0, first.start - 300) : first.start) : s.time.open ? s.time.t : 0
+      const span: [number, number] | null = pipelineId || !len ? null : [0, len]
       timeClock.t = t
       const layout = withLineage(s.layout)
       return {
-        time: { ...s.time, open: true, t, span: null, playing: !!pipelineId },
+        time: { ...s.time, open: true, t, span, playing: !!pipelineId },
         lensPipeline: pipelineId ?? s.lensPipeline,
         // The pipeline being played is shown, even if it was hidden or another was "only this".
         layout: pipelineId

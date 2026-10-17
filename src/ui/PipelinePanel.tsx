@@ -76,18 +76,20 @@ export function PipelinePanel() {
                   <span className="name">{p.name}</span>
                   {p.trigger && <span className="trig">{TRIGGER_LABEL[p.trigger.kind]}</span>}
                   <span className="count">{p.tasks.length}</span>
-                  <button title={hidden.includes(p.id) ? 'Show' : 'Hide'} className={hidden.includes(p.id) ? 'state' : ''} onClick={() => togglePipeline(p.id)}>
-                    {hidden.includes(p.id) ? '○' : '●'}
-                  </button>
-                  <button title={only === p.id ? 'Show the others again' : 'Show only this one'} className={only === p.id ? 'on' : ''} onClick={() => onlyPipeline(p.id)}>
-                    ◐
-                  </button>
-                  <button title="Light up this pipeline" className={lens === p.id ? 'on' : ''} onClick={() => setLens(lens === p.id ? null : p.id)}>
-                    ◎
-                  </button>
-                  <button title="Play its day on the timeline" className={timeline && lens === p.id ? 'on' : ''} onClick={() => openTimeline(p.id)}>
-                    ▶
-                  </button>
+                  <span className="actions">
+                    <button title={hidden.includes(p.id) ? 'Show' : 'Hide'} className={hidden.includes(p.id) ? 'state' : ''} onClick={() => togglePipeline(p.id)}>
+                      {hidden.includes(p.id) ? '○' : '●'}
+                    </button>
+                    <button title={only === p.id ? 'Show the others again' : 'Show only this one'} className={only === p.id ? 'on' : ''} onClick={() => onlyPipeline(p.id)}>
+                      ◐
+                    </button>
+                    <button title="Light up this pipeline" className={lens === p.id ? 'on' : ''} onClick={() => setLens(lens === p.id ? null : p.id)}>
+                      ◎
+                    </button>
+                    <button title="Play its day on the timeline" className={timeline && lens === p.id ? 'on' : ''} onClick={() => openTimeline(p.id)}>
+                      ▶
+                    </button>
+                  </span>
                 </li>
               )
             })}

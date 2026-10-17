@@ -13,6 +13,8 @@ const LANE = 8
 const LANE_GAP = 2
 const MIN_VIEW = 900
 const TICK_STEPS = [900, 1800, 3600, 7200, 10800, 21600]
+/** How far (px) a click may miss a bar and still pick it: bars of short runs are only a few px wide. */
+const HIT_SLOP = 6
 
 const speedLabel = (v: number) => (v < 3600 ? `${v / 60}m/s` : `${v / 3600}h/s`)
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
@@ -152,7 +154,7 @@ export function Timeline() {
     return (
       <>
           {rows.map(({ p, placed, emits, height }) => (
-            <div key={p.id} className="lane-row" style={{ height, opacity: lens && lens !== p.id ? 0.3 : 1 }}>
+            <div key={p.id} className="lane-row" data-pipeline={p.id} style={{ height, opacity: lens && lens !== p.id ? 0.3 : 1 }}>
               {placed.map(({ run, lane }) => {
                 if (run.end < view[0] || run.start > view[1]) return null
                 const left = clamp(pct(run.start), 0, 100)
@@ -203,12 +205,30 @@ export function Timeline() {
     return r.left + (pct(t) / 100) * r.width
   }
 
+  /** The run under the pointer: the bar hit, else the nearest bar within reach on the same lane. */
+  const runAt = (e: PointerEvent<HTMLDivElement>): string | undefined => {
+    const target = e.target as HTMLElement
+    const hit = target.closest<HTMLElement>('[data-run]')?.dataset.run
+    if (hit) return hit
+    const rowEl = target.closest<HTMLElement>('[data-pipeline]')
+    const row = rowEl && rows.find((r) => r.p.id === rowEl.dataset.pipeline)
+    if (!rowEl || !row) return
+    const lane = Math.floor((e.clientY - rowEl.getBoundingClientRect().top - 3) / (LANE + LANE_GAP))
+    let best: string | undefined
+    let bestPx = HIT_SLOP
+    for (const { run, lane: l } of row.placed) {
+      if (l !== lane) continue
+      const px = Math.max(0, pxOf(run.start) - e.clientX, e.clientX - pxOf(run.end))
+      if (px <= bestPx) [best, bestPx] = [run.id, px]
+    }
+    return best
+  }
+
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId)
     const near = (t: number) => Math.abs(pxOf(t) - e.clientX) < 6
     const mode = span && near(span[0]) ? 'a' : span && near(span[1]) ? 'b' : 'new'
-    const taskRun = (e.target as HTMLElement).closest<HTMLElement>('[data-run]')?.dataset.run
-    drag.current = { x: e.clientX, t: tAt(e.clientX), mode, moved: false, taskRun }
+    drag.current = { x: e.clientX, t: tAt(e.clientX), mode, moved: false, taskRun: runAt(e) }
   }
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const d = drag.current

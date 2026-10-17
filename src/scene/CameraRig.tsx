@@ -30,6 +30,9 @@ const FLY_OFFSET: Record<Exclude<Frame, 'billboard'>, [number, number, number]> 
   side: [11, 4, 6],
 }
 
+/** Sideways aim shift, as a share of the eye's distance, so the right-hand panel doesn't cover the target. */
+const PANEL_SHIFT = 0.06
+
 export function CameraRig({ view, placement }: { view: ViewGraph; placement: Placement }) {
   const controls = useRef<CameraControlsImpl>(null)
   const camera = useThree((s) => s.camera)
@@ -100,6 +103,9 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
         n.frame === 'billboard'
           ? camera.position.clone().sub(new Vector3(x, y, z)).normalize().multiplyScalar(14).toArray()
           : FLY_OFFSET[n.frame]
+      // Replace the whole-scene framing's offset, which would push a close-up card off screen. The lens
+      // stretch (k) keeps the view width at the card the same, so the shift doesn't scale with it.
+      c.setFocalOffset(Math.hypot(...off) * PANEL_SHIFT, 0, 0, true)
       c.setLookAt(x + off[0] * k, y + off[1] * k, z + off[2] * k, x, y, z, true)
       return
     }
@@ -127,7 +133,7 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
     const [cx, cy, cz] = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2)
     const size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 10)
     // Aim a little right of center so the side panel doesn't cover the far end of the scene.
-    c.setFocalOffset(size * 0.12, 0, 0, true)
+    c.setFocalOffset(size * 2 * PANEL_SHIFT, 0, 0, true)
 
     const look = (dx: number, dy: number, dz: number) => c.setLookAt(cx + dx * k, cy + dy * k, cz + dz * k, cx, cy, cz, true)
     if (cmd.kind === 'frame') {
