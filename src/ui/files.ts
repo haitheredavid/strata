@@ -82,7 +82,8 @@ export async function openFiles(files: FileList | File[]) {
   } catch (e) {
     return notify('error', `Couldn't read ${list.map((f) => f.name).join(', ')}: ${message(e)}`)
   }
-  const { plan, ignored } = planOpen(read)
+  const { plan, ignored, problems } = planOpen(read)
+  for (const p of problems) notify('error', p)
   const s = useStore.getState()
   switch (plan.kind) {
     case 'snapshot':
@@ -106,7 +107,8 @@ export async function openFiles(files: FileList | File[]) {
       s.setLayout(plan.layout)
       break
     case 'none':
-      return notify('error', `Not a schema, workflow file, snapshot or layout: ${ignored.join(', ')}`)
+      if (ignored.length) notify('error', `Not a schema, workflow file, snapshot or layout: ${ignored.join(', ')}`)
+      return
   }
   if (ignored.length) notify('warning', `Ignored ${ignored.join(', ')}`)
 }

@@ -27,6 +27,15 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Workspace snapshots hold real metadata and public/ is deployed as-is: never ship one.
+      - name: No workspace snapshots in the repo
+        run: |
+          found=$(git ls-files -- '*.snapshot.json' '*.raw.json' 'snapshots/**')
+          if [ -n "$found" ]; then
+            echo "::error::Workspace exports must not be committed (real metadata):"
+            echo "$found"
+            exit 1
+          fi
       - run: pnpm test
       # Served from https://<user>.github.io/<repo>/, so assets need the repo as base path.
       - run: pnpm exec tsc -b && pnpm exec vite build --base=/${{ github.event.repository.name }}/

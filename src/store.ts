@@ -15,7 +15,7 @@ import type { Schedule } from './sim/schedule'
 import { isScheme } from './theme/schemes'
 import { record, span } from './dev/perf'
 import type { SchemeId } from './theme/schemes'
-import { normaliseLayout } from './data/dataset'
+import { mergeLayout, normaliseLayout } from './data/dataset'
 import type { Dataset } from './data/dataset'
 import { escapeStep } from './view/escape'
 
@@ -183,16 +183,19 @@ function savedScheme(): SchemeId {
   return isScheme(v) ? v : 'default'
 }
 
-function loadSavedLayout(layoutKey: string, graph: Graph): Layout | null {
+/** The layout saved under `layoutKey`, whatever graph it was for. */
+function savedLayout(layoutKey: string): Layout | null {
   try {
     const raw = localStorage.getItem(storageKey(layoutKey))
-    if (!raw) return null
-    const layout: Layout = JSON.parse(raw)
-    return isLayoutFor(layout, graph) ? layout : null
+    const layout: unknown = raw ? JSON.parse(raw) : null
+    return isLayoutShaped(layout) ? layout : null
   } catch {
     return null
   }
 }
+
+const isLayoutShaped = (v: unknown): v is Layout =>
+  !!v && typeof v === 'object' && 'positions' in v && !!v.positions && typeof v.positions === 'object' && 'layerOrder' in v && Array.isArray(v.layerOrder)
 
 /** True when a layout covers every table and layer of the graph. */
 export function isLayoutFor(layout: Layout, graph: Graph) {
@@ -210,11 +213,13 @@ const SYNC_LAYOUT_MAX = 300
 /**
  * A fresh stack layout for `graph`. Small graphs get `autoLayout` right away; big ones get an instant
  * spiral seed while the force layout runs in a worker (shown as the status), then the cards ease to
- * the result (unless the dataset changed or a card was dragged meanwhile).
+ * the result (unless the dataset changed or a card was dragged meanwhile). With `keep`, its positions
+ * and settings win for the tables it has, so only new tables are placed.
  */
-function freshLayout(graph: Graph, layoutKey: string, layerGap = 8): Layout {
-  if (graph.tables.length <= SYNC_LAYOUT_MAX) return span('autoLayout', () => autoLayout(graph, layerGap))
-  const seed = seedLayout(graph, layerGap)
+function freshLayout(graph: Graph, layoutKey: string, layerGap = 8, keep: Layout | null = null): Layout {
+  const withKept = (l: Layout) => (keep ? mergeLayout(keep, l, graph) : l)
+  if (graph.tables.length <= SYNC_LAYOUT_MAX) return withKept(span('autoLayout', () => autoLayout(graph, layerGap)))
+  const seed = withKept(seedLayout(graph, layerGap))
   const started = performance.now()
   const status = `Laying out ${graph.tables.length.toLocaleString()} tables…`
   useStore.setState({ status })
@@ -223,7 +228,7 @@ function freshLayout(graph: Graph, layoutKey: string, layerGap = 8): Layout {
       record('autoLayout:worker', performance.now() - started, started)
       const s = useStore.getState()
       if (!positions || s.dataset?.layoutKey !== layoutKey || s.layout.positions !== seed.positions) return
-      useStore.setState({ layout: { ...s.layout, positions } })
+      useStore.setState({ layout: { ...s.layout, positions: withKept({ ...seed, positions }).positions } })
     })
     .finally(() => {
       if (useStore.getState().status === status) useStore.setState({ status: null })
@@ -261,10 +266,14 @@ export const useStore = create<State>((set, get) => ({
   load: (d) => {
     flushSave()
     const s = get()
-    // The same schema again (e.g. with a new workflow file) keeps the view; another one starts afresh.
+    // The same layout key again (a new workflow file, another export of the same catalogs) keeps the view.
     const same = s.dataset?.layoutKey === d.layoutKey
-    let layout = same ? s.layout : loadSavedLayout(d.layoutKey, d.graph)
-    if (!layout) {
+    const saved = same ? s.layout : savedLayout(d.layoutKey)
+    let layout: Layout
+    if (saved && isLayoutFor(saved, d.graph)) layout = saved
+    // Tables came or went since it was saved (e.g. a newer export): keep what still fits.
+    else if (saved) layout = freshLayout(d.graph, d.layoutKey, saved.layerGap, saved)
+    else {
       const fresh = freshLayout(d.graph, d.layoutKey)
       layout = d.source.origin === 'synth' ? fresh : largeDefaults(d.graph, fresh)
     }
@@ -440,7 +449,7 @@ const toggle = (xs: string[], x: string) => (xs.includes(x) ? xs.filter((y) => y
 const SAVE_DELAY = 500
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 let pending: { layoutKey: string; layout: Layout } | null = null
-const idle = (fn: () => void) => ('requestIdleCallback' in window ? requestIdleCallback(fn, { timeout: 2000 }) : fn())
+const idle = (fn: () => void) => (typeof requestIdleCallback === 'function' ? requestIdleCallback(fn, { timeout: 2000 }) : fn())
 function flushSave() {
   if (!pending) return
   const { layoutKey, layout } = pending

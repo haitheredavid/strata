@@ -1,5 +1,5 @@
 import type { Layout } from '../model/types'
-import { isSnapshot } from '../ingest/snapshot'
+import { claimsSnapshot, isSnapshot, snapshotProblem } from '../ingest/snapshot'
 import type { Snapshot } from '../ingest/snapshot'
 import { parseSidecar } from '../parse/workflows'
 
@@ -10,6 +10,7 @@ export interface OpenedFile {
 
 type Kind =
   | { kind: 'snapshot'; snapshot: Snapshot }
+  | { kind: 'badSnapshot'; problem: string }
   | { kind: 'schema' }
   | { kind: 'workflows' }
   | { kind: 'layout'; layout: Layout }
@@ -42,6 +43,7 @@ function classify({ name, text }: OpenedFile): Kind {
   if (/\.json$/i.test(name) || /^\s*[{[]/.test(text)) {
     const v = parseJson(text)
     if (isSnapshot(v)) return { kind: 'snapshot', snapshot: v }
+    if (claimsSnapshot(v)) return { kind: 'badSnapshot', problem: snapshotProblem(v) ?? 'invalid' }
     if (isLayout(v)) return { kind: 'layout', layout: v }
     if (v !== undefined) return parseSidecar(text).pipelines.length ? { kind: 'workflows' } : { kind: 'unknown' }
   }
@@ -52,24 +54,27 @@ function classify({ name, text }: OpenedFile): Kind {
 
 /**
  * Picks one action for `files`, in order: a snapshot; a schema with an optional workflow file; a lone
- * workflow file (for the open dataset); a layout. Every other file is listed in `ignored`.
+ * workflow file (for the open dataset); a layout. Files claiming to be snapshots that aren't valid are
+ * listed in `problems`; every other file left out is listed in `ignored`.
  */
-export function planOpen(files: OpenedFile[]): { plan: OpenPlan; ignored: string[] } {
+export function planOpen(files: OpenedFile[]): { plan: OpenPlan; ignored: string[]; problems: string[] } {
   const kinds = files.map((f) => ({ f, k: classify(f) }))
   const find = (kind: Kind['kind']) => kinds.find((x) => x.k.kind === kind)
-  const ignoredBut = (...used: (OpenedFile | undefined)[]) => files.filter((f) => !used.includes(f)).map((f) => f.name)
+  const problems = kinds.flatMap(({ f, k }) => (k.kind === 'badSnapshot' ? [`${f.name} isn't a usable snapshot: ${k.problem}`] : []))
+  const bad = new Set(kinds.filter((x) => x.k.kind === 'badSnapshot').map((x) => x.f))
+  const result = (plan: OpenPlan, ...used: (OpenedFile | undefined)[]) => ({
+    plan,
+    ignored: files.filter((f) => !used.includes(f) && !bad.has(f)).map((f) => f.name),
+    problems,
+  })
 
   const snapshot = find('snapshot')
-  if (snapshot?.k.kind === 'snapshot') return { plan: { kind: 'snapshot', snapshot: snapshot.k.snapshot }, ignored: ignoredBut(snapshot.f) }
+  if (snapshot?.k.kind === 'snapshot') return result({ kind: 'snapshot', snapshot: snapshot.k.snapshot }, snapshot.f)
   const schema = find('schema')
   const workflows = find('workflows')
-  if (schema)
-    return {
-      plan: { kind: 'schema', name: schema.f.name, dbml: schema.f.text, workflows: workflows?.f.text },
-      ignored: ignoredBut(schema.f, workflows?.f),
-    }
-  if (workflows) return { plan: { kind: 'workflows', text: workflows.f.text }, ignored: ignoredBut(workflows.f) }
+  if (schema) return result({ kind: 'schema', name: schema.f.name, dbml: schema.f.text, workflows: workflows?.f.text }, schema.f, workflows?.f)
+  if (workflows) return result({ kind: 'workflows', text: workflows.f.text }, workflows.f)
   const layout = find('layout')
-  if (layout?.k.kind === 'layout') return { plan: { kind: 'layout', layout: layout.k.layout }, ignored: ignoredBut(layout.f) }
-  return { plan: { kind: 'none' }, ignored: ignoredBut() }
+  if (layout?.k.kind === 'layout') return result({ kind: 'layout', layout: layout.k.layout }, layout.f)
+  return result({ kind: 'none' })
 }

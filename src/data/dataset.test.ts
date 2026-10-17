@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Snapshot } from '../ingest/snapshot'
 import { parseDbml } from '../parse/dbml'
 import { simulateDay } from '../sim/schedule'
-import { buildDataset, normaliseLayout, withWorkflows } from './dataset'
+import { buildDataset, mergeLayout, normaliseLayout, withWorkflows } from './dataset'
 
 const read = (f: string) => readFileSync(new URL(`../../public/${f}`, import.meta.url), 'utf8')
 const dbml = read('lakehouse.dbml')
@@ -97,5 +97,30 @@ describe('normaliseLayout', () => {
     expect(layout.hiddenPipelines).toEqual([pipeline])
     expect(layout.collapsedCards).toEqual([table])
     expect(layout.flowOrder).toEqual([layer, '__sources__'])
+  })
+})
+
+describe('snapshot layouts', () => {
+  it('share a layout key across exports of the same host and catalogs, whatever the schema text', () => {
+    const today = buildDataset({ origin: 'snapshot', snapshot: snapshot() })
+    const tomorrow = buildDataset({ origin: 'snapshot', snapshot: { ...snapshot(), day: '2026-10-13', dbml: `${dbml}\nTable silver.extra { id int }\n` } })
+    const elsewhere = buildDataset({ origin: 'snapshot', snapshot: { ...snapshot(), host: 'https://dbc-999.cloud.databricks.com' } })
+    expect(tomorrow.key).not.toBe(today.key)
+    expect(tomorrow.layoutKey).toBe(today.layoutKey)
+    expect(elsewhere.layoutKey).not.toBe(today.layoutKey)
+  })
+
+  it('keep saved positions and layer order for what still exists and place the rest fresh', () => {
+    const { graph } = buildDataset({ origin: 'file', name: 'l.dbml', dbml })
+    const [a, b] = graph.tables
+    const layers = graph.layers.map((l) => l.id)
+    const saved = { layerGap: 12, layerOrder: [layers[1], 'gone', layers[0]], positions: { [a.id]: { x: 1, z: 1 }, gone: { x: 9, z: 9 } }, mode: 'flow' as const }
+    const fresh = { layerGap: 8, layerOrder: layers, positions: { [a.id]: { x: 5, z: 5 }, [b.id]: { x: 6, z: 6 } } }
+    const merged = mergeLayout(saved, fresh, graph)
+    expect(merged.positions[a.id]).toEqual({ x: 1, z: 1 })
+    expect(merged.positions[b.id]).toEqual({ x: 6, z: 6 })
+    expect(merged.positions.gone).toBeUndefined()
+    expect(merged.layerOrder).toEqual([layers[1], layers[0], ...layers.slice(2)])
+    expect([merged.mode, merged.layerGap]).toEqual(['flow', 12])
   })
 })

@@ -20,9 +20,11 @@ Goal: every load goes through one path, every highlight and visibility rule is e
 7. **One highlight and visibility model.** A single `highlight` (focus | lens | path | time) with stated precedence, shown in the panel as "Lit by: … ✕". Layer isolate and pipeline solo share one "only this" rule and glyph (●/○ show, ◐ only this, ◎ light up). The compute drawer closes without clearing focus. `openTimeline` / `setLens` turn lineage on themselves and say so in a notice. Decide and document what persists per dataset (visibility, mode, edges).
 8. **Density at workspace size** (about 600 tables, 93 pipelines, 10+ domains): layer filter and hover-revealed row actions; pipeline list grouped by trigger or domain with a case-insensitive filter; timeline row filter plus "lit only"; Focus depth shown only while something is focused.
 
-## Phase 2: Snapshot and exporter hardening
+## Phase 2: Snapshot and exporter hardening — done
 
 Goal: exports of an active workspace can be repeated and fail loudly and partially, never silently.
+
+*Landed 2026-10-17. Where it differs from the items below:* the statement deadline is per statement (`--sql-timeout`, default 15 min) rather than one for the whole export; results always use `EXTERNAL_LINKS`; snapshot entries were already keyed by host + day by Phase 1's datasets; the CI guard covers any tracked `*.snapshot.json` / `*.raw.json`, not just `public/`. Exporter-only helpers (`exportArgs.ts`, `retry.ts`) live in `scripts/` because they use Node APIs.
 
 - **Snapshot format:** validate `version` and the required fields (`workflows`, `runs.taskRuns`, `day`, `tz`) with a clear error. Key stash entries by host + day (`listSnapshots`, `forgetSnapshot`). Key layouts by host + catalog instead of `hash(dbml)`, so a daily re-export keeps positions for tables that still exist.
 - **Exporter (`scripts/export-databricks.ts`):**

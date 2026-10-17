@@ -30,8 +30,10 @@ skills-lock.json
 # DBML schemas
 *.dbml
 
-# Workspace exports (real metadata): never commit or deploy
+# Workspace exports (real metadata): never commit or deploy (CI fails if one is tracked)
 snapshots/
+*.snapshot.json
+*.raw.json
 
 # Agent worktrees
 .claude/

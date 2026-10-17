@@ -133,7 +133,12 @@ pnpm export:databricks --profile prod --catalogs bronze,silver,gold,platinum \
   --schemas 'procore*,!*archive*' --day 2026-10-12 --tz America/New_York
 ```
 
-Then drop `snapshots/<host>-<day>.snapshot.json` onto the app. `snapshots/` is gitignored because it holds real workspace metadata. Keep it out of `public/`.
+Then drop `snapshots/<host>-<day>.snapshot.json` onto the app. `snapshots/` is gitignored because it holds real workspace metadata. Keep it out of `public/`: CI fails if any `*.snapshot.json` or `*.raw.json` is committed.
+
+- **Warehouse**: `--warehouse <id>`, or the export picks a running warehouse (else a serverless one) and says which.
+- **Long queries**: a statement still running after `--sql-timeout` minutes (default 15) is cancelled. Ctrl-C cancels the running statements too. Results download through external links, so big slices aren't capped.
+- **Failures**: rate limits and server errors are retried with backoff. Each step's result is saved to `snapshots/.raw/<host>-<day>.partial.json` as it lands; after a failure or Ctrl-C, rerun with `--resume` to continue from there. Things that can't be fetched (a deleted pipeline, a purged run) become warnings in the snapshot rather than stopping the export.
+- **Arguments** are checked up front (`--tz`, `--day`, `--lineage-days`), and `--from-raw` says which fetch flags it ignores.
 
 | strata | Comes from |
 | --- | --- |
@@ -147,7 +152,7 @@ Then drop `snapshots/<host>-<day>.snapshot.json` onto the app. `snapshots/` is g
 
 The compute drawer's badge says which of these are real for the cluster in view.
 
-Drop the snapshot onto the app; it's kept in IndexedDB, so a reload brings it back.
+Drop the snapshot onto the app; it's kept in IndexedDB, so a reload brings it back. A file that claims to be a snapshot but isn't usable (another version, missing fields) is reported with what's wrong. Layouts follow the workspace and catalogs rather than the file, so tomorrow's export keeps today's positions for the tables that are still there and places only the new ones.
 
 Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ shows only one pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches, and groups long lists by trigger or by the domain each pipeline mostly writes. The Layers panel gets a filter past eight layers, and row buttons show on hover unless they hold a state (hidden, only, folded). A filtered view of 150 tables or fewer gets its own layout. The timeline only lists visible pipelines, has a row filter and **Lit only** (the lit pipeline, or those that ran in the window), and keeps its time axis in view while you scroll.
 

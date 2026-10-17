@@ -1,4 +1,5 @@
 import type { Schedule } from '../sim/schedule'
+import { isDay, isTimeZone } from './databricks/time'
 
 /**
  * A workspace export (see `scripts/export-databricks.ts`): the schema as DBML, the jobs as a DAB-shaped
@@ -18,17 +19,25 @@ export interface Snapshot {
   warnings: string[]
 }
 
-export function isSnapshot(v: unknown): v is Snapshot {
-  const o = v as Partial<Snapshot> | null
-  return !!o && o.kind === 'strata-snapshot' && typeof o.dbml === 'string' && !!o.runs
+const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** True when `v` says it's a snapshot, valid or not. */
+export const claimsSnapshot = (v: unknown) => record(v) && v.kind === 'strata-snapshot'
+
+/** What's wrong with a value that claims to be a snapshot, or null when it's a usable one. */
+export function snapshotProblem(v: unknown): string | null {
+  if (!record(v) || v.kind !== 'strata-snapshot') return 'not a strata snapshot'
+  if (v.version !== 1) return `version ${String(v.version)} isn't supported (this app reads version 1)`
+  const missing = [
+    typeof v.host !== 'string' && 'host',
+    (typeof v.day !== 'string' || !isDay(v.day)) && 'day (YYYY-MM-DD)',
+    (typeof v.tz !== 'string' || !isTimeZone(v.tz)) && 'tz (a time zone)',
+    typeof v.dbml !== 'string' && 'dbml',
+    typeof v.workflows !== 'string' && 'workflows',
+    !(record(v.runs) && Array.isArray(v.runs.taskRuns) && Array.isArray(v.runs.runs)) && 'runs.taskRuns',
+    !Array.isArray(v.warnings) && 'warnings',
+  ].filter((x): x is string => !!x)
+  return missing.length ? `missing or invalid ${missing.join(', ')}` : null
 }
 
-/** The snapshot in `text`, or null when it isn't one. */
-export function readSnapshot(text: string): Snapshot | null {
-  try {
-    const v = JSON.parse(text)
-    return isSnapshot(v) ? v : null
-  } catch {
-    return null
-  }
-}
+export const isSnapshot = (v: unknown): v is Snapshot => snapshotProblem(v) === null

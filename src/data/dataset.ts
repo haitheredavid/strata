@@ -106,9 +106,12 @@ export function buildDataset(source: DatasetSource, sample?: SampleFiles): Datas
   if (source.origin === 'snapshot') {
     const snap = source.snapshot
     const graph = parse(snap.dbml, source.workflows ?? snap.workflows)
+    // Layouts follow the workspace slice, not the export: tomorrow's export of the same catalogs keeps
+    // today's positions for the tables still there. Table ids are full UC names, catalog first.
+    const catalogs = [...new Set(graph.tables.map((t) => t.id.split('.')[0]))].sort()
     return {
       key,
-      layoutKey: hash(snap.dbml),
+      layoutKey: hash(`snapshot:${snap.host}:${catalogs.join(',')}`),
       label,
       source,
       dbml: snap.dbml,
@@ -154,5 +157,21 @@ export function normaliseLayout(layout: Layout, graph: Graph): Layout {
     hiddenLayers: layout.hiddenLayers?.filter((id) => layers.has(id)),
     onlyLayer: keep(layout.onlyLayer, layers),
     collapsedLayers: layout.collapsedLayers?.filter((id) => layers.has(id)),
+  }
+}
+
+/**
+ * A saved layout carried over to a graph whose tables changed: saved positions and layer order for what
+ * still exists, `fresh` placement for what's new, and the saved view settings.
+ */
+export function mergeLayout(saved: Layout, fresh: Layout, graph: Graph): Layout {
+  const tables = new Set(graph.tables.map((t) => t.id))
+  const layers = new Set(graph.layers.map((l) => l.id))
+  const kept = Object.fromEntries(Object.entries(saved.positions ?? {}).filter(([id]) => tables.has(id)))
+  const order = (saved.layerOrder ?? []).filter((id) => layers.has(id))
+  return {
+    ...saved,
+    positions: { ...fresh.positions, ...kept },
+    layerOrder: [...order, ...fresh.layerOrder.filter((id) => !order.includes(id))],
   }
 }

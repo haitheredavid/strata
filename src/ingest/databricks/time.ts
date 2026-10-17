@@ -1,3 +1,20 @@
+/** True when `tz` is an IANA time zone this runtime knows. */
+export function isTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** True for a real calendar day written `YYYY-MM-DD`. */
+export function isDay(day: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false
+  const d = new Date(`${day}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(day)
+}
+
 /** Offset of `tz` from UTC at instant `ms`, in ms (positive east of UTC). */
 function tzOffset(ms: number, tz: string): number {
   const f = new Intl.DateTimeFormat('en-US', {
