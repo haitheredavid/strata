@@ -3,7 +3,8 @@ import { modeOf, useStore } from '../store'
 import type { Layout } from '../model/types'
 import { MODES, MODE_IDS } from '../layout/modes'
 import { TablePicker } from './TablePicker'
-import { SAMPLES, SYNTH_PRESETS, loadFiles, loadSample } from './files'
+import { SYNTH_PRESETS, openFiles, openSample } from './files'
+import { SAMPLES } from '../data/dataset'
 import { SCHEMES } from '../theme/schemes'
 import type { SchemeId } from '../theme/schemes'
 
@@ -45,7 +46,7 @@ export function Toolbar() {
     <div className="toolbar">
       <span className="brand">strata</span>
 
-      <select className="sample" value="" onChange={(e) => e.target.value && loadSample(e.target.value)} title="Load a sample schema">
+      <select className="sample" value="" onChange={(e) => e.target.value && openSample(e.target.value)} title="Load a sample schema">
         <option value="">Samples…</option>
         {SAMPLES.map((s) => (
           <option key={s.id} value={s.id}>{s.label}</option>
@@ -65,8 +66,9 @@ export function Toolbar() {
         multiple
         hidden
         onChange={async (e) => {
-          if (e.target.files) await loadFiles(e.target.files)
+          const files = [...(e.target.files ?? [])]
           e.target.value = ''
+          await openFiles(files)
         }}
       />
       <button disabled={!hasSchema} onClick={() => workflowInput.current?.click()} title="Load a pipelines / jobs file for this schema">
@@ -78,9 +80,9 @@ export function Toolbar() {
         accept=".yaml,.yml,.json"
         hidden
         onChange={async (e) => {
-          const f = e.target.files?.[0]
-          if (f) await loadFiles([f])
+          const files = [...(e.target.files ?? [])]
           e.target.value = ''
+          await openFiles(files)
         }}
       />
 
@@ -132,14 +134,13 @@ export function Toolbar() {
         hidden
         onChange={async (e) => {
           const f = e.target.files?.[0]
-          if (f) {
-            try {
-              setLayout(JSON.parse(await f.text()) as Layout)
-            } catch {
-              useStore.setState({ error: 'Could not read layout file' })
-            }
-          }
           e.target.value = ''
+          if (!f) return
+          try {
+            setLayout(JSON.parse(await f.text()) as Layout)
+          } catch {
+            useStore.getState().notify('error', `Couldn't read ${f.name} as a layout file`)
+          }
         }}
       />
     </div>

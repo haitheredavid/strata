@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { scheduleFor, useStore } from '../store'
+import { scheduleOf, useStore } from '../store'
 import { clusterNodeId } from '../model/workflow'
 import type { Cluster, Task } from '../model/workflow'
 import { clock, packLanes, span as dur } from '../sim/schedule'
@@ -124,7 +124,7 @@ export function ComputePanel() {
   const on = useStore((s) => (s.layout.edgeLayer ?? 'both') !== 'fk' && (s.layout.showCompute ?? true))
   const setTime = useStore((s) => s.setTime)
   const focus = useStore((s) => s.focus)
-  const schedule = useMemo(() => scheduleFor(graph), [graph])
+  const schedule = useStore(scheduleOf)
   const tasks = useMemo(() => new Map<string, Task>(graph.workflows.pipelines.flatMap((p) => p.tasks).map((t) => [t.id, t])), [graph])
   const palette = usePalette()
 

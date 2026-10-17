@@ -92,17 +92,33 @@ button.on { background: var(--accent); color: #0b0e14; }
 .gap input { width: 100%; margin-top: 4px; }
 .hint { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
-.error {
+.notices {
   position: absolute;
   left: 12px;
-  bottom: 12px;
-  max-width: 520px;
-  padding: 8px 12px;
-  background: #3a1620;
-  border: 1px solid #ff5d8f;
-  border-radius: 8px;
-  cursor: pointer;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  font-size: 12px;
 }
+.notice {
+  padding: 6px 8px 6px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+}
+.notice.error { border-left-color: #ff5d8f; background: #3a1620; }
+.notice.warning { border-left-color: #f5b942; }
+.notice.busy { border-left-color: var(--accent); color: var(--muted); }
+.notice-head { display: flex; align-items: flex-start; gap: 8px; }
+.notice-head span { flex: 1; line-height: 1.4; }
+.notice .dismiss { padding: 0 4px; border: none; background: none; color: var(--muted); cursor: pointer; }
+.notice details { margin-top: 4px; color: var(--muted); }
+.notice details ul { margin: 4px 0 0; padding-left: 16px; max-height: 30vh; overflow-y: auto; }
 .drop {
   position: absolute;
   inset: 0;
@@ -173,7 +189,6 @@ select.sample {
 .pipelines .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pipelines .trig { color: var(--muted); font-size: 10px; letter-spacing: 0.05em; }
 .pipelines button { padding: 1px 6px; font-size: 11px; }
-.warnings { margin: 6px 0 0; padding-left: 16px; color: #fbbf24; font-size: 11px; }
 
 /* Bottom dock: compute drawer above the timeline. */
 .dock {

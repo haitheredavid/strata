@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import type { ColumnDetail, EdgeLayer, Graph, GroupBy, Layout, ModeId } from './model/types'
-import { parseDbml } from './parse/dbml'
 import { EMPTY_WORKFLOWS } from './model/workflow'
 import { autoLayout } from './layout/autoLayout'
 import { layoutAsync } from './layout/layoutClient'
@@ -11,13 +10,13 @@ import { derivedStack } from './layout/modes/stack'
 import { layerView, sceneView } from './view/deriveView'
 import type { ViewInputs } from './view/deriveView'
 import { timeClock } from './scene/timeClock'
-import { hash32 } from './sim/rng'
-import { DAY, simulateDay } from './sim/schedule'
+import { DAY } from './sim/schedule'
 import type { Schedule } from './sim/schedule'
 import { isScheme } from './theme/schemes'
 import { record, span } from './dev/perf'
 import type { SchemeId } from './theme/schemes'
-import type { Snapshot } from './ingest/snapshot'
+import { normaliseLayout } from './data/dataset'
+import type { Dataset } from './data/dataset'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
@@ -25,11 +24,24 @@ export type CameraCommand =
   | { kind: 'fly'; id: string }
   | { kind: 'frame'; ids: string[] }
 
+/** Something the user should know: a failed load, storage trouble, a dataset's warnings. */
+export interface Notice {
+  id: number
+  level: 'error' | 'warning'
+  text: string
+  detail?: string[]
+  /** About the loaded dataset: replaced when another one loads. */
+  dataset?: boolean
+}
+
 interface State {
-  schemaKey: string
+  /** The loaded dataset; `graph` is its graph (kept at the top level for the many readers). */
+  dataset: Dataset | null
   graph: Graph
   layout: Layout
-  error: string | null
+  notices: Notice[]
+  /** What the app is busy with (opening a file, laying out), or null. */
+  status: string | null
   hoveredId: string | null
   focusedId: string | null
   hiddenLayers: string[]
@@ -43,21 +55,16 @@ interface State {
   pathEnds: [string | null, string | null]
   pathIgnore: string[]
   activePath: number | null
-  /** Raw DBML and workflow sidecar text of the loaded schema. */
-  source: string
-  sidecar: string | null
   /** Pipeline lit by the lens button. */
   lensPipeline: string | null
   time: TimeState
   colorScheme: SchemeId
 
-  /** Load a schema; `sidecar` replaces the saved workflow file for it (null keeps the saved one). */
-  loadSchema: (src: string, sidecar?: string | null) => void
-  /** Load an already-built graph (e.g. a synthetic one); `key` names its saved layout. */
-  loadGraph: (graph: Graph, key: string) => void
-  loadSidecar: (text: string) => void
-  /** Load a workspace snapshot: its schema and jobs, with its real runs in place of the simulated day. */
-  loadSnapshot: (snap: Snapshot) => void
+  /** Install a dataset: its saved layout (or a new one), with the per-dataset view state reset. */
+  load: (dataset: Dataset) => void
+  notify: (level: Notice['level'], text: string, detail?: string[]) => void
+  dismiss: (id: number) => void
+  setStatus: (status: string | null) => void
   setLayout: (layout: Layout) => void
   resetLayout: () => void
   setLayerGap: (gap: number) => void
@@ -112,13 +119,9 @@ export interface TimeState {
 export const TIME_SPEEDS = [600, 1800, 7200]
 const CLOSED: TimeState = { open: false, t: 0, span: null, playing: false, speed: 1800, follow: false }
 
-const schedules = new WeakMap<Graph, Schedule>()
-/** The day of runs for a graph: a snapshot's real runs, else the simulated day (cached per graph). */
-export function scheduleFor(graph: Graph): Schedule {
-  let s = schedules.get(graph)
-  if (!s) schedules.set(graph, (s = span('simulateDay', () => simulateDay(graph.workflows, graph.tables))))
-  return s
-}
+const NO_RUNS: Schedule = { runs: [], taskRuns: [], events: [] }
+/** The loaded dataset's day of runs: a snapshot's real runs, else the simulated day. */
+export const scheduleOf = (s: State): Schedule => s.dataset?.schedule ?? NO_RUNS
 
 export const modeOf = (layout: Layout): ModeId => layout.mode ?? 'stack'
 
@@ -153,10 +156,7 @@ function largeDefaults(graph: Graph, layout: Layout): Layout {
 
 const EMPTY_GRAPH: Graph = { tables: [], refs: [], layers: [], workflows: EMPTY_WORKFLOWS }
 
-const hash = (s: string) => hash32(s).toString(36)
-
-const storageKey = (schemaKey: string) => `strata:layout:${schemaKey}`
-const sidecarKey = (schemaKey: string) => `strata:workflows:${schemaKey}`
+const storageKey = (layoutKey: string) => `strata:layout:${layoutKey}`
 const SCHEME_KEY = 'strata:scheme'
 
 function storage(op: (ls: Storage) => string | null | void) {
@@ -172,11 +172,12 @@ function savedScheme(): SchemeId {
   return isScheme(v) ? v : 'default'
 }
 
-function loadSavedLayout(schemaKey: string, graph: Graph): Layout | null {
+function loadSavedLayout(layoutKey: string, graph: Graph): Layout | null {
   try {
-    const raw = localStorage.getItem(storageKey(schemaKey))
+    const raw = localStorage.getItem(storageKey(layoutKey))
     if (!raw) return null
-    return isLayoutFor(JSON.parse(raw), graph) ? JSON.parse(raw) : null
+    const layout: Layout = JSON.parse(raw)
+    return isLayoutFor(layout, graph) ? layout : null
   } catch {
     return null
   }
@@ -197,52 +198,36 @@ const SYNC_LAYOUT_MAX = 300
 
 /**
  * A fresh stack layout for `graph`. Small graphs get `autoLayout` right away; big ones get an instant
- * spiral seed while the force layout runs in a worker, then the cards ease to the result (unless the
- * schema changed or a card was dragged meanwhile).
+ * spiral seed while the force layout runs in a worker (shown as the status), then the cards ease to
+ * the result (unless the dataset changed or a card was dragged meanwhile).
  */
-function freshLayout(graph: Graph, schemaKey: string, layerGap = 8): Layout {
+function freshLayout(graph: Graph, layoutKey: string, layerGap = 8): Layout {
   if (graph.tables.length <= SYNC_LAYOUT_MAX) return span('autoLayout', () => autoLayout(graph, layerGap))
   const seed = seedLayout(graph, layerGap)
   const started = performance.now()
-  void layoutAsync(graph, layerGap).then((positions) => {
-    record('autoLayout:worker', performance.now() - started, started)
-    const s = useStore.getState()
-    if (!positions || s.schemaKey !== schemaKey || s.layout.positions !== seed.positions) return
-    useStore.setState({ layout: { ...s.layout, positions } })
-  })
+  const status = `Laying out ${graph.tables.length.toLocaleString()} tables…`
+  useStore.setState({ status })
+  void layoutAsync(graph, layerGap)
+    .then((positions) => {
+      record('autoLayout:worker', performance.now() - started, started)
+      const s = useStore.getState()
+      if (!positions || s.dataset?.layoutKey !== layoutKey || s.layout.positions !== seed.positions) return
+      useStore.setState({ layout: { ...s.layout, positions } })
+    })
+    .finally(() => {
+      if (useStore.getState().status === status) useStore.setState({ status: null })
+    })
   return seed
 }
 
-/** State for a freshly loaded graph: its saved layout (or a new one) and every per-schema setting reset. */
-function installGraph(graph: Graph, schemaKey: string, source: string, sidecar: string | null, narrowLarge: boolean): Partial<State> {
-  const layout = loadSavedLayout(schemaKey, graph) ?? (narrowLarge ? largeDefaults(graph, freshLayout(graph, schemaKey)) : freshLayout(graph, schemaKey))
-  return {
-    source,
-    sidecar,
-    lensPipeline: null,
-    time: CLOSED,
-    collapsedLayers: [],
-    pathOpen: false,
-    pathEnds: [null, null],
-    pathIgnore: [],
-    activePath: null,
-    schemaKey,
-    graph,
-    layout,
-    error: null,
-    hoveredId: null,
-    focusedId: null,
-    hiddenLayers: [],
-    isolatedLayerId: null,
-    cameraCommand: { kind: 'preset', preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() },
-  }
-}
+let noticeSeq = 0
 
 export const useStore = create<State>((set, get) => ({
-  schemaKey: '',
+  dataset: null,
   graph: EMPTY_GRAPH,
   layout: { layerGap: 8, layerOrder: [], positions: {} },
-  error: null,
+  notices: [],
+  status: null,
   hoveredId: null,
   focusedId: null,
   hiddenLayers: [],
@@ -256,62 +241,62 @@ export const useStore = create<State>((set, get) => ({
   pathEnds: [null, null],
   pathIgnore: [],
   activePath: null,
-  source: '',
-  sidecar: null,
   lensPipeline: null,
   time: CLOSED,
   colorScheme: savedScheme(),
 
-  loadSchema: (src, sidecarText = null) => {
-    const schemaKey = hash(src)
-    const sidecar = sidecarText ?? (storage((ls) => ls.getItem(sidecarKey(schemaKey))) as string | null)
-    let graph: Graph
-    try {
-      graph = span('parse', () => parseDbml(src, sidecar))
-    } catch (e) {
-      const diag = (e as { diags?: { message: string }[] }).diags?.[0]?.message
-      set({ error: diag ?? String(e) })
-      return
+  load: (d) => {
+    flushSave()
+    const s = get()
+    // The same schema again (e.g. with a new workflow file) keeps the view; another one starts afresh.
+    const same = s.dataset?.layoutKey === d.layoutKey
+    let layout = same ? s.layout : loadSavedLayout(d.layoutKey, d.graph)
+    if (!layout) {
+      const fresh = freshLayout(d.graph, d.layoutKey)
+      layout = d.source.origin === 'synth' ? fresh : largeDefaults(d.graph, fresh)
     }
-    if (sidecarText) storage((ls) => ls.setItem(sidecarKey(schemaKey), sidecarText))
-    set(installGraph(graph, schemaKey, src, sidecar, true))
+    const notices = s.notices.filter((n) => !n.dataset)
+    if (d.warnings.length)
+      notices.push({ id: ++noticeSeq, level: 'warning', text: `${d.label}: ${d.warnings.length} warning${d.warnings.length > 1 ? 's' : ''}`, detail: d.warnings, dataset: true })
+    set({
+      dataset: d,
+      graph: d.graph,
+      layout: normaliseLayout(layout, d.graph),
+      notices,
+      lensPipeline: null,
+      time: CLOSED,
+      pathOpen: false,
+      pathEnds: [null, null],
+      pathIgnore: [],
+      activePath: null,
+      ...(same
+        ? {}
+        : {
+            collapsedLayers: [],
+            hoveredId: null,
+            focusedId: null,
+            hiddenLayers: [],
+            isolatedLayerId: null,
+            cameraCommand: { kind: 'preset', preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() },
+          }),
+    })
   },
-
-  loadGraph: (graph, key) => set(installGraph(graph, hash(key), '', null, false)),
-
-  loadSnapshot: (snap) => {
-    get().loadSchema(snap.dbml, snap.workflows)
-    const { graph, error } = get()
-    if (error) return
-    const withRuns: Graph = { ...graph, workflows: { ...graph.workflows, warnings: [...snap.warnings, ...graph.workflows.warnings] } }
-    schedules.set(withRuns, { ...snap.runs, origin: 'snapshot', day: snap.day, tz: snap.tz })
-    set({ graph: withRuns })
-  },
-
-  loadSidecar: (text) => {
-    const { source, schemaKey } = get()
-    if (!source) return
-    const graph = parseDbml(source, text)
-    storage((ls) => ls.setItem(sidecarKey(schemaKey), text))
-    set({ graph, sidecar: text, lensPipeline: null, time: CLOSED, error: graph.workflows.pipelines.length ? null : 'No pipelines found in workflow file' })
-  },
+  notify: (level, text, detail) => set((s) => ({ notices: [...s.notices, { id: ++noticeSeq, level, text, detail }] })),
+  dismiss: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
+  setStatus: (status) => set({ status }),
 
   setLayout: (layout) => {
-    if (!isLayoutFor(layout, get().graph)) {
-      set({ error: 'Layout file does not match the loaded schema' })
-      return
-    }
-    set({ layout, error: null })
+    if (!isLayoutFor(layout, get().graph)) return get().notify('error', 'That layout file is for a different schema')
+    set({ layout })
   },
-  resetLayout: () =>
-    set((s) => {
-      const mode = modeOf(s.layout)
-      if (mode === 'flow') return { layout: { ...s.layout, flowOrder: undefined, flowOverrides: undefined } }
-      if (mode === 'diagram') return { layout: { ...s.layout, flowOrder: undefined } }
-      if (mode === 'stack' && derivedStack(s.layout, sceneView(viewInputs(s)))) return { layout: { ...s.layout, medallionPositions: undefined } }
-      if (mode === 'stack') return { layout: { ...s.layout, ...freshLayout(s.graph, s.schemaKey, s.layout.layerGap) } }
-      return s
-    }),
+  resetLayout: () => {
+    const s = get()
+    const mode = modeOf(s.layout)
+    if (mode === 'flow') set({ layout: { ...s.layout, flowOrder: undefined, flowOverrides: undefined } })
+    else if (mode === 'diagram') set({ layout: { ...s.layout, flowOrder: undefined } })
+    else if (mode === 'stack' && derivedStack(s.layout, sceneView(viewInputs(s)))) set({ layout: { ...s.layout, medallionPositions: undefined } })
+    else if (mode === 'stack' && s.dataset) set({ layout: { ...s.layout, ...freshLayout(s.graph, s.dataset.layoutKey, s.layout.layerGap) } })
+  },
   setLayerGap: (layerGap) => set((s) => ({ layout: { ...s.layout, layerGap } })),
   moveLayer: (layerId, delta) =>
     set((s) => {
@@ -391,7 +376,7 @@ export const useStore = create<State>((set, get) => ({
   setLens: (lensPipeline) => set({ lensPipeline }),
   openTimeline: (pipelineId) =>
     set((s) => {
-      const runs = scheduleFor(s.graph).runs.filter((r) => r.start > 0 || r.end < DAY) // skip all-day streams
+      const runs = scheduleOf(s).runs.filter((r) => r.start > 0 || r.end < DAY) // skip all-day streams
       const first = pipelineId ? runs.find((r) => r.pipelineId === pipelineId) : runs[0]
       const t = first ? Math.max(0, first.start - 300) : s.time.open ? s.time.t : 0
       timeClock.t = t
@@ -421,22 +406,23 @@ const toggle = (xs: string[], x: string) => (xs.includes(x) ? xs.filter((y) => y
 // frame, and stringifying a big layout each time stalls the drag.
 const SAVE_DELAY = 500
 let saveTimer: ReturnType<typeof setTimeout> | undefined
-let pending: { schemaKey: string; layout: Layout } | null = null
+let pending: { layoutKey: string; layout: Layout } | null = null
 const idle = (fn: () => void) => ('requestIdleCallback' in window ? requestIdleCallback(fn, { timeout: 2000 }) : fn())
 function flushSave() {
   if (!pending) return
-  const { schemaKey, layout } = pending
+  const { layoutKey, layout } = pending
   pending = null
   try {
-    localStorage.setItem(storageKey(schemaKey), JSON.stringify(layout))
+    localStorage.setItem(storageKey(layoutKey), JSON.stringify(layout))
   } catch {
     /* storage unavailable: layout just isn't persisted */
   }
 }
 useStore.subscribe((s, prev) => {
-  if (s.layout === prev.layout || !s.schemaKey) return
-  if (pending && pending.schemaKey !== s.schemaKey) flushSave() // switching schema: keep the old one's edits
-  pending = { schemaKey: s.schemaKey, layout: s.layout }
+  const layoutKey = s.dataset?.layoutKey
+  if (s.layout === prev.layout || !layoutKey) return
+  if (pending && pending.layoutKey !== layoutKey) flushSave() // switching dataset: keep the old one's edits
+  pending = { layoutKey, layout: s.layout }
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => idle(flushSave), SAVE_DELAY)
 })

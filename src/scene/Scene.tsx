@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { MODES } from '../layout/modes'
-import { modeOf, scheduleFor, useStore } from '../store'
+import { modeOf, scheduleOf, useStore } from '../store'
 import { AnimDriver } from './anim'
 import { LodDriver } from './lod'
 import { Interaction } from '../world/Interaction'
@@ -123,7 +123,8 @@ function Diagram({ model }: { model: SceneModel }) {
     [time],
   )
   const lineageActive = view.flows.length > 0
-  const volumes = useMemo(() => flowVolumes(view.flows, graph, scheduleFor(graph)), [view, graph])
+  const schedule = useStore(scheduleOf)
+  const volumes = useMemo(() => flowVolumes(view.flows, graph, schedule), [view, graph, schedule])
   const jobVolume = useMemo(() => {
     const m = new Map<string, { in: number; out: number; runs: number }>()
     for (const f of view.flows) {
@@ -271,7 +272,7 @@ function Diagram({ model }: { model: SceneModel }) {
           pipelineColor={colorOf}
           clusterColor={palette.cluster}
           focused={focused}
-          schedule={time ? scheduleFor(graph) : null}
+          schedule={time ? schedule : null}
       />
       <AnchorDriver world={world} plates={placement.plates} anchors={anchors} fkCurves={curves} fk={showFk} />
       <SceneText
@@ -313,7 +314,7 @@ function Diagram({ model }: { model: SceneModel }) {
             flows={pulseFlows}
             shapes={pulseShapes}
             colorOf={colorOf}
-            schedule={time ? scheduleFor(graph) : null}
+            schedule={time ? schedule : null}
             lens={time ? time.active : null}
           />
           <TriggerLinks view={view} pipelines={shownPipelines} colorOf={colorOf} opacity={lens || time ? 0.3 : 1} />

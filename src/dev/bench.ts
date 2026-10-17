@@ -6,7 +6,7 @@ import { useStore } from '../store'
 import { frameStats, startRecording, stopRecording } from './frames'
 import type { FrameStats } from './frames'
 import { allSpans, clearSpans, lastSpans } from './perf'
-import { synthGraph, synthKey } from './synth'
+import { buildDataset } from '../data/dataset'
 import type { SynthOptions } from './synth'
 
 export interface BenchCtx {
@@ -121,8 +121,7 @@ export async function runBench(ctx: BenchCtx, opts: Partial<BenchOptions> = {}):
   let loadToFrameMs = 0
   if (o.synth) {
     const t0 = performance.now()
-    const graph = synthGraph(o.synth)
-    store.getState().loadGraph(graph, synthKey(o.synth))
+    store.getState().load(buildDataset({ origin: 'synth', options: o.synth }))
     await frames(2)
     loadToFrameMs = Math.round(performance.now() - t0)
   }

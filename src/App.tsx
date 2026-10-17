@@ -1,17 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { DragEvent } from 'react'
 import { Scene } from './scene/Scene'
 import { Toolbar } from './ui/Toolbar'
 import { LayerPanel } from './ui/LayerPanel'
 import { useStore } from './store'
-import { loadFiles, loadLast, loadSynth } from './ui/files'
+import { boot, openFiles } from './ui/files'
 import { Timeline } from './ui/Timeline'
 import { Profiled } from './dev/Profiled'
 import { ComputePanel } from './ui/ComputePanel'
+import { Notices } from './ui/Notices'
 import { usePalette } from './theme/palette'
 
+const carriesFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
+
 export default function App() {
-  const error = useStore((s) => s.error)
   const [dropping, setDropping] = useState(false)
+  // dragenter / dragleave fire for every child crossed; count them so the overlay doesn't flicker.
+  const depth = useRef(0)
   const accent = usePalette().accent
 
   useEffect(() => {
@@ -19,15 +24,7 @@ export default function App() {
   }, [accent])
 
   useEffect(() => {
-    const synth = import.meta.env.DEV ? new URLSearchParams(location.search).get('synth') : null
-    if (synth) return loadSynth(synth)
-    let last: string | null = null
-    try {
-      last = localStorage.getItem('strata:sample')
-    } catch {
-      /* first sample */
-    }
-    loadLast(last)
+    void boot()
   }, [])
 
   useEffect(() => {
@@ -44,12 +41,20 @@ export default function App() {
   return (
     <div
       className="app"
-      onDragOver={(e) => (e.preventDefault(), setDropping(true))}
-      onDragLeave={() => setDropping(false)}
+      onDragEnter={(e) => {
+        if (!carriesFiles(e)) return
+        depth.current++
+        setDropping(true)
+      }}
+      onDragOver={(e) => carriesFiles(e) && e.preventDefault()}
+      onDragLeave={(e) => {
+        if (carriesFiles(e) && --depth.current <= 0) setDropping(false)
+      }}
       onDrop={async (e) => {
         e.preventDefault()
+        depth.current = 0
         setDropping(false)
-        await loadFiles(e.dataTransfer.files)
+        await openFiles(e.dataTransfer.files)
       }}
     >
       <Toolbar />
@@ -68,12 +73,10 @@ export default function App() {
             <Timeline />
           </Profiled>
         </div>
-        {error && (
-          <div className="error" onClick={() => useStore.setState({ error: null })}>
-            {error}
-          </div>
+        <Notices />
+        {dropping && (
+          <div className="drop">Drop a workspace snapshot, a .dbml schema (with its workflows .yaml / .json), or a layout file</div>
         )}
-        {dropping && <div className="drop">Drop a .dbml file (and optionally its workflows .yaml / .json)</div>}
       </div>
     </div>
   )

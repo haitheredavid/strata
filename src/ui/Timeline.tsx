@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
-import { scheduleFor, TIME_SPEEDS, useStore } from '../store'
+import { scheduleOf, TIME_SPEEDS, useStore } from '../store'
 import { timeClock, TRIGGER_LABEL } from '../scene/timeClock'
 import { timeWindow } from '../scene/usePlacement'
 import { clock, DAY, eventsIn, layerTotals, packLanes, span as dur } from '../sim/schedule'
@@ -44,7 +44,7 @@ export function Timeline() {
   const closeTimeline = useStore((s) => s.closeTimeline)
   const setLens = useStore((s) => s.setLens)
   const focus = useStore((s) => s.focus)
-  const schedule = useMemo(() => scheduleFor(graph), [graph])
+  const schedule = useStore(scheduleOf)
   const [view, setView] = useState<[number, number]>([0, DAY])
   const [showEvents, setShowEvents] = useState(false)
   const plot = useRef<HTMLDivElement>(null)

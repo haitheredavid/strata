@@ -1,57 +1,9 @@
-import { readSnapshot } from '../ingest/snapshot'
-import type { Snapshot } from '../ingest/snapshot'
-import { stashedSnapshot, stashSnapshot } from '../ingest/stash'
+import { SAMPLES, buildDataset, sourceLabel, withWorkflows } from '../data/dataset'
+import type { Dataset, DatasetSource, SampleFiles } from '../data/dataset'
+import { planOpen } from '../data/open'
+import { lastSource, rememberDataset } from '../data/persist'
+import { parseSynthSpec } from '../dev/synth'
 import { useStore } from '../store'
-import { parseSynthSpec, synthGraph, synthKey } from '../dev/synth'
-
-const isSidecar = (f: File) => /\.(ya?ml|json)$/i.test(f.name)
-
-/**
- * Load dropped / picked files: a workspace snapshot (`.snapshot.json`), or one schema (.dbml) plus an
- * optional workflow file (.yaml/.yml/.json).
- */
-export async function loadFiles(files: FileList | File[]) {
-  const list = [...files]
-  for (const f of list.filter((f) => /\.json$/i.test(f.name))) {
-    const snap = readSnapshot(await f.text())
-    if (snap) return openSnapshot(snap)
-  }
-  const schema = list.find((f) => !isSidecar(f))
-  const sidecar = list.find(isSidecar)
-  const s = useStore.getState()
-  if (schema) s.loadSchema(await schema.text(), sidecar ? await sidecar.text() : null)
-  else if (sidecar) s.loadSidecar(await sidecar.text())
-}
-
-/** What reopens on the next visit: a sample id, or this for the stashed snapshot. */
-export const SNAPSHOT = 'snapshot'
-
-function remember(id: string) {
-  try {
-    localStorage.setItem('strata:sample', id)
-  } catch {
-    /* not persisted */
-  }
-}
-
-async function openSnapshot(snap: Snapshot) {
-  useStore.getState().loadSnapshot(snap)
-  if (useStore.getState().error) return
-  await stashSnapshot(snap)
-  remember(SNAPSHOT)
-}
-
-/** Reopens the last session's choice: the stashed snapshot, else a sample. */
-export async function loadLast(last: string | null) {
-  const snap = last === SNAPSHOT ? await stashedSnapshot() : null
-  if (snap) useStore.getState().loadSnapshot(snap)
-  else await loadSample(last ?? 'commerce')
-}
-
-export const SAMPLES = [
-  { id: 'commerce', label: 'Commerce sample', dbml: 'sample.dbml', workflows: null },
-  { id: 'lakehouse', label: 'Lakehouse sample', dbml: 'lakehouse.dbml', workflows: 'lakehouse.workflows.yaml' },
-] as const
 
 /** Synthetic graphs for profiling, offered in the sample picker in dev builds (`synth:<spec>` ids). */
 export const SYNTH_PRESETS = [
@@ -61,17 +13,117 @@ export const SYNTH_PRESETS = [
   { id: 'synth:tables:50000,pipelines:600', label: 'Synthetic 50k' },
 ]
 
-/** Load a synthetic graph from a spec like `tables:20000,pipelines:300,seed:1`. */
-export function loadSynth(spec: string) {
-  const o = parseSynthSpec(spec)
-  useStore.getState().loadGraph(synthGraph(o), synthKey(o))
+const notify = (level: 'error' | 'warning', text: string, detail?: string[]) => useStore.getState().notify(level, text, detail)
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/** Shows `status` while `work` runs, after letting it paint (parsing a big schema blocks the thread). */
+async function busy<T>(status: string, work: () => Promise<T>): Promise<T> {
+  useStore.getState().setStatus(status)
+  try {
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r)))
+    return await work()
+  } finally {
+    if (useStore.getState().status === status) useStore.getState().setStatus(null)
+  }
 }
 
-export async function loadSample(id: string) {
-  if (id.startsWith('synth:')) return loadSynth(id.slice('synth:'.length))
-  const sample = SAMPLES.find((s) => s.id === id) ?? SAMPLES[0]
-  const get = (f: string) => fetch(`${import.meta.env.BASE_URL}${f}`).then((r) => r.text())
-  const [dbml, wf] = await Promise.all([get(sample.dbml), sample.workflows ? get(sample.workflows) : null])
-  useStore.getState().loadSchema(dbml, wf)
-  remember(sample.id)
+async function fetchSample(id: string): Promise<SampleFiles> {
+  const sample = SAMPLES.find((s) => s.id === id)
+  if (!sample) throw new Error(`Unknown sample "${id}"`)
+  const get = async (f: string) => {
+    const r = await fetch(`${import.meta.env.BASE_URL}${f}`)
+    if (!r.ok) throw new Error(`Could not fetch ${f} (${r.status})`)
+    return r.text()
+  }
+  const [dbml, workflows] = await Promise.all([get(sample.dbml), sample.workflows ? get(sample.workflows) : null])
+  return { dbml, workflows }
+}
+
+/** Installs `d` and keeps it for the next visit (unless `remember` is off). */
+async function install(d: Dataset, remember = true) {
+  useStore.getState().load(d)
+  if (!remember) return
+  try {
+    await rememberDataset(d)
+  } catch {
+    notify('warning', `${d.label} won't reopen after a reload: browser storage is full or unavailable`)
+  }
+}
+
+/** Builds and installs a dataset; failures become notices. Resolves to whether it loaded. */
+async function open(source: DatasetSource, remember = true): Promise<boolean> {
+  try {
+    await busy(`Opening ${sourceLabel(source)}…`, async () => {
+      const sample = source.origin === 'sample' ? await fetchSample(source.id) : undefined
+      await install(buildDataset(source, sample), remember)
+    })
+    return true
+  } catch (e) {
+    notify('error', `Couldn't open ${sourceLabel(source)}: ${message(e)}`)
+    return false
+  }
+}
+
+/** A sample, or a synthetic preset (`synth:<spec>`), from the sample picker. */
+export function openSample(id: string) {
+  return open(id.startsWith('synth:') ? { origin: 'synth', options: parseSynthSpec(id.slice('synth:'.length)) } : { origin: 'sample', id })
+}
+
+/**
+ * Dropped / picked files: a workspace snapshot, a schema (.dbml) with an optional workflow file, a lone
+ * workflow file for the open dataset, or an exported layout. Anything else is reported, not guessed at.
+ */
+export async function openFiles(files: FileList | File[]) {
+  const list = [...files]
+  if (!list.length) return
+  let read
+  try {
+    read = await busy('Reading files…', () => Promise.all(list.map(async (f) => ({ name: f.name, text: await f.text() }))))
+  } catch (e) {
+    return notify('error', `Couldn't read ${list.map((f) => f.name).join(', ')}: ${message(e)}`)
+  }
+  const { plan, ignored } = planOpen(read)
+  const s = useStore.getState()
+  switch (plan.kind) {
+    case 'snapshot':
+      await open({ origin: 'snapshot', snapshot: plan.snapshot })
+      break
+    case 'schema':
+      await open({ origin: 'file', name: plan.name, dbml: plan.dbml, workflows: plan.workflows })
+      break
+    case 'workflows':
+      if (!s.dataset) {
+        notify('error', 'Open a schema first: a workflow file adds jobs to the open one')
+        break
+      }
+      try {
+        await install(withWorkflows(s.dataset, plan.text))
+      } catch (e) {
+        notify('error', `Couldn't apply the workflow file: ${message(e)}`)
+      }
+      break
+    case 'layout':
+      s.setLayout(plan.layout)
+      break
+    case 'none':
+      return notify('error', `Not a schema, workflow file, snapshot or layout: ${ignored.join(', ')}`)
+  }
+  if (ignored.length) notify('warning', `Ignored ${ignored.join(', ')}`)
+}
+
+/** First load: a dev `?synth=` spec, else the last dataset opened, else the commerce sample. */
+export async function boot() {
+  const synth = import.meta.env.DEV ? new URLSearchParams(location.search).get('synth') : null
+  if (synth) {
+    await open({ origin: 'synth', options: parseSynthSpec(synth) }, false)
+    return
+  }
+  let last: DatasetSource | null = null
+  try {
+    last = await lastSource()
+  } catch {
+    /* storage unavailable: start from the sample */
+  }
+  if (last && (await open(last))) return
+  await open({ origin: 'sample', id: 'commerce' })
 }

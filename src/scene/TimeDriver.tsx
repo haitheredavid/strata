@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { scheduleFor, useStore } from '../store'
+import { scheduleOf, useStore } from '../store'
 import { DAY } from '../sim/schedule'
 import { windowKey } from '../sim/runIndex'
 import { timeWindow } from './usePlacement'
@@ -31,7 +31,7 @@ export function TimeDriver({ time }: { time: TimeView | null }) {
     }
     // The window matters too: a finished run must stop counting as done once it slides out, even if
     // nothing starts or stops for hours.
-    const schedule = scheduleFor(s.graph)
+    const schedule = scheduleOf(s)
     const key = `${windowKey(schedule, [timeClock.t, timeClock.t])}|${windowKey(schedule, timeWindow(timeClock.t, s.time.span))}`
     // While playing, a big day crosses a run boundary nearly every frame, and each publish restyles
     // the whole diagram; publish at most every PUBLISH_MS then. A paused or scrubbed playhead (the

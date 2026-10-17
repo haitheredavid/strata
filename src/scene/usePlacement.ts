@@ -13,7 +13,7 @@ import type { Path } from '../view/paths'
 import { taskRunsIn } from '../sim/schedule'
 import type { Window } from '../sim/schedule'
 import { jobNodeId } from '../view/deriveView'
-import { modeOf, scheduleFor, useStore, viewInputs } from '../store'
+import { modeOf, scheduleOf, useStore, viewInputs } from '../store'
 import { span } from '../dev/perf'
 
 export interface Lit {
@@ -78,7 +78,7 @@ export function useSceneModel(): SceneModel {
   const s = useStore(
     useShallow((s) => ({
       layout: s.layout,
-      graph: s.graph,
+      schedule: scheduleOf(s),
       focused: s.focusedId,
       hopUp: s.hopUp,
       hopDown: s.hopDown,
@@ -128,16 +128,15 @@ export function useSceneModel(): SceneModel {
 
   const time = useMemo<TimeView | null>(() => {
     if (!s.timeOpen) return null
-    const schedule = scheduleFor(s.graph)
     const lens = (id: string) => !s.lens || id === s.lens
-    const active = new Set(taskRunsIn(schedule, [s.t, s.t]).filter((r) => lens(r.pipelineId)).map((r) => jobNodeId(r.taskId)))
-    const inWindow = taskRunsIn(schedule, timeWindow(s.t, s.span)).filter((r) => lens(r.pipelineId))
+    const active = new Set(taskRunsIn(s.schedule, [s.t, s.t]).filter((r) => lens(r.pipelineId)).map((r) => jobNodeId(r.taskId)))
+    const inWindow = taskRunsIn(s.schedule, timeWindow(s.t, s.span)).filter((r) => lens(r.pipelineId))
     const done = new Set(inWindow.map((r) => jobNodeId(r.taskId)).filter((id) => !active.has(id)))
     const reached = new Set(
       view.flows.filter((f) => [f.from, f.to].some((id) => active.has(id) || done.has(id))).flatMap((f) => [f.from, f.to]),
     )
     return { active, done, reached, pipelines: new Set(inWindow.map((r) => r.pipelineId)) }
-  }, [s.timeOpen, s.graph, s.t, s.span, s.lens, view])
+  }, [s.timeOpen, s.schedule, s.t, s.span, s.lens, view])
 
   const lit = useMemo<Lit | null>(() => {
     if (time) return pipelineLit(view, time.pipelines)

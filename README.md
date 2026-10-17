@@ -24,7 +24,9 @@ The toolbar switches between modes. Switching animates, each table keeps its ide
 - **Columns**: show all columns, keys only, or headers only. Double-click a card to fold just that card.
 - **Domains**: collapse a domain to a single card (refs into it are merged and shown with ×N), or hide or isolate it.
 - Search flies to a table. Iso / Top / Side (Front in Flow) are camera presets.
-- The layout (mode, positions, domain order, column detail) autosaves to localStorage for each schema. You can also export and import it as JSON.
+- The layout (mode, positions, domain order, column detail) autosaves to localStorage for each schema. You can also export and import it as JSON; dropping an exported layout applies it.
+- Whatever you open (a sample, a dropped schema with its workflow file, a snapshot) comes back after a reload. The last five dropped files and snapshots are kept in IndexedDB.
+- Load problems, workflow-file warnings and long layouts show as notices at the top left.
 
 ## Pipelines, jobs and medallion layers
 
@@ -47,7 +49,7 @@ Load the **Lakehouse sample** from the Samples menu, or drop a `.dbml` together 
   ```
   - Names that aren't tables in the schema (APIs, Kafka topics, volumes) become **sources**.
   - `catalog.schema.table` names match `schema.table`.
-  - Problems show as warnings in the panel instead of failing the load.
+  - Problems show as warnings in a notice instead of failing the load. A workflow file opened on its own must contain pipelines, or it's rejected and the current ones stay.
 - **DBML notes**:
   - A table note can say which job builds it, with `job: clean_orders`, `from: bronze.orders_raw`, `emits: …` and `pipeline: …`.
   - A TableGroup note can set `pipeline:` and `trigger: schedule 0 2 * * *` for the jobs of its tables.
@@ -66,7 +68,7 @@ Load the **Lakehouse sample** from the Samples menu, or drop a `.dbml` together 
   - show / hide each pipeline;
   - ◎ lights up everything a pipeline touches;
   - ▶ opens the day timeline on that pipeline's first run, with the pipeline lit up.
-- The workflow file is remembered for each schema, so a reload keeps it.
+- Opening a workflow file replaces the open dataset's jobs and is remembered with it, so a reload keeps it. A snapshot keeps its real runs.
 
 ## Day timeline
 

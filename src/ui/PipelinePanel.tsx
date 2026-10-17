@@ -98,11 +98,6 @@ export function PipelinePanel() {
           </button>
         </div>
       )}
-      {workflows.warnings.length > 0 && (
-        <ul className="warnings">
-          {workflows.warnings.map((w) => <li key={w}>{w}</li>)}
-        </ul>
-      )}
     </details>
   )
 }
