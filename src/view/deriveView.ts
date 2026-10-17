@@ -1,4 +1,4 @@
-import type { Column, ColumnDetail, Graph, GroupBy, Layer, RefKind } from '../model/types'
+import type { Column, ColumnDetail, EdgeLayer, Graph, GroupBy, Layer, RefKind } from '../model/types'
 import type { Cluster, Medallion, Trigger } from '../model/workflow'
 import { clusterNodeId } from '../model/workflow'
 
@@ -220,6 +220,42 @@ export function deriveView(graph: Graph, opts: ViewOptions = {}): ViewGraph {
     }
 
   return { nodes, edges, flows, layers, clusters, computeLinks }
+}
+
+/** Store fields the scene's view derives from. */
+export interface ViewInputs {
+  graph: Graph
+  columnDetail?: ColumnDetail
+  collapsedCards?: string[]
+  groupBy?: GroupBy
+  edgeLayer?: EdgeLayer
+  hiddenPipelines?: string[]
+  pipelineTablesOnly?: boolean
+  showCompute?: boolean
+  hiddenLayers: string[]
+  isolatedLayerId: string | null
+  collapsedLayers: string[]
+}
+
+export const lineageOn = (edgeLayer: string | undefined) => edgeLayer !== 'fk'
+
+/** The scene's view: grouping, hide / isolate / collapse / column detail, visible pipelines. Pure. */
+export function sceneView(s: ViewInputs): ViewGraph {
+  const lineage = lineageOn(s.edgeLayer)
+  const hidden = s.isolatedLayerId
+    ? deriveView(s.graph, { groupBy: s.groupBy, lineage }).layers.map((l) => l.id).filter((id) => id !== s.isolatedLayerId)
+    : s.hiddenLayers
+  return deriveView(s.graph, {
+    hiddenLayers: hidden,
+    collapsedLayers: s.collapsedLayers,
+    columnDetail: s.columnDetail,
+    collapsedCards: s.collapsedCards,
+    groupBy: s.groupBy,
+    lineage,
+    hiddenPipelines: s.hiddenPipelines,
+    pipelineTablesOnly: s.pipelineTablesOnly,
+    compute: s.showCompute ?? true,
+  })
 }
 
 /** Child (FK holder) and parent (referenced) ends of an edge. */

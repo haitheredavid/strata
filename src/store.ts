@@ -8,7 +8,8 @@ import { seedLayout } from './layout/seedLayout'
 import { MODES } from './layout/modes'
 import { flowOrder } from './layout/modes/flow'
 import { derivedStack } from './layout/modes/stack'
-import { deriveView } from './view/deriveView'
+import { deriveView, sceneView } from './view/deriveView'
+import type { ViewInputs } from './view/deriveView'
 import { timeClock } from './scene/timeClock'
 import { hash32 } from './sim/rng'
 import { DAY, simulateDay } from './sim/schedule'
@@ -127,9 +128,20 @@ function reframed(layout: Layout, force = false) {
   return { layout, cameraCommand: { kind: 'preset' as const, preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() } }
 }
 
-/** The view's tables and layers under the current grouping and pipeline filter (enough to size a layout). */
-const viewOf = (s: { graph: Graph; layout: Layout }) =>
-  deriveView(s.graph, { groupBy: s.layout.groupBy, lineage: s.layout.edgeLayer !== 'fk', hiddenPipelines: s.layout.hiddenPipelines, pipelineTablesOnly: s.layout.pipelineTablesOnly })
+/** The store fields `sceneView` reads; the scene and the store's layout actions share it. */
+export const viewInputs = (s: State): ViewInputs => ({
+  graph: s.graph,
+  columnDetail: s.layout.columnDetail,
+  collapsedCards: s.layout.collapsedCards,
+  groupBy: s.layout.groupBy,
+  edgeLayer: s.layout.edgeLayer,
+  hiddenPipelines: s.layout.hiddenPipelines,
+  pipelineTablesOnly: s.layout.pipelineTablesOnly,
+  showCompute: s.layout.showCompute,
+  hiddenLayers: s.hiddenLayers,
+  isolatedLayerId: s.isolatedLayerId,
+  collapsedLayers: s.collapsedLayers,
+})
 
 /** Tables above which a fresh layout starts with header-only cards and only the tables pipelines touch. */
 export const LARGE_GRAPH = 150
@@ -202,8 +214,8 @@ function freshLayout(graph: Graph, schemaKey: string, layerGap = 8): Layout {
 }
 
 /** State for a freshly loaded graph: its saved layout (or a new one) and every per-schema setting reset. */
-function installGraph(graph: Graph, schemaKey: string, source: string, sidecar: string | null): Partial<State> {
-  const layout = loadSavedLayout(schemaKey, graph) ?? largeDefaults(graph, freshLayout(graph, schemaKey))
+function installGraph(graph: Graph, schemaKey: string, source: string, sidecar: string | null, narrowLarge: boolean): Partial<State> {
+  const layout = loadSavedLayout(schemaKey, graph) ?? (narrowLarge ? largeDefaults(graph, freshLayout(graph, schemaKey)) : freshLayout(graph, schemaKey))
   return {
     source,
     sidecar,
@@ -262,10 +274,10 @@ export const useStore = create<State>((set, get) => ({
       return
     }
     if (sidecarText) storage((ls) => ls.setItem(sidecarKey(schemaKey), sidecarText))
-    set(installGraph(graph, schemaKey, src, sidecar))
+    set(installGraph(graph, schemaKey, src, sidecar, true))
   },
 
-  loadGraph: (graph, key) => set(installGraph(graph, hash(key), '', null)),
+  loadGraph: (graph, key) => set(installGraph(graph, hash(key), '', null, false)),
 
   loadSnapshot: (snap) => {
     get().loadSchema(snap.dbml, snap.workflows)
@@ -296,7 +308,7 @@ export const useStore = create<State>((set, get) => ({
       const mode = modeOf(s.layout)
       if (mode === 'flow') return { layout: { ...s.layout, flowOrder: undefined, flowOverrides: undefined } }
       if (mode === 'diagram') return { layout: { ...s.layout, flowOrder: undefined } }
-      if (mode === 'stack' && s.layout.groupBy === 'medallion') return { layout: { ...s.layout, medallionPositions: undefined } }
+      if (mode === 'stack' && derivedStack(s.layout, sceneView(viewInputs(s)))) return { layout: { ...s.layout, medallionPositions: undefined } }
       if (mode === 'stack') return { layout: { ...s.layout, ...freshLayout(s.graph, s.schemaKey, s.layout.layerGap) } }
       return s
     }),
@@ -329,7 +341,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       const mode = modeOf(s.layout)
       if (id.startsWith('job:')) return s
-      if (mode === 'stack' && (!s.layout.positions[id] || derivedStack(s.layout, viewOf(s))))
+      if (mode === 'stack' && (!s.layout.positions[id] || derivedStack(s.layout, sceneView(viewInputs(s)))))
         return { layout: { ...s.layout, medallionPositions: { ...s.layout.medallionPositions, [id]: { x: p[0], z: p[2] } } } }
       if (mode === 'stack')
         return { layout: { ...s.layout, positions: { ...s.layout.positions, [id]: { x: p[0], z: p[2] } } } }

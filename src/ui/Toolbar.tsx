@@ -79,7 +79,7 @@ export function Toolbar() {
         hidden
         onChange={async (e) => {
           const f = e.target.files?.[0]
-          if (f) useStore.getState().loadSidecar(await f.text())
+          if (f) await loadFiles([f])
           e.target.value = ''
         }}
       />

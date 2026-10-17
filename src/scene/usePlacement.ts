@@ -4,7 +4,7 @@ import { MODES } from '../layout/modes'
 import type { Placement } from '../layout/modes'
 import { placeJobs } from '../layout/modes/jobs'
 import { placeClusters } from '../layout/modes/compute'
-import { deriveView } from '../view/deriveView'
+import { sceneView } from '../view/deriveView'
 import type { ViewGraph } from '../view/deriveView'
 import { hops } from '../view/hops'
 import type { Hop } from '../view/hops'
@@ -13,7 +13,7 @@ import type { Path } from '../view/paths'
 import { taskRunsIn } from '../sim/schedule'
 import type { Window } from '../sim/schedule'
 import { jobNodeId } from '../view/deriveView'
-import { modeOf, scheduleFor, useStore } from '../store'
+import { modeOf, scheduleFor, useStore, viewInputs } from '../store'
 import { span } from '../dev/perf'
 
 export interface Lit {
@@ -49,40 +49,10 @@ export interface SceneModel {
   time: TimeView | null
 }
 
-export const lineageOn = (edgeLayer: string | undefined) => edgeLayer !== 'fk'
-
 /** graph → view: grouping, hide / isolate / collapse / column detail, visible pipelines. */
 export function useView(): ViewGraph {
-  const s = useStore(
-    useShallow((s) => ({
-      graph: s.graph,
-      columnDetail: s.layout.columnDetail,
-      collapsedCards: s.layout.collapsedCards,
-      groupBy: s.layout.groupBy,
-      edgeLayer: s.layout.edgeLayer,
-      hiddenPipelines: s.layout.hiddenPipelines,
-      pipelineTablesOnly: s.layout.pipelineTablesOnly,
-      showCompute: s.layout.showCompute,
-      hiddenLayers: s.hiddenLayers,
-      isolatedLayerId: s.isolatedLayerId,
-      collapsedLayers: s.collapsedLayers,
-    })),
-  )
-  return useMemo(() => {
-    const ids = deriveView(s.graph, { groupBy: s.groupBy, lineage: lineageOn(s.edgeLayer) }).layers.map((l) => l.id)
-    const hidden = s.isolatedLayerId ? ids.filter((id) => id !== s.isolatedLayerId) : s.hiddenLayers
-    return span('deriveView', () => deriveView(s.graph, {
-      hiddenLayers: hidden,
-      collapsedLayers: s.collapsedLayers,
-      columnDetail: s.columnDetail,
-      collapsedCards: s.collapsedCards,
-      groupBy: s.groupBy,
-      lineage: lineageOn(s.edgeLayer),
-      hiddenPipelines: s.hiddenPipelines,
-      pipelineTablesOnly: s.pipelineTablesOnly,
-      compute: s.showCompute ?? true,
-    }))
-  }, [s.showCompute, s.graph, s.groupBy, s.edgeLayer, s.isolatedLayerId, s.hiddenLayers, s.collapsedLayers, s.columnDetail, s.collapsedCards, s.hiddenPipelines, s.pipelineTablesOnly])
+  const s = useStore(useShallow(viewInputs))
+  return useMemo(() => span('deriveView', () => sceneView(s)), [s])
 }
 
 /** Join paths for the path finder. */
