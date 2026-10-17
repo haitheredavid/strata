@@ -13,6 +13,8 @@ const POP = 1.2 // focus pop-out per hop, off the slab along +X
 const SWEEPS = 4
 /** Slab spacing along X is this multiple of the layer gap. */
 const SLAB_SPACING = 2
+/** A sub-column taller than this (world units) wraps into several, about as wide as they are tall. */
+const MAX_COLUMN_H = 60
 
 /**
  * Slab order, left to right. External sources always come first. Medallion grouping is fixed
@@ -67,7 +69,8 @@ export function flowBase(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'la
  * Left-to-right layered layout: each domain is an upright slab facing +X, upstream domains first along X.
  * Across a slab (world -Z, i.e. left to right as seen from the front), sub-columns follow the
  * domain-local FK depth with referenced tables first. Rows are ordered by barycenter sweeps against
- * neighbors in every other column to cut down crossings.
+ * neighbors in every other column to cut down crossings. A sub-column too tall to read (a domain of
+ * hundreds of tables) then wraps into a grid of sub-columns, keeping that row order.
  */
 function flowBaseUnit(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'groupBy'>): Base {
   const order = flowOrder(view, layout)
@@ -106,7 +109,7 @@ function flowBaseUnit(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'group
     (e) => e,
   )
 
-  const columns: { x: number; z: number; ids: string[] }[] = []
+  const columns: Column[] = []
   let cursor = 0
   for (const layerId of order) {
     const ids = idsOf.get(layerId) ?? []
@@ -116,12 +119,12 @@ function flowBaseUnit(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'group
     for (const id of ids) subs = Math.max(subs, depth.get(id)! + 1)
     const bySub: string[][] = Array.from({ length: subs }, () => [])
     for (const id of ids) bySub[depth.get(id)!].push(id)
-    bySub.forEach((sub, d) => columns.push({ x: cursor, z: ((subs - 1) / 2 - d) * SUB_STEP, ids: sub }))
+    bySub.forEach((sub, d) => columns.push({ layerId, x: cursor, z: ((subs - 1) / 2 - d) * SUB_STEP, ids: sub }))
     cursor += SLAB_SPACING // per unit of layer gap; flowBase scales it
   }
 
   const pos = new Map<string, { x: number; y: number; z: number }>()
-  const stackColumn = (c: { x: number; z: number; ids: string[] }) => {
+  const stackColumn = (c: Column) => {
     const hs = c.ids.map((id) => cardDepth(byId.get(id)!))
     let y = (hs.reduce((s, h) => s + h, 0) + V_GAP * (hs.length - 1)) / 2
     c.ids.forEach((id, i) => {
@@ -146,9 +149,41 @@ function flowBaseUnit(view: ViewGraph, layout: Pick<Layout, 'flowOrder' | 'group
     }
   }
 
+  // Wrap tall sub-columns; every layer's sub-columns are re-centered across its slab.
+  const height = (ids: string[]) => ids.reduce((s, id) => s + cardDepth(byId.get(id)!) + V_GAP, -V_GAP)
+  for (const layerId of order) {
+    const cols = columns.filter((c) => c.layerId === layerId)
+    if (!cols.length) continue
+    const parts = cols.flatMap((c) => {
+      const h = height(c.ids)
+      return h > MAX_COLUMN_H ? splitByHeight(c.ids, Math.max(2, Math.round(Math.sqrt(h / SUB_STEP))), (id) => cardDepth(byId.get(id)!) + V_GAP) : [c.ids]
+    })
+    parts.forEach((ids, d) => stackColumn({ layerId, x: cols[0].x, z: ((parts.length - 1) / 2 - d) * SUB_STEP, ids }))
+  }
+
   const base = { pos, order }
   cache = { view, key, base }
   return base
+}
+
+interface Column {
+  layerId: string
+  x: number
+  z: number
+  ids: string[]
+}
+
+/** `ids` in `k` consecutive runs of about equal total height. */
+export function splitByHeight(ids: string[], k: number, h: (id: string) => number): string[][] {
+  const total = ids.reduce((s, id) => s + h(id), 0)
+  const parts: string[][] = [[]]
+  let acc = 0
+  for (const id of ids) {
+    if (acc >= (total * parts.length) / k && parts.length < k) parts.push([])
+    parts[parts.length - 1].push(id)
+    acc += h(id)
+  }
+  return parts
 }
 
 export function placeFlow(view: ViewGraph, layout: Layout, ctx: { hops: Map<string, { hop: number }> | null; hopUp: number; hopDown: number }): Placement {

@@ -1,24 +1,29 @@
 import type { Layout, Vec2 } from '../../model/types'
 import { SOURCES } from '../../view/deriveView'
 import type { ViewGraph, ViewNode } from '../../view/deriveView'
-import { autoLayoutView } from '../autoLayout'
+import { autoLayoutView, cachedViewLayout } from '../autoLayout'
 import { cardRect } from '../geometry'
 import type { Mode, NodePlace, Placement, PlatePlace } from './types'
 
 const PAD = 1.5
 const LABEL_ROOM = 1
 
-/** Above this many tables a filtered view keeps the stored positions (re-laying it out would stall). */
-const MAX_DERIVED = 150
+/** Up to this many tables a derived stack is laid out right away; bigger ones wait for a worker. */
+const SYNC_DERIVED_MAX = 150
 
 /**
  * True when the stack lays out the view itself instead of using the stored positions: medallion
- * grouping, or a pipeline table filter leaving few enough tables that the full layout would scatter them.
+ * grouping, or a pipeline table filter (laid out on its own so the tables left don't sit scattered
+ * where the full layout put them).
  */
 export function derivedStack(layout: Layout, view?: ViewGraph) {
   if (layout.groupBy === 'medallion') return true
-  return !!layout.pipelineTablesOnly && !!view && view.nodes.filter((n) => n.kind === 'table').length <= MAX_DERIVED
+  return !!layout.pipelineTablesOnly && !!view
 }
+
+/** A derived stack too big to lay out on the main thread: the scene asks a worker (`viewLayoutAsync`). */
+export const needsWorkerLayout = (layout: Layout, view: ViewGraph) =>
+  derivedStack(layout, view) && view.nodes.reduce((n, x) => n + (x.kind === 'table' ? 1 : 0), 0) > SYNC_DERIVED_MAX
 
 /** Layer heights: `layerOrder` for domains, fixed bronze → gold for medallions; sources sit below. Derived layouts close gaps. */
 export const layerY = (layout: Layout, layerId: string, view?: ViewGraph) => {
@@ -55,10 +60,12 @@ export function placeStack(view: ViewGraph, layout: Layout): Placement {
   const derived = derivedStack(layout, view)
 
   // Auto layout only what has no stored position: everything in a derived stack, else the
-  // layers holding such nodes (external sources). Computed on first use.
+  // layers holding such nodes (external sources). Computed on first use. A big derived stack takes the
+  // worker's layout once it's there, and the full layout's positions until then.
   let auto: Record<string, Vec2> | null = null
   const autoPos = () => {
     if (auto) return auto
+    if (derived && needsWorkerLayout(layout, view)) return (auto = cachedViewLayout(view) ?? layout.positions)
     const stored = derived ? null : layout.positions
     const missing = stored
       ? view.layers.filter((l) => membersOf.get(l.id)!.some((n) => !n.members && !stored[n.id] && !layout.medallionPositions?.[n.id])).map((l) => l.id)

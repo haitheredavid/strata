@@ -7,6 +7,7 @@ import { useStore } from '../store'
 
 /** Synthetic graphs for profiling, offered in the sample picker in dev builds (`synth:<spec>` ids). */
 export const SYNTH_PRESETS = [
+  { id: 'synth:tables:608,pipelines:93,layers:11', label: 'Snapshot shape (608)' },
   { id: 'synth:tables:1000,pipelines:20', label: 'Synthetic 1k' },
   { id: 'synth:tables:5000,pipelines:100', label: 'Synthetic 5k' },
   { id: 'synth:tables:20000,pipelines:300', label: 'Synthetic 20k' },

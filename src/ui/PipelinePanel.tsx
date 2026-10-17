@@ -5,6 +5,7 @@ import type { Pipeline, Trigger } from '../model/workflow'
 import { TRIGGER_LABEL } from '../scene/timeClock'
 import { usePalette } from '../theme/palette'
 import { hiddenPipelinesOf } from '../view/deriveView'
+import { pipelineDomains } from '../view/pipelineDomain'
 
 /** Lists longer than this get a filter box. */
 const FILTER_AT = 12
@@ -125,17 +126,11 @@ const TRIGGER_GROUP: Record<Trigger['kind'], string> = {
 /** Pipelines in labelled groups (one unlabelled group for 'none'), groups A–Z, pipelines in file order. */
 function groupPipelines(pipelines: Pipeline[], by: Grouping, graph: Graph): [string, Pipeline[]][] {
   if (by === 'none') return [['', pipelines]]
-  const layerOf = new Map(graph.tables.map((t) => [t.id, t.layerId]))
   const layerName = new Map(graph.layers.map((l) => [l.id, l.name]))
-  // A pipeline's domain: the layer most of the tables it writes are in.
+  const domains = pipelineDomains(graph)
   const domain = (p: Pipeline) => {
-    const n = new Map<string, number>()
-    for (const t of p.tasks) for (const w of t.writes) {
-      const l = layerOf.get(w)
-      if (l) n.set(l, (n.get(l) ?? 0) + 1)
-    }
-    const top = [...n].sort((a, b) => b[1] - a[1])[0]?.[0]
-    return top ? layerName.get(top) ?? top : 'Writes no tables'
+    const l = domains.get(p.id)
+    return l ? layerName.get(l) ?? l : 'Writes no tables'
   }
   const groups = new Map<string, Pipeline[]>()
   for (const p of pipelines) {

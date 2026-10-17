@@ -156,22 +156,12 @@ function viewKey(view: ViewGraph, layerIds: string[]): string {
   return parts.join('|')
 }
 
-/**
- * `autoLayout` over a derived view (e.g. medallion grouping, external sources). `layerIds` limits it to
- * those layers, for when only some nodes lack a stored position. Cached by the view's shape.
- */
-export function autoLayoutView(view: ViewGraph, layerIds: string[] = view.layers.map((l) => l.id)): Record<string, Vec2> {
-  const key = viewKey(view, layerIds)
-  const hit = viewCache.get(key)
-  if (hit) {
-    viewCache.delete(key) // re-insert: most recent last
-    viewCache.set(key, hit)
-    return hit
-  }
+/** The cards of a view's layers (all of them by default) as a graph `autoLayout` can place. */
+export function viewLayoutGraph(view: ViewGraph, layerIds: string[] = view.layers.map((l) => l.id)): Graph {
   const keep = new Set(layerIds)
   const nodes = view.nodes.filter((n) => n.kind !== 'job' && keep.has(n.layerId))
   const ids = new Set(nodes.map((n) => n.id))
-  const graph: Graph = {
+  return {
     tables: nodes.map((n) => ({ id: n.id, name: n.name, layerId: n.layerId, columns: n.columns })),
     refs: view.edges
       .filter((e) => ids.has(e.from) && ids.has(e.to))
@@ -179,8 +169,27 @@ export function autoLayoutView(view: ViewGraph, layerIds: string[] = view.layers
     layers: view.layers.filter((l) => keep.has(l.id)),
     workflows: EMPTY_WORKFLOWS,
   }
-  const positions = autoLayout(graph).positions
+}
+
+function remember(key: string, positions: Record<string, Vec2>) {
+  viewCache.delete(key) // re-insert: most recent last
   viewCache.set(key, positions)
   if (viewCache.size > VIEW_CACHE_SIZE) viewCache.delete(viewCache.keys().next().value!)
+}
+
+/**
+ * `autoLayout` over a derived view (e.g. medallion grouping, external sources). `layerIds` limits it to
+ * those layers, for when only some nodes lack a stored position. Cached by the view's shape.
+ */
+export function autoLayoutView(view: ViewGraph, layerIds: string[] = view.layers.map((l) => l.id)): Record<string, Vec2> {
+  const key = viewKey(view, layerIds)
+  const positions = viewCache.get(key) ?? autoLayout(viewLayoutGraph(view, layerIds)).positions
+  remember(key, positions)
   return positions
 }
+
+/** `autoLayoutView` of the whole view if it's been computed (here or in a worker), without computing it. */
+export const cachedViewLayout = (view: ViewGraph) => viewCache.get(viewKey(view, view.layers.map((l) => l.id)))
+
+/** Keeps a whole-view layout computed elsewhere (a worker) for `cachedViewLayout` and `autoLayoutView`. */
+export const storeViewLayout = (view: ViewGraph, positions: Record<string, Vec2>) => remember(viewKey(view, view.layers.map((l) => l.id)), positions)

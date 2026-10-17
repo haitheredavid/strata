@@ -16,6 +16,7 @@ import type { CardStyle } from './CardBodies'
 import { buildWorld, replace } from '../world/world'
 import type { World } from '../world/world'
 import type { ViewGraph } from '../view/deriveView'
+import { MANY_PIPELINES } from '../view/pipelineDomain'
 import { fkCurves } from '../world/fkEdges'
 import { FlowWires } from './FlowWires'
 import { PlateOutlines, RingLines } from './Outlines'
@@ -100,7 +101,12 @@ function Diagram({ model }: { model: SceneModel }) {
     () => (front?.flows.size ? new Set(view.flows.filter((f) => front.flows.has(f.id)).map((f) => f.pipelineId)) : null),
     [front, view],
   )
-  const laneOpacity = useCallback((id: string) => (litPipelines ? (litPipelines.has(id) ? 1.5 : 0.15) : 1), [litPipelines])
+  // Unlit lanes fade; with many pipelines a lane is only worth drawing for a lit one.
+  const many = shownPipelines.length > MANY_PIPELINES
+  const laneOpacity = useCallback(
+    (id: string) => (litPipelines ? (litPipelines.has(id) ? 1.5 : many ? 0 : 0.15) : many ? 0 : 1),
+    [litPipelines, many],
+  )
 
   // Only orbit fades nodes; keep the set's identity while its contents hold, so placement changes
   // that don't touch fading (layer gap, drags) don't restyle every node.

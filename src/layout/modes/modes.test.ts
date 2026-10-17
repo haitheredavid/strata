@@ -100,6 +100,45 @@ describe('placeFlow', () => {
   })
 })
 
+describe('a domain of hundreds of tables', () => {
+  const tables = Array.from({ length: 300 }, (_, i) => `Table t${i} {\n  id int [pk]\n}`).join('\n')
+  const big = parseDbml(`${tables}\nTableGroup big {\n${Array.from({ length: 300 }, (_, i) => `  t${i}`).join('\n')}\n}\n`)
+  const v = deriveView(big)
+  const l = autoLayout(big)
+
+  it('wraps into a grid of sub-columns in flow, about as wide as tall, without overlaps', () => {
+    const f = placeFlow(v, l, noFocus)
+    const zs = new Set(v.nodes.map((n) => f.nodes[n.id].p[2]))
+    expect(zs.size).toBeGreaterThan(5)
+    const plate = f.plates.find((p) => p.id === 'big')!
+    const [w, h] = plate.size
+    expect(h / w).toBeLessThan(2)
+    expect(w / h).toBeLessThan(2)
+    const byColumn = new Map<number, number[]>()
+    for (const n of v.nodes) byColumn.set(f.nodes[n.id].p[2], [...(byColumn.get(f.nodes[n.id].p[2]) ?? []), f.nodes[n.id].p[1]])
+    for (const ys of byColumn.values()) {
+      ys.sort((a, b) => a - b)
+      for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeGreaterThanOrEqual(cardDepth(v.nodes[0]) - 1e-6)
+    }
+  })
+
+  it('lays the same grid flat in diagram, without overlapping cards', () => {
+    const d = placeDiagram(v, l)
+    expect(new Set(v.nodes.map((n) => d.nodes[n.id].p[0])).size).toBeGreaterThan(5)
+    const rects = v.nodes.map((n) => cardRect(n, { x: d.nodes[n.id].p[0], z: d.nodes[n.id].p[2] }))
+    for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) expect(rectsOverlap(rects[i], rects[j])).toBe(false)
+  })
+
+  it('packs the out-of-range ones in orbit as a disk of rings, not one ring hundreds of cards round', () => {
+    const o = placeOrbit(v, l, { focusedId: 't0', hops: null, hopUp: 1, hopDown: 1 })
+    const radii = v.nodes.filter((n) => n.id !== 't0').map((n) => Math.hypot(o.nodes[n.id].p[0], o.nodes[n.id].p[2]))
+    expect(Math.max(...radii)).toBeLessThan(150) // one ring of 299 cards, 6 apart, would be ~286
+    const at = v.nodes.map((n) => o.nodes[n.id].p)
+    for (let i = 0; i < at.length; i++)
+      for (let j = i + 1; j < at.length; j++) expect(Math.hypot(at[i][0] - at[j][0], at[i][2] - at[j][2])).toBeGreaterThan(4)
+  })
+})
+
 describe('placeDiagram', () => {
   const p = placeDiagram(view, layout)
 

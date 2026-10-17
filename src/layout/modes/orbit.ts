@@ -6,6 +6,7 @@ import type { Mode, ModeCtx, NodePlace, Placement, Ring } from './types'
 
 const SLOT = 6 // arc length per card on a ring
 const ELEVATION = 0.6 // radians above / below the equator for hop rings
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 
 /** Most connected node: the default center when nothing is focused. */
 export function hub(view: ViewGraph): string | null {
@@ -23,7 +24,8 @@ export function hub(view: ViewGraph): string | null {
 /**
  * Ego layout: the center table at the origin, referenced tables on rings above it and referencing
  * tables on rings below, one ring per hop. Rings are sorted by domain so domains stay together.
- * Everything outside the hop range sits on a wide faded ring at the equator.
+ * Everything outside the hop range lies faded at the equator, filling rings outward a card's width
+ * apart (in domain order), so hundreds of them make a compact disk rather than one huge ring.
  */
 export function placeOrbit(view: ViewGraph, layout: Layout, ctx: ModeCtx): Placement {
   const nodes: Record<string, NodePlace> = {}
@@ -67,13 +69,18 @@ export function placeOrbit(view: ViewGraph, layout: Layout, ctx: ModeCtx): Place
   }
 
   const rest = view.nodes.filter((n) => !nodes[n.id] && n.kind !== 'job').map((n) => n.id).sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
-  if (rest.length) {
-    const r = Math.max(outer + base, (rest.length * SLOT) / (2 * Math.PI))
-    rest.forEach((id, i) => {
-      const a = (2 * Math.PI * (i + 0.5)) / rest.length
+  let r = outer + base
+  for (let i = 0, k = 0; i < rest.length; r += SLOT, k++) {
+    const ring = rest.slice(i, i + Math.max(1, Math.floor((2 * Math.PI * r) / SLOT)))
+    // Each ring starts a golden angle on from the last: staggered, and no two cards mirror each other.
+    const start = (k + 0.1) * GOLDEN_ANGLE
+    ring.forEach((id, j) => {
+      const a = start + (2 * Math.PI * (j + 0.5)) / ring.length
       nodes[id] = { p: [r * Math.cos(a), 0, r * Math.sin(a)], frame: 'billboard', faded: true }
     })
-    rings.push({ y: 0, r })
+    // Guides at the disk's inner and outer edge only.
+    if (i === 0 || i + ring.length >= rest.length) rings.push({ y: 0, r })
+    i += ring.length
   }
 
   return { nodes, plates: [], rings }

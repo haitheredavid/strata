@@ -13,8 +13,8 @@ pnpm test
 The toolbar switches between modes. Switching animates, each table keeps its identity as it moves, and the camera stays where it is.
 
 - **Stack**: each domain is a horizontal layer stacked on Y. Refs inside a domain stay on the plate; refs between domains wire between layers. Tables are placed with d3-force, and you can drag them.
-- **Flow**: each domain is an upright slab, ordered left to right by FK dependency. Domains that are referenced come first (upstream), and domains that reference them follow (downstream). On each slab, sub-columns follow FK depth within the domain, and rows are ordered by barycenter sweeps to reduce crossings. Focusing a table lifts its neighborhood off the slab. You can drag cards on their slab and reorder domains with ←/→.
-- **Orbit**: the focused table sits at the center (or the most connected table, if nothing is focused). Tables it references sit on rings above it and tables that reference it sit below, one ring per hop. Tables outside the hop range sit on a faded outer ring. Click a table to re-center on it.
+- **Flow**: each domain is an upright slab, ordered left to right by FK dependency. Domains that are referenced come first (upstream), and domains that reference them follow (downstream). On each slab, sub-columns follow FK depth within the domain, and rows are ordered by barycenter sweeps to reduce crossings. A sub-column too tall to read (a domain of hundreds of tables) wraps into a grid about as wide as it is tall, keeping the row order. Focusing a table lifts its neighborhood off the slab. You can drag cards on their slab and reorder domains with ←/→.
+- **Orbit**: the focused table sits at the center (or the most connected table, if nothing is focused). Tables it references sit on rings above it and tables that reference it sit below, one ring per hop. Tables outside the hop range lie faded at the equator, filling rings outward in domain order, so hundreds of them make a compact disk. Click a table to re-center on it.
 - **Diagram**: Flow's arrangement laid flat on the ground, with domains left to right and rows top to bottom. The lens narrows to a near-orthographic 3° (a dolly zoom that keeps the framing), so it reads like a 2D lineage diagram. Press Top for the straight-down view, and switch to Flow to watch each column stand up into its slab.
 
 ## Exploring
@@ -62,9 +62,9 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 - **Edges**: FK, Lineage or Both.
 - **Lineage drawing**:
   - Jobs are hexagons placed between what they read and what they write.
-  - Lineage wires are dashed, in the pipeline's colour, with pulses moving downstream.
+  - Lineage wires are dashed, in the pipeline's colour, with pulses moving downstream. Past 12 pipelines, each takes the colour of the domain it mostly writes, shaded apart from the others writing there.
   - Pulse size shows bytes per run (log scale) and the number of pulses on a wire shows runs per day: a daily batch is one dot, streaming a dense train. In a snapshot, sizes come from the bytes the job's statements read and wrote (query history, split evenly over its tables); otherwise `bytes: 4GB` on a task gives its size, and failing that it is simulated from the medallion layer. Hover a job for its bytes in / out and runs a day; a snapshot job whose size had to be simulated says so.
-  - Flow mode adds a translucent lane for each pipeline.
+  - Flow mode adds a translucent lane for each pipeline; lanes not lit fade. Past 12 pipelines, only lit pipelines' lanes are drawn.
 - **Triggers** label each pipeline's first jobs (CRON / FILE / ON UPDATE / AFTER / STREAMING). Dotted links run from the tables or the upstream pipeline that start it.
 - **Events** are amber markers on the jobs that emit them.
 - **Pipelines panel**:
@@ -158,7 +158,9 @@ The compute drawer's badge says which of these are real for the cluster in view.
 
 Drop the snapshot onto the app; it's kept in IndexedDB, so a reload brings it back. A file that claims to be a snapshot but isn't usable (another version, missing fields) is reported with what's wrong. Layouts follow the workspace and catalogs rather than the file, so tomorrow's export keeps today's positions for the tables that are still there and places only the new ones.
 
-Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ shows only one pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches, and groups long lists by trigger or by the domain each pipeline mostly writes. The Layers panel gets a filter past eight layers, and row buttons show on hover unless they hold a state (hidden, only, folded). A filtered view of 150 tables or fewer gets its own layout. The timeline only lists visible pipelines, has a row filter and **Lit only** (the lit pipeline, or those that ran in the window), and keeps its time axis in view while you scroll.
+Big workspaces need narrowing. When a schema has more than 150 tables, a fresh layout starts with header-only cards and **Tables: In visible pipelines**, which leaves out tables no shown pipeline touches. ◐ shows only one pipeline, and the Pipelines panel has a filter box with **All** / **None** for whatever it matches, and groups long lists by trigger or by the domain each pipeline mostly writes. The Layers panel gets a filter past eight layers, and row buttons show on hover unless they hold a state (hidden, only, folded). A filtered view gets its own layout in Stack; past 150 tables it's computed in a background worker, and the full layout's positions stand in until it lands. The timeline only lists visible pipelines, has a row filter and **Lit only** (the lit pipeline, or those that ran in the window), and keeps its time axis in view while you scroll.
+
+`pnpm test:scale` and `pnpm bench` hold the load path to timing budgets at the 600-table snapshot shape (`src/bench/budgets.ts`); the **Snapshot shape (608)** dev preset loads the same synthetic graph.
 
 The export also writes its raw payloads to `snapshots/.raw/`, so `--from-raw <file>` can redo the mapping offline. Anything it can't map shows up as a warning: ⚠ N next to the dataset chip. One example is lineage from `dbutils.notebook.run` runs, which carry no link to their job.
 

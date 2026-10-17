@@ -1,9 +1,13 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useReducer } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { MODES } from '../layout/modes'
 import type { Placement } from '../layout/modes'
 import { placeJobs } from '../layout/modes/jobs'
 import { placeClusters } from '../layout/modes/compute'
+import { needsWorkerLayout } from '../layout/modes/stack'
+import { cachedViewLayout, storeViewLayout, viewLayoutGraph } from '../layout/autoLayout'
+import { viewLayoutAsync } from '../layout/layoutClient'
+import type { Layout } from '../model/types'
 import { sceneView } from '../view/deriveView'
 import type { ViewGraph } from '../view/deriveView'
 import { hops } from '../view/hops'
@@ -61,6 +65,35 @@ export function usePaths(view: ViewGraph): Path[] {
   )
 }
 
+/**
+ * A big derived stack (the tables in visible pipelines, past what lays out at once) is laid out in a
+ * worker; until it lands the stack keeps the full layout's positions. Returns a revision that bumps when
+ * a worker layout arrives, for the placement to re-run.
+ */
+function useWorkerLayout(view: ViewGraph, layout: Layout): number {
+  const [revision, bump] = useReducer((n: number) => n + 1, 0)
+  const wanted = modeOf(layout) === 'stack' && needsWorkerLayout(layout, view) && !cachedViewLayout(view)
+  useEffect(() => {
+    if (!wanted) return
+    let live = true
+    const status = `Laying out the ${view.nodes.filter((n) => n.kind === 'table').length} tables in visible pipelines…`
+    useStore.getState().setStatus(status)
+    void viewLayoutAsync(viewLayoutGraph(view), 8)
+      .then((positions) => {
+        if (!live || !positions) return
+        storeViewLayout(view, positions)
+        bump()
+      })
+      .finally(() => {
+        if (useStore.getState().status === status) useStore.getState().setStatus(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [wanted, view])
+  return revision
+}
+
 /** view → mode placement (+ jobs), plus focus, path, lens and run highlights. */
 export function useSceneModel(): SceneModel {
   const view = useView()
@@ -102,6 +135,7 @@ export function useSceneModel(): SceneModel {
   }, [view, focused, focusedNode?.kind, focusedCluster, s.hopUp, s.hopDown])
 
   const mode = MODES[modeOf(layout)]
+  const workerLayout = useWorkerLayout(view, layout)
   const placement = useMemo(() => {
     // Layouts only know diagram nodes; a focused cluster doesn't rearrange them.
     const ctx = focusedCluster
@@ -110,7 +144,9 @@ export function useSceneModel(): SceneModel {
     const placed = span(`place:${mode.id}`, () => mode.place(view, layout, ctx))
     const withJobs = span('placeJobs', () => placeJobs(view, placed, mode.id, layout.layerGap))
     return span('placeClusters', () => placeClusters(view, withJobs, mode.id, layout.layerGap))
-  }, [mode, view, layout, focused, focusedCluster, reach, s.hopUp, s.hopDown],
+    // workerLayout: re-place once a big derived stack's worker layout lands in the view-layout cache
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, view, layout, focused, focusedCluster, reach, s.hopUp, s.hopDown, workerLayout],
   )
 
   const paths = usePaths(view)

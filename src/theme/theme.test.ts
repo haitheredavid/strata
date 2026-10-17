@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs'
+import { Color } from 'three'
 import { describe, expect, it } from 'vitest'
 import { parseDbml } from '../parse/dbml'
+import { synthGraph } from '../dev/synth'
 import { SOURCES } from '../view/deriveView'
+import { pipelineDomains } from '../view/pipelineDomain'
 import { paletteFor } from './palette'
 import { accentOf, sample, spread } from './schemes'
 
@@ -72,5 +75,20 @@ describe('paletteFor', () => {
   it('returns the same palette for the same graph and scheme', () => {
     expect(paletteFor(lakehouse, 'plasma')).toBe(paletteFor(lakehouse, 'plasma'))
     expect(paletteFor(lakehouse, 'plasma')).not.toBe(paletteFor(lakehouse, 'inferno'))
+  })
+
+  it('hues many pipelines by the domain they write, shaded apart within it', () => {
+    const g = synthGraph({ tables: 300, layers: 4, pipelines: 40, seed: 2 })
+    const p = paletteFor(g, 'default')
+    const domains = pipelineDomains(g)
+    const hue = (hex: string) => new Color(hex).getHSL({ h: 0, s: 0, l: 0 }).h
+    for (const x of g.workflows.pipelines) {
+      const d = domains.get(x.id)
+      if (d) expect(hue(p.pipeline(x.id))).toBeCloseTo(hue(p.layer(d)), 2)
+    }
+    for (const l of g.layers) {
+      const mine = g.workflows.pipelines.filter((x) => domains.get(x.id) === l.id).slice(0, 9).map((x) => p.pipeline(x.id))
+      expect(new Set(mine).size).toBe(mine.length)
+    }
   })
 })

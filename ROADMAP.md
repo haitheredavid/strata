@@ -49,9 +49,11 @@ Goal: when a snapshot has real data, nothing on screen is simulated without sayi
 - Lineage-attribution warnings grouped with counts and links to the affected job.
 - Wording: README and Timeline say "simulated unless a snapshot is loaded".
 
-## Phase 4: Large-workspace scale
+## Phase 4: Large-workspace scale — done, flow layout stays on the main thread
 
 Goal: a full catalog (thousands of tables, hundreds of pipelines) stays interactive in every mode.
+
+*Landed 2026-10-17.* Tall flow sub-columns wrap into a near-square grid; Diagram follows. Filtered stacks of any size get their own layout, from a worker past 150 tables. Orbit's out-of-range tables fill concentric rings into a disk instead of one ring. Past 12 pipelines, colours follow the domain a pipeline writes (shaded within it) and only lit lanes are drawn; grouping by job prefix was left out, since domain is what the Pipelines panel already groups by. Budgets live in `src/bench/budgets.ts`, used by `test:scale` and `pnpm bench`, with a **Snapshot shape (608)** dev preset. **Deviation:** FK depth and barycenter sweeps stay on the main thread. At the 608-table shape a cold flow placement takes about 20 ms (about 100 ms at 20k tables) and is cached per view, so a worker round trip would cost more than it saves.
 
 - Flow/Diagram: a size threshold that wraps tall columns into a grid, and moves FK depth and barycenter sweeps into the layout worker.
 - Filtered stack views over `MAX_DERIVED` get their own worker layout instead of falling back to stored positions.
