@@ -81,6 +81,7 @@ export function Toolbar() {
         <button className={mode === 'diagram' ? 'on' : ''} title="Flat lineage diagram, from above (1)" onClick={() => showMode('diagram')}>2D</button>
         <button className={mode === 'flow' ? 'on' : ''} title="Each domain stands up as a slab (2)" onClick={() => showMode('flow')}>3D</button>
       </div>
+      <StoryButton />
       <ViewMenu />
 
       <Menu label="⋯" title="Layout file" className="more">
@@ -127,6 +128,18 @@ export function Toolbar() {
         }}
       />
     </div>
+  )
+}
+
+/** Opens the story strip; shows how many scenes the dataset's story has. */
+function StoryButton() {
+  const open = useStore((s) => s.storyOpen)
+  const count = useStore((s) => s.layout.story?.length ?? 0)
+  const openStory = useStore((s) => s.openStory)
+  return (
+    <button className={open ? 'on' : ''} title="Saved scenes to step through and present (S)" onClick={() => openStory(!open)}>
+      Story{count > 0 ? ` ${count}` : ''}
+    </button>
   )
 }
 
@@ -195,7 +208,7 @@ function ViewMenu() {
           )}
           <ColourSection />
           <p className="hint">
-            / search · T day · 1 2D · 2 3D{labsOn() ? ' · 3 Stack · 4 Orbit' : ''} · Esc clears one step · click selects · Shift-click a second table for join paths · double-click folds a card · right-drag pans
+            / search · T day · S story · ← → scenes · 1 2D · 2 3D{labsOn() ? ' · 3 Stack · 4 Orbit' : ''} · Esc clears one step · click selects · Shift-click a second table for join paths · double-click folds a card · right-drag pans
           </p>
         </div>
       )}

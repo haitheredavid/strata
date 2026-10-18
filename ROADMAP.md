@@ -147,3 +147,17 @@ Goal: opening a workspace reads as the data arriving, rather than a finished hai
 - **Timing**: 2.5 s plus 12 ms per node, capped at 8 s. Each node fades in over 0.5 s.
 - **Drawing**: each node's opacity is multiplied by how far it has faded in, so the lens, timeline and filters still apply during a run. Wires and FK edges take the later of their two ends. Pulses start once a wire is fully in. Plates appear first; lanes and trigger links appear last. The scene restyles about 30 times a second only while a run is in progress.
 - **Control**: on by default, and off when the OS asks for reduced motion. A click or key press skips to the end. **View ▾** has the on/off setting (kept across datasets) and **Replay**.
+
+## Phase 9: Stories — done
+
+Goal: walk someone through a workspace one condition at a time (a domain, a hub job, a failed run), with a note for each step, then present it.
+
+*Modelled on Tableau Story Points.* Each point is the same visualization in its own state, with a caption. A navigator steps through the points, and a point can be updated from the current view or reverted to its saved state.
+- **Scene** (`model/types.ts`): `SceneState` holds the view keys of the layout (`SCENE_VIEW_KEYS`, never positions), the selection or lens with its hops, the join path, the Day timeline (playhead and span) and the camera.
+- **Camera**: saved as a target plus an eye offset for a 45° lens, so a pose saved in 2D (3° lens) comes back right from 3D. It's read through `scene/cameraPose.ts` and restored with a `pose` camera command.
+- **Capture and restore** (`view/story.ts`):
+  - Capturing and restoring are pure functions.
+  - Restoring drops ids a newer export no longer has.
+  - `sameScene` ignores the camera, the playhead and list order. That's how the caption knows to offer Update / Revert.
+- **Storage**: `layout.story`. It autosaves per dataset and exports and imports with the layout file.
+- **UI**: a strip at the bottom of the canvas, a caption with Edit, ← / → and `S`, and Present (hides the side panels; Esc stops).

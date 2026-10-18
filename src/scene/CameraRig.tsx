@@ -9,6 +9,7 @@ import { MODES } from '../layout/modes'
 import type { Placement } from '../layout/modes'
 import type { ViewGraph } from '../view/deriveView'
 import { modeOf, useStore } from '../store'
+import { cameraPose } from './cameraPose'
 
 const { ACTION } = CameraControlsImpl
 
@@ -77,6 +78,21 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
     }
   })
 
+  // Story scenes save the pose as a 45°-lens offset, so it reads the same whichever lens is in use.
+  useEffect(() => {
+    cameraPose.read = () => {
+      const c = controls.current
+      if (!c) return null
+      const target = c.getTarget(new Vector3())
+      const k = lensScale((camera as PerspectiveCamera).fov ?? FOV)
+      const offset = camera.position.clone().sub(target).divideScalar(k)
+      return { target: target.toArray(), offset: offset.toArray() }
+    }
+    return () => {
+      cameraPose.read = () => null
+    }
+  }, [camera])
+
   useEffect(() => {
     const c = controls.current
     if (!c || !cmd) return
@@ -84,6 +100,12 @@ export function CameraRig({ view, placement }: { view: ViewGraph; placement: Pla
     const flat = modeOf(useStore.getState().layout) === 'diagram'
     // Offsets below are for a 45° lens; stretch them to the lens in use now.
     const k = lensScale((camera as PerspectiveCamera).fov ?? FOV)
+    if (cmd.kind === 'pose') {
+      const [tx, ty, tz] = cmd.pose.target
+      const [ox, oy, oz] = cmd.pose.offset
+      void c.setLookAt(tx + ox * k, ty + oy * k, tz + oz * k, tx, ty, tz, true)
+      return
+    }
 
     // Frame what matters: faded nodes (orbit's outer ring) don't count unless nothing else is shown.
     const all = Object.keys(placement.nodes)

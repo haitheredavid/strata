@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ColumnDetail, EdgeLayer, Graph, GroupBy, Layout, ModeId } from './model/types'
+import type { CameraPose, ColumnDetail, EdgeLayer, Graph, GroupBy, Layout, ModeId, StoryScene } from './model/types'
 import { EMPTY_WORKFLOWS } from './model/workflow'
 import { autoLayout } from './layout/autoLayout'
 import { layoutAsync } from './layout/layoutClient'
@@ -19,12 +19,16 @@ import { mergeLayout, normaliseLayout } from './data/dataset'
 import type { Dataset } from './data/dataset'
 import { escapeStep } from './view/escape'
 import type { WarningGroup } from './data/warnings'
+import { captureScene, sceneFields } from './view/story'
+import { cameraPose } from './scene/cameraPose'
 import { LAB_MODES, labsOn } from './labs'
 
 export type CameraPreset = 'iso' | 'top' | 'side'
 export type CameraCommand =
   | { kind: 'preset'; preset: CameraPreset }
   | { kind: 'frame'; ids: string[] }
+  /** Fly to a saved pose (a story scene's camera). */
+  | { kind: 'pose'; pose: CameraPose }
 
 /** The kinds of narrowing the scope bar lists, each cleared on its own. */
 export type ScopePart = 'layers' | 'folded' | 'pipelines' | 'tablesOnly'
@@ -68,6 +72,12 @@ interface State {
   buildUpOn: boolean
   /** A build-up run in progress (its request time, so a replay restarts it), or null. */
   buildUp: number | null
+  /** The story strip is open (scenes to step through). */
+  storyOpen: boolean
+  /** The scene last shown (and so the one ‹ › step from), or null. */
+  storyAt: number | null
+  /** Presenting: side panels hidden; the caption and the strip stay. */
+  presenting: boolean
 
   /** Install a dataset: its saved layout (or a new one), with the per-dataset view state reset. */
   load: (dataset: Dataset) => void
@@ -75,6 +85,17 @@ interface State {
   setBuildUpOn: (on: boolean) => void
   /** Play the build-up again, or (false) end it, showing everything. */
   playBuildUp: (play: boolean) => void
+  openStory: (open: boolean) => void
+  /** Save what's on screen as a new scene, after the current one. */
+  addScene: () => void
+  /** Show scene `i`: its view settings, selection, join path, timeline and camera. */
+  showScene: (i: number) => void
+  editScene: (i: number, patch: Partial<Pick<StoryScene, 'title' | 'note'>>) => void
+  /** Replace scene `i`'s state with what's on screen now. */
+  recaptureScene: (i: number) => void
+  deleteScene: (i: number) => void
+  moveScene: (i: number, delta: -1 | 1) => void
+  present: (on: boolean) => void
   dismiss: (id: number) => void
   setStatus: (status: string | null) => void
   /** Bring back the dataset's warnings notice, expanded. */
@@ -296,6 +317,9 @@ export const useStore = create<State>((set, get) => ({
   colorBy: savedColorBy(),
   buildUpOn: storage((ls) => ls.getItem(BUILD_UP_KEY)) !== 'off',
   buildUp: null,
+  storyOpen: false,
+  storyAt: null,
+  presenting: false,
 
   load: (d) => {
     flushSave()
@@ -324,6 +348,8 @@ export const useStore = create<State>((set, get) => ({
       pathEnds: [null, null],
       pathIgnore: [],
       activePath: null,
+      storyAt: null,
+      presenting: false,
       ...(same
         ? {}
         : {
@@ -507,6 +533,50 @@ export const useStore = create<State>((set, get) => ({
     set({ buildUpOn })
   },
   playBuildUp: (play) => set({ buildUp: play ? Date.now() : null }),
+  openStory: (storyOpen) => set(storyOpen ? { storyOpen } : { storyOpen, storyAt: null, presenting: false }),
+  addScene: () =>
+    set((s) => {
+      const story = s.layout.story ?? []
+      const at = s.storyAt === null ? story.length : s.storyAt + 1
+      const scene: StoryScene = { id: Math.random().toString(36).slice(2, 10), title: `Scene ${story.length + 1}`, note: '', state: captureScene(s, timeClock.t, cameraPose.read()) }
+      return { layout: { ...s.layout, story: [...story.slice(0, at), scene, ...story.slice(at)] }, storyAt: at, storyOpen: true }
+    }),
+  showScene: (i) =>
+    set((s) => {
+      const scene = s.layout.story?.[i]
+      if (!scene) return s
+      const f = sceneFields(s.layout, scene.state, s.graph)
+      timeClock.t = f.time.t
+      return {
+        ...f,
+        layout: normaliseLayout(offeredMode(f.layout), s.graph),
+        time: { ...s.time, ...f.time, playing: false },
+        storyAt: i,
+        storyOpen: true,
+        ...(scene.state.camera ? { cameraCommand: { kind: 'pose' as const, pose: scene.state.camera, nonce: Date.now() } } : {}),
+      }
+    }),
+  editScene: (i, patch) =>
+    set((s) => ({ layout: { ...s.layout, story: (s.layout.story ?? []).map((sc, k) => (k === i ? { ...sc, ...patch } : sc)) } })),
+  recaptureScene: (i) =>
+    set((s) => ({
+      layout: { ...s.layout, story: (s.layout.story ?? []).map((sc, k) => (k === i ? { ...sc, state: captureScene(s, timeClock.t, cameraPose.read()) } : sc)) },
+    })),
+  deleteScene: (i) =>
+    set((s) => {
+      const story = (s.layout.story ?? []).filter((_, k) => k !== i)
+      const at = s.storyAt === null || !story.length ? null : s.storyAt > i ? s.storyAt - 1 : s.storyAt === i ? null : s.storyAt
+      return { layout: { ...s.layout, story }, storyAt: at }
+    }),
+  moveScene: (i, delta) =>
+    set((s) => {
+      const story = [...(s.layout.story ?? [])]
+      const j = i + delta
+      if (j < 0 || j >= story.length) return s
+      ;[story[i], story[j]] = [story[j], story[i]]
+      return { layout: { ...s.layout, story }, storyAt: s.storyAt === i ? j : s.storyAt === j ? i : s.storyAt }
+    }),
+  present: (presenting) => set(presenting ? { presenting, storyOpen: true } : { presenting }),
 }))
 
 const toggle = (xs: string[], x: string) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x])

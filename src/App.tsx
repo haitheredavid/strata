@@ -11,18 +11,22 @@ import { DayDock } from './ui/Timeline'
 import { Profiled } from './dev/Profiled'
 import { Notices } from './ui/Notices'
 import { usePalette } from './theme/palette'
+import { useStore } from './store'
+import { StoryStrip } from './ui/Story'
 
 const carriesFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 
 /**
  * The shell: toolbar over three columns (Navigator · canvas · Inspector), with the Day dock under the
- * Navigator and canvas. Nothing floats over the canvas but the scope bar and Lit-by trail, notices and camera presets.
+ * Navigator and canvas. Nothing floats over the canvas but the scope bar and Lit-by trail, notices,
+ * camera presets and the story strip. Presenting hides the Navigator and Inspector.
  */
 export default function App() {
   const [dropping, setDropping] = useState(false)
   // dragenter / dragleave fire for every child crossed; count them so the overlay doesn't flicker.
   const depth = useRef(0)
   const accent = usePalette().accent
+  const presenting = useStore((s) => s.presenting)
 
   useEffect(() => {
     document.documentElement.style.setProperty('--accent', accent)
@@ -36,7 +40,7 @@ export default function App() {
 
   return (
     <div
-      className="app"
+      className={`app${presenting ? ' presenting' : ''}`}
       onDragEnter={(e) => {
         if (!carriesFiles(e)) return
         depth.current++
@@ -66,6 +70,7 @@ export default function App() {
           <Notices />
           <CameraCorner />
           <DepthLegend />
+          <StoryStrip />
         </div>
         <Profiled id="Timeline">
           <DayDock />

@@ -236,6 +236,43 @@ button.link.nav-apply { display: block; margin: 0 0 4px; color: var(--accent); f
   .nav-row:not(:hover):not(:focus-within) .row-menu:not(.on) { visibility: hidden; }
 }
 
+/* ── Story: scenes along the bottom of the canvas, the shown one's caption above them ── */
+.story { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
+.story > * { pointer-events: auto; }
+.canvas:has(.story) .camera-corner, .canvas:has(.story) .depth-legend { bottom: 56px; }
+.story-strip { display: flex; align-items: center; gap: 6px; max-width: 100%; align-self: center; padding: 5px 8px; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--border); border-radius: 10px; font-size: 12px; box-shadow: 0 6px 20px #0006; }
+.story-strip > button { padding: 2px 10px; font-size: 12px; flex: none; }
+.story-label { color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-right: 2px; }
+.story-scenes { display: flex; gap: 4px; min-width: 0; margin: 0; padding: 0; list-style: none; overflow-x: auto; }
+.story-empty { color: var(--muted); padding: 2px 6px; white-space: nowrap; }
+.story-chip { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; flex: none; }
+.story-chip.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.story-go { display: flex; align-items: center; gap: 6px; max-width: 180px; padding: 2px 8px; border: none; background: none; }
+.story-go .n { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+.story-chip.on .story-go .n { color: var(--accent); }
+.story-go .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) {
+  .story-chip:not(:hover):not(:focus-within) .row-menu:not(.on) { visibility: hidden; }
+}
+.story-strip .story-close { border-color: transparent; background: none; color: var(--muted); padding: 2px 6px; }
+.story-caption { width: min(380px, 100%); padding: 10px 12px; background: color-mix(in srgb, var(--panel) 95%, transparent); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; font-size: 13px; line-height: 1.5; box-shadow: 0 6px 20px #0006; }
+.story-caption-head { display: flex; align-items: baseline; gap: 8px; }
+.story-caption-head .n { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+.story-caption-head h3 { flex: 1; margin: 0; font-size: 14px; font-weight: 600; }
+.story-caption-head .link { color: var(--muted); font-size: 11px; }
+.story-caption p { margin: 6px 0 0; white-space: pre-wrap; color: var(--text); }
+.story-caption.editing { display: flex; flex-direction: column; gap: 6px; }
+.story-caption input, .story-caption textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; font: inherit; }
+.story-caption input { font-weight: 600; }
+.story-caption textarea { resize: vertical; }
+.story-caption-actions { display: flex; justify-content: flex-end; }
+.story-changed { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.story-changed .link { color: var(--accent); font-size: 11px; }
+/* Presenting: the side panels step aside for the picture, the caption and the strip. */
+.app.presenting .navigator, .app.presenting .inspector { display: none; }
+.app.presenting .story-caption { font-size: 15px; width: min(460px, 100%); }
+.app.presenting .story-caption-head h3 { font-size: 17px; }
+
 /* ── Canvas overlays ── */
 .canvas-top {
   position: absolute;
