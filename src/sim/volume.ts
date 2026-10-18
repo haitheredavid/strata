@@ -114,7 +114,7 @@ export function pulseShape(flows: FlowEdge[], volumes: Map<string, FlowVolume>):
       return [
         f.id,
         {
-          scale: range > 0.01 ? 0.55 + 1.35 * ((logs[i] - lo) / range) : 1,
+          scale: range > 0.01 ? 0.6 + 0.9 * ((logs[i] - lo) / range) : 1,
           // a daily batch is one dot, hourly about four, streaming a dense train
           dots: Math.min(MAX_DOTS, Math.max(1, Math.round(1 + Math.log2(runs) / 1.5))),
         },

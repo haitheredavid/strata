@@ -1,26 +1,55 @@
 import { useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { BoxGeometry, Color, CylinderGeometry, OctahedronGeometry, TorusGeometry } from 'three'
+import { BoxGeometry, Color, ExtrudeGeometry, OctahedronGeometry, Shape, TorusGeometry } from 'three'
 import type { Schedule } from '../../sim/schedule'
 import { onCluster } from '../../sim/schedule'
 import { measured, usageAt, workersFor } from '../../sim/spark'
 import type { ViewCluster, ViewNode } from '../../view/deriveView'
 import type { World } from '../../world/world'
 import { useStore } from '../../store'
-import { EVENT, RACK_GAP, RACK_MAX_SHOWN, RACK_ROW } from '../labels'
+import { EVENT, JOB_R, RACK_GAP, RACK_MAX_SHOWN, RACK_ROW } from '../labels'
 import type { AnchorTable } from '../text/anchors'
 import { timeClock } from '../timeClock'
 import type { RunState } from '../labels'
 import { PartBatch } from './PartBatch'
 import { Parts } from './parts'
 
-// Shapes in their node's local frame (faces +Z), matching the old per-node meshes.
-const HEX_FACE = new CylinderGeometry(0.75, 0.75, 0.2, 6).rotateX(Math.PI / 2)
-const HEX_RIM = new CylinderGeometry(0.92, 0.92, 0.18, 6).rotateX(Math.PI / 2)
-const RING = new TorusGeometry(1.25, 0.05, 8, 6)
-const EVENT_MARK = new OctahedronGeometry(0.28)
+/**
+ * A hexagon (point up) with rounded corners, `depth` thick and centred on z = 0, facing +Z.
+ * Corners are arcs of radius `round`, so the glyph reads soft at any zoom.
+ */
+function roundedHex(r: number, round: number, depth: number) {
+  const s = new Shape()
+  const corner = (k: number) => {
+    const a = Math.PI / 2 + (k * Math.PI) / 3
+    return [Math.cos(a) * r, Math.sin(a) * r] as const
+  }
+  // Each corner is cut back along both edges by `cut` and joined by a quadratic arc through it.
+  const cut = round / Math.tan(Math.PI / 3)
+  for (let k = 0; k < 6; k++) {
+    const [px, py] = corner(k - 1)
+    const [cx, cy] = corner(k)
+    const [nx, ny] = corner(k + 1)
+    const len = Math.hypot(cx - px, cy - py)
+    const a = [cx + ((px - cx) / len) * cut, cy + ((py - cy) / len) * cut] as const
+    const b = [cx + ((nx - cx) / len) * cut, cy + ((ny - cy) / len) * cut] as const
+    if (k === 0) s.moveTo(...a)
+    else s.lineTo(...a)
+    s.quadraticCurveTo(cx, cy, ...b)
+  }
+  s.closePath()
+  return new ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 6 }).translate(0, 0, -depth / 2)
+}
+
+// Shapes in their node's local frame (faces +Z). A job is a small rounded hexagon: a dark face
+// inside a thin rim in its pipeline's colour, about as tall as two card rows, so tables stay the
+// main thing on screen. A first job's trigger is a thin circle around it.
+const HEX_FACE = roundedHex(JOB_R - 0.09, 0.1, 0.1)
+const HEX_RIM = roundedHex(JOB_R, 0.13, 0.08)
+const RING = new TorusGeometry(JOB_R + 0.2, 0.022, 6, 48)
+const EVENT_MARK = new OctahedronGeometry(0.14)
 const BOX = new BoxGeometry(1, 1, 1)
-const RACK_W = 2.4
+const RACK_W = 1.8
 const OFF = '#242b3a'
 const IDLE = '#334155'
 
@@ -74,8 +103,8 @@ export function NodeParts(p: Props) {
       face.place(k, i, 0, 0, 0)
       rim.place(k, i, 0, 0, -0.02)
     })
-    triggered.forEach(({ i, node }, k) => ring.place(k, i, 0, 0, 0, 1, 1, 1, node.trigger!.kind === 'continuous' ? 2 : 0.6))
-    emitting.forEach(({ i }, k) => event.place(k, i, 1.45, 0.95, 0.1))
+    triggered.forEach(({ i }, k) => ring.place(k, i, 0, 0, 0))
+    emitting.forEach(({ i }, k) => event.place(k, i, JOB_R + 0.12, JOB_R * 0.8, 0.1))
     // Racks: driver, then one row per shown worker, then the frame behind them.
     const boxes = new Parts(racks.reduce((s, r) => s + r.shown + 2, 0))
     let b = 0
@@ -105,7 +134,7 @@ export function NodeParts(p: Props) {
     })
     L.triggered.forEach(({ node }, k) => {
       const c = rgb(p.jobColor(node))
-      L.ring.style(k, c.r, c.g, c.b, 0.8 * p.nodeOpacity(node.id))
+      L.ring.style(k, c.r, c.g, c.b, 0.5 * p.nodeOpacity(node.id))
     })
     const ev = rgb(EVENT)
     L.emitting.forEach(({ node }, k) => {
@@ -136,9 +165,11 @@ export function NodeParts(p: Props) {
         driver = rgb(up ? color : OFF)
       }
       L.boxes.style(b, driver.r * blink, driver.g * blink, driver.b * blink, op)
+      // Without the timeline there's no load to show: the workers sit as a faint stack.
+      const rest = p.schedule ? 1 : 0.35
       for (let w = 0; w < shown; w++) {
         const wc = rgb(w < lit ? color : up ? IDLE : OFF)
-        L.boxes.style(b + 1 + w, wc.r, wc.g, wc.b, op)
+        L.boxes.style(b + 1 + w, wc.r, wc.g, wc.b, op * rest)
       }
       const f = rgb(high ? '#2a3344' : '#0f131c')
       L.boxes.style(b + 1 + shown, f.r, f.g, f.b, op)

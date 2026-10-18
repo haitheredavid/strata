@@ -7,6 +7,9 @@ export type RunState = 'active' | 'done' | 'pending' | null
 /** Event marker color on jobs that emit events. */
 export const EVENT = '#fbbf24'
 
+/** A job glyph's outer radius: a rounded hexagon about as tall as a card header and a row. */
+export const JOB_R = 0.52
+
 /** Cluster rack rows: up to this many workers, at this height and gap. */
 export const RACK_MAX_SHOWN = 8
 export const RACK_ROW = 0.22

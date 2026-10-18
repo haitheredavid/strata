@@ -79,13 +79,13 @@ Load the **Lakehouse sample** from the Datasets menu, or open a `.dbml` together
 - **Group by Medallion** lays out by layer instead of by domain. In Flow this reads sources → bronze → silver → gold, left to right.
 - **Edges**: FK, Lineage or Both.
 - **Lineage drawing**:
-  - Jobs are hexagons placed between what they read and what they write.
+  - Jobs are small rounded hexagons, outlined in their pipeline's colour and about as tall as a card's header and first row, placed between what they read and what they write. Tables stay the largest thing on screen.
   - Lineage wires are dashed, in the pipeline's colour, with pulses moving downstream. Up to eight pipelines keep the parser's colours; past that they draw from a 32-colour list picked to stay apart, by position, so colours survive reloads and hiding others. A node with six or more wires on one side bundles them into a trunk that fans out near the far ends.
   - Card labels show the table's short name, with its catalog and schema smaller underneath. They fade in as you zoom, and the selection, what's hovered and what's lit get a readable callout at any zoom.
   - Pulse size shows bytes per run (log scale) and the number of pulses on a wire shows runs per day: a daily batch is one dot, streaming a dense train. In a snapshot, sizes come from the bytes the job's statements read and wrote (query history, split evenly over its tables); otherwise `bytes: 4GB` on a task gives its size, and failing that it is simulated from the medallion layer. Hover a job for its bytes in / out and runs a day; a snapshot job whose size had to be simulated says so.
   - Flow mode adds a translucent lane for each pipeline; lanes not lit fade. Past 12 pipelines, only lit pipelines' lanes are drawn.
-- **Triggers** label each pipeline's first jobs (CRON / FILE / ON UPDATE / AFTER / STREAMING). Dotted links run from the tables or the upstream pipeline that start it.
-- **Events** are amber markers on the jobs that emit them.
+- **Triggers** label each pipeline's first jobs (CRON / FILE / ON UPDATE / AFTER / STREAMING) in small grey text, with a thin circle around the job. Dotted links run from the tables or the upstream pipeline that start it.
+- **Events** are small amber diamonds on the jobs that emit them.
 - **Pipelines in the Navigator**: the swatch shows or hides a pipeline; ⋯ → *Show only this* shows only it (✕ on its *Showing* chip brings the others back) and *Play its day* opens the Day timeline on its first run with the pipeline selected. Clicking the name selects it, lighting everything it touches. Selecting a pipeline or opening the Day timeline turns lineage edges on if they're off, and says so.
 - Opening a workflow file replaces the open dataset's jobs and is remembered with it, so a reload keeps it. A snapshot keeps its real runs.
 
@@ -124,7 +124,7 @@ Jobs are linked to the clusters they run on, drawn as racks under the diagram. T
         - { id: ingest_events, environment_key: default }   # serverless
   ```
   Tasks that name nothing get a job cluster for their pipeline, or serverless for streaming pipelines.
-- **Racks**: workers light up with the work at the playhead. A warm all-purpose cluster idles grey; a job cluster is dark between runs. Select a cluster to light the jobs it runs.
+- **Racks**: workers light up with the work at the playhead. A warm all-purpose cluster idles grey; a job cluster is dark between runs. With the Day timeline closed there's no load to show, so racks sit faint. Select a cluster to light the jobs it runs.
 - **Compute in the Inspector**: select a job or a cluster.
   - It shows the cluster spec, a utilization strip (workers up in grey, cores busy in colour), avg / p95 load, estimated DBUs and a right-sizing hint, over the job's run nearest the playhead (or the Day span, when it's narrower than the day).
   - Its flame chart runs task run → Spark jobs → stages (scan, exchange, join, write…) → task waves. A red tail marks a skewed straggler, and a red outline marks a spill.

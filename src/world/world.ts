@@ -15,9 +15,9 @@ export const FRAME_CODE: Record<Frame, number> = { flat: 0, upright: 1, side: 2,
 export const KIND_CODE = { table: 0, domain: 1, source: 2, job: 3, cluster: 4 } as const
 export type KindCode = (typeof KIND_CODE)[keyof typeof KIND_CODE]
 
-/** Rough pick and cull sizes for non-card nodes (local width × height). */
-const JOB_SIZE: [number, number] = [1.6, 1.6]
-const CLUSTER_SIZE: [number, number] = [2.6, 2.6]
+/** Rough pick and cull sizes for non-card nodes (local width × height), a little over the drawn glyph so it's easy to hit. */
+const JOB_SIZE: [number, number] = [1.3, 1.3]
+const CLUSTER_SIZE: [number, number] = [2.2, 2.6]
 
 export interface NodeTable {
   count: number

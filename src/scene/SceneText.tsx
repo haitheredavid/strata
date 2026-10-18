@@ -7,7 +7,7 @@ import type { World } from '../world/world'
 import { span } from '../dev/perf'
 import { useStore } from '../store'
 import { clusterSpec, KIND_LABEL } from './clusterStyle'
-import { EVENT, RACK_GAP, RACK_MAX_SHOWN, RACK_ROW, triggerText } from './labels'
+import { EVENT, JOB_R, RACK_GAP, RACK_MAX_SHOWN, RACK_ROW, triggerText } from './labels'
 import { isNear, LABEL_PX, onNearChange } from './lod'
 import type { SceneAnchors } from './text/anchors'
 import { loadAtlas } from './text/atlas'
@@ -109,7 +109,7 @@ export function SceneText(p: Props) {
     // The focused job's bytes in / out and runs a day, under its name.
     const fi = p.focused ? world.nodes.index.get(p.focused) : undefined
     const volume = fi !== undefined && p.nodeById.get(p.focused!)?.kind === 'job' ? p.jobVolume(p.focused!) : undefined
-    if (volume) out.push({ anchor: fi!, x: 0, y: -1.7, z: 0.05, text: volume, size: 0.24, color: '#cbd5e1', opacity: 1, anchorX: 'center', anchorY: 'middle' })
+    if (volume) out.push({ anchor: fi!, x: 0, y: -JOB_R - 0.75, z: 0.05, text: volume, size: 0.22, color: '#cbd5e1', opacity: 1, anchorX: 'center', anchorY: 'middle' })
     const { nodes } = world
     plates.forEach((pl, k) => {
       const [w, h] = pl.size
@@ -159,7 +159,7 @@ export function SceneText(p: Props) {
         y: 0,
         z: 0.3,
         text: job ? n.name : headerText(n).short,
-        size: job ? 0.34 : HEADER_SIZE,
+        size: job ? 0.3 : HEADER_SIZE,
         color: job ? jobColor(n) : '#f8fafc',
         opacity: 1,
         anchorX: 'center',
@@ -222,9 +222,9 @@ function cardText(out: TextItem[], anchor: number, n: ViewNode, top: number, opa
 }
 
 function jobText(out: TextItem[], anchor: number, n: ViewNode, opacity: number, color: string) {
-  out.push({ anchor, x: 0, y: -1.25, z: 0.05, text: n.name, size: 0.34, color, opacity, anchorX: 'center', anchorY: 'middle' })
-  if (n.trigger) out.push({ anchor, x: 0, y: 1.55, z: 0.05, text: triggerText(n.trigger), size: 0.26, color: '#cbd5e1', opacity, anchorX: 'center', anchorY: 'middle' })
-  if (n.emits?.length) out.push({ anchor, x: 1.45 + 0.42, y: 0.95, z: 0.1, text: n.emits.join(', '), size: 0.24, color: EVENT, opacity, anchorX: 'left', anchorY: 'middle' })
+  out.push({ anchor, x: 0, y: -JOB_R - 0.3, z: 0.05, text: n.name, size: 0.28, color, opacity, anchorX: 'center', anchorY: 'middle' })
+  if (n.trigger) out.push({ anchor, x: 0, y: JOB_R + 0.42, z: 0.05, text: triggerText(n.trigger), size: 0.2, color: '#94a3b8', opacity, anchorX: 'center', anchorY: 'middle' })
+  if (n.emits?.length) out.push({ anchor, x: JOB_R + 0.32, y: JOB_R * 0.8, z: 0.1, text: n.emits.join(', '), size: 0.2, color: EVENT, opacity, anchorX: 'left', anchorY: 'middle' })
 }
 
 function clusterText(out: TextItem[], anchor: number, vc: ViewCluster, opacity: number, color: string) {

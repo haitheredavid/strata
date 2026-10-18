@@ -126,3 +126,15 @@ Goal: less on screen at once, and an obvious place to start. Lists summarize fir
 5. **Search.** Results are grouped by kind with counts, and every word must match. Ranking goes exact, then starts-with, then word-start, then contains, so `project` puts the pipeline first instead of 40 tables.
 
 Not done: a smaller default scope for very large workspaces (for example, opening on one domain). At 93 pipelines the full picture is still dense. The Showing bar and the filters make narrowing one or two clicks, but nothing narrows on its own.
+
+## Phase 7: Scene proportion — done
+
+Goal: tables are the main thing in the picture. Job, trigger, event, pulse and compute glyphs are quieter and sized to the cards.
+
+*From feedback that the job (workflow) icons took the most room.* Before this phase, a job was a hexagon 1.84 units across inside a hexagonal trigger ring 2.5 across. A card header is 0.7 tall.
+- **Jobs** are rounded hexagons 1.04 across: a dark face and a thin rim in the pipeline's colour. Their names sit closer and smaller.
+- **Triggers** are a thin circle at half opacity instead of a spinning hexagonal ring. Their text is smaller and grey.
+- **Events** are a diamond half the old size.
+- **Pulses** are thinner, and their size range is narrower (0.12–0.30 across instead of 0.15–0.53).
+- **Racks** are 1.8 wide instead of 2.4, and their workers sit faint while the Day timeline is closed.
+- Pick areas shrink to match.

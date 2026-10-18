@@ -87,7 +87,7 @@ export function Pulses({ flows, colorOf, schedule, lens, shapes }: Props) {
 
   return (
     <instancedMesh key={count} ref={mesh} args={[undefined, undefined, count]} raycast={() => null} frustumCulled={false}>
-      <sphereGeometry args={[0.14, 10, 10]} />
+      <sphereGeometry args={[0.1, 12, 12]} />
       <meshBasicMaterial toneMapped={false} />
     </instancedMesh>
   )
