@@ -7,7 +7,8 @@ import { TablePicker } from './TablePicker'
 import { openFiles } from './files'
 import { DatasetMenu } from './DatasetMenu'
 import { Menu } from './Menu'
-import { SCHEMES } from '../theme/schemes'
+import { COLOR_BY, SCHEMES, depthGradient, gradientCss } from '../theme/schemes'
+import { PIPELINE_COLORS } from '../parse/workflows'
 import { goTo, selectPipeline, showMode } from './select'
 
 const DETAILS: [ColumnDetail, string][] = [['all', 'All'], ['keys', 'Keys'], ['header', 'Header']]
@@ -34,8 +35,6 @@ export function Toolbar() {
   const day = useStore((s) => s.time.open)
   const openTimeline = useStore((s) => s.openTimeline)
   const closeTimeline = useStore((s) => s.closeTimeline)
-  const colorScheme = useStore((s) => s.colorScheme)
-  const setColorScheme = useStore((s) => s.setColorScheme)
   const fileInput = useRef<HTMLInputElement>(null)
   const layoutInput = useRef<HTMLInputElement>(null)
   const hasPipelines = graph.workflows.pipelines.length > 0
@@ -84,7 +83,7 @@ export function Toolbar() {
       </div>
       <ViewMenu />
 
-      <Menu label="⋯" title="Layout file and colours" className="more">
+      <Menu label="⋯" title="Layout file" className="more">
         {(close) => (
           <>
             <div className="menu-head">Layout</div>
@@ -108,21 +107,6 @@ export function Toolbar() {
             >
               Import layout…
             </button>
-            <div className="menu-head">Colours</div>
-            {SCHEMES.map(([id, label]) => (
-              <button
-                key={id}
-                role="menuitemradio"
-                aria-checked={colorScheme === id}
-                className={`menu-item${colorScheme === id ? ' current' : ''}`}
-                onClick={() => {
-                  close()
-                  setColorScheme(id)
-                }}
-              >
-                {label}
-              </button>
-            ))}
           </>
         )}
       </Menu>
@@ -199,11 +183,47 @@ function ViewMenu() {
               </span>
             </div>
           )}
+          <ColourSection />
           <p className="hint">
             / search · T day · 1 2D · 2 3D{labsOn() ? ' · 3 Stack · 4 Orbit' : ''} · Esc clears one step · click selects · Shift-click a second table for join paths · double-click folds a card · right-drag pans
           </p>
         </div>
       )}
     </Menu>
+  )
+}
+
+/** The categorical default's swatch: its first pipeline colors as stripes. */
+const DEFAULT_SWATCH = `linear-gradient(90deg, ${PIPELINE_COLORS.slice(0, 6).flatMap((c, i, a) => [`${c} ${(i / a.length) * 100}%`, `${c} ${((i + 1) / a.length) * 100}%`]).join(', ')})`
+
+/** Color scheme (a swatch per scheme) and what colors mean: identity, or how far downstream. */
+function ColourSection() {
+  const scheme = useStore((s) => s.colorScheme)
+  const colorBy = useStore((s) => s.colorBy)
+  const setColorScheme = useStore((s) => s.setColorScheme)
+  const setColorBy = useStore((s) => s.setColorBy)
+  return (
+    <>
+      <div className="view-head">Colours</div>
+      <div className="row">
+        <span title="Domain & pipeline: each has its own colour. Lineage depth: sources dark, the most downstream tables bright.">Colour by</span>
+        <Segmented options={COLOR_BY} value={colorBy} onChange={setColorBy} />
+      </div>
+      <div className="schemes" role="radiogroup" aria-label="Colour scheme">
+        {SCHEMES.map(([id, label]) => (
+          <button
+            key={id}
+            role="radio"
+            aria-checked={scheme === id}
+            className={`scheme${scheme === id ? ' current' : ''}`}
+            title={id === 'default' && colorBy === 'depth' ? 'Default draws depth with Viridis' : label}
+            onClick={() => setColorScheme(id)}
+          >
+            <span className="strip" style={{ background: id === 'default' ? (colorBy === 'depth' ? gradientCss(depthGradient(id)) : DEFAULT_SWATCH) : gradientCss(id) }} />
+            {label}
+          </button>
+        ))}
+      </div>
+    </>
   )
 }

@@ -37,7 +37,11 @@ pnpm test
 - **Search** (`/`) finds tables, jobs, clusters, sources and pipelines, selects the one you pick and frames it; ↑ / ↓ pick a result.
 - **What's lit** builds up in layers: the Day timeline narrows the scene to what ran in its window, and the selection (or a join path) drills in from there, drawn in full over the rest. The **Lit by** trail names each layer with ✕ to clear it, and **Esc** clears one at a time: path, selection, the timeline's span, then "only this".
 - **Keys**: `/` search, `T` Day, `1` / `2` 2D / 3D, Esc as above. They're ignored while you type in a field. **View ▾** lists them.
-- Visibility (shown, only this, folded), mode, grouping, edges, column detail and positions autosave to localStorage for each dataset. **⋯ → Export layout / Import layout** saves them as JSON; opening or dropping an exported layout applies it. Colour schemes are in the same menu.
+- Visibility (shown, only this, folded), mode, grouping, edges, column detail and positions autosave to localStorage for each dataset. **⋯ → Export layout / Import layout** saves them as JSON; opening or dropping an exported layout applies it.
+- **Colours** (View ▾) are kept across datasets:
+  - **Scheme**: Default (categorical) or a perceptual gradient: Viridis, Magma, Inferno, Plasma, Cividis. Each swatch previews it, and the UI accent follows it.
+  - **Colour by Domain & pipeline**: each domain and pipeline gets its own colour. On a gradient, neighbours in a list step by the golden ratio along it, so they land far apart.
+  - **Colour by Lineage depth**: every table, source and job is coloured by how far downstream it sits (longest path over lineage and FKs). Sources and raw tables are at the dark end, the most downstream tables at the bright end. Wires take the colour of their downstream end, domains and pipelines the mean of their members, and a legend at the bottom left says which end is which. Default draws depth with Viridis. Grouped by medallion layer, the 3D view reads as one sweep from dark to bright.
 - **Open…** (or a drop) takes a workspace snapshot, a `.dbml` with its workflow file, a workflow file for the open schema, or a layout, and works out which from the content.
 - The dataset chip opens the **Datasets** menu: the samples, the last five files and snapshots you opened (✕ forgets one), and synthetic presets in dev builds. Whatever you open comes back after a reload.
 - Load problems and long layouts show as notices at the top left of the canvas. A dataset's warnings wait behind ⚠ N.

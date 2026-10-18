@@ -12,6 +12,17 @@ export const SCHEMES: [SchemeId, string][] = [
 
 export const isScheme = (v: unknown): v is SchemeId => SCHEMES.some(([id]) => id === v)
 
+/** What colours mean: who a thing belongs to (domain, pipeline), or how far downstream it sits. */
+export type ColorBy = 'identity' | 'depth'
+export const COLOR_BY: [ColorBy, string][] = [
+  ['identity', 'Domain & pipeline'],
+  ['depth', 'Lineage depth'],
+]
+export const isColorBy = (v: unknown): v is ColorBy => COLOR_BY.some(([id]) => id === v)
+
+/** The gradient a scheme draws depth with: its own, or Viridis for the categorical default. */
+export const depthGradient = (id: SchemeId): GradientId => (id === 'default' ? 'viridis' : id)
+
 interface Gradient {
   /** matplotlib samples at t = 0, 1/16 … 1. */
   stops: string[]
@@ -55,15 +66,35 @@ export function sample(id: GradientId, t: number): string {
   return '#' + a.map((v, k) => hex2(v + (b[k] - v) * (x - i))).join('')
 }
 
-/** `n` colors evenly across the usable range, darkest first. */
+/** `n` colors evenly across the usable range, darkest first (for ordered things: medallion layers). */
 export function spread(id: GradientId, n: number): string[] {
   const [lo, hi] = GRADIENTS[id].range
   if (n === 1) return [sample(id, (lo + hi) / 2)]
   return Array.from({ length: n }, (_, i) => sample(id, lo + ((hi - lo) * i) / (n - 1)))
 }
 
+/** The color at `t` in [0, 1] along the usable range: 0 its dark end, 1 its bright end. */
+export function along(id: GradientId, t: number): string {
+  const [lo, hi] = GRADIENTS[id].range
+  return sample(id, lo + (hi - lo) * Math.max(0, Math.min(1, t)))
+}
+
+const GOLDEN = (Math.sqrt(5) - 1) / 2
+
+/**
+ * `n` colors for unordered things (domains, pipelines): positions step by the golden ratio, so
+ * neighbours in a list land far apart on the gradient and each new one splits the widest gap left.
+ */
+export function scatter(id: GradientId, n: number): string[] {
+  return Array.from({ length: n }, (_, i) => along(id, n === 1 ? 0.5 : (i * GOLDEN) % 1))
+}
+
+/** The usable range as a CSS gradient, dark to bright, for legends and swatches. */
+export function gradientCss(id: GradientId, direction = '90deg'): string {
+  return `linear-gradient(${direction}, ${Array.from({ length: 9 }, (_, i) => along(id, i / 8)).join(', ')})`
+}
+
 /** A bright color from the scheme for UI accents (dark text sits on it). */
 export function accentOf(id: GradientId): string {
-  const [lo, hi] = GRADIENTS[id].range
-  return sample(id, lo + (hi - lo) * 0.75)
+  return along(id, 0.75)
 }

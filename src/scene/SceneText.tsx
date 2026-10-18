@@ -29,7 +29,8 @@ interface Props {
   clusterOpacity: (c: ViewCluster) => number
   plateOpacity: number
   layerColor: (id: string) => string
-  pipelineColor: (id: string) => string
+  /** A job's color: its pipeline's, or its own place along the gradient when colors follow lineage depth. */
+  jobColor: (job: ViewNode) => string
   clusterColor: (kind: ViewCluster['cluster']['kind']) => string
   /** Focused node: jobs show their volume line while highlighted. */
   focused: string | null
@@ -80,7 +81,7 @@ export function SceneText(p: Props) {
       }
       const opacity = 1 // the node's own opacity rides on its anchor (see the effect below)
       if (n.kind === 'job') {
-        jobText(out, i, n, opacity, p.pipelineColor(n.pipelineId!))
+        jobText(out, i, n, opacity, p.jobColor(n))
         continue
       }
       cardText(out, i, n, nodes.size[2 * i + 1] / 2, opacity, isNear(id))
@@ -88,7 +89,7 @@ export function SceneText(p: Props) {
     return out
   }) // `p` members are listed individually; callers pass memoized functions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  , [world, nearVersion, p.nodeById, p.clusterById])
+  , [world, nearVersion, p.nodeById, p.clusterById, p.jobColor, p.clusterColor])
 
   // Node fades (lens, focus, timeline) write one opacity per anchor instead of rebuilding glyphs.
   const { anchors, nodeById, clusterById, nodeOpacity, clusterOpacity } = p
@@ -137,10 +138,10 @@ export function SceneText(p: Props) {
       })
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world, plates, nearVersion, p.fkEdges, p.showFk, p.fkOpacity, p.plateOpacity, p.focused, p.nodeById, p.jobVolume])
+  }, [world, plates, nearVersion, p.fkEdges, p.showFk, p.fkOpacity, p.plateOpacity, p.focused, p.nodeById, p.jobVolume, p.layerColor])
 
   const hovered = useStore((s) => s.hoveredId)
-  const { focused, lit, pipelineColor } = p
+  const { focused, lit, jobColor } = p
   const callouts = useMemo(() => {
     const ids = new Set<string>()
     if (focused) ids.add(focused)
@@ -159,7 +160,7 @@ export function SceneText(p: Props) {
         z: 0.3,
         text: job ? n.name : headerText(n).short,
         size: job ? 0.34 : HEADER_SIZE,
-        color: job ? pipelineColor(n.pipelineId!) : '#f8fafc',
+        color: job ? jobColor(n) : '#f8fafc',
         opacity: 1,
         anchorX: 'center',
         anchorY: 'middle',
@@ -168,7 +169,7 @@ export function SceneText(p: Props) {
       })
     }
     return out
-  }, [world, nodeById, focused, hovered, lit, pipelineColor])
+  }, [world, nodeById, focused, hovered, lit, jobColor])
 
   if (!atlas) return null
   return (

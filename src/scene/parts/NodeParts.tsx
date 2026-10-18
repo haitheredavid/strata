@@ -32,7 +32,8 @@ interface Props {
   nodeOpacity: (id: string) => number
   clusterOpacity: (c: ViewCluster) => number
   runState: (id: string) => RunState
-  pipelineColor: (id: string) => string
+  /** A job's color: its pipeline's, or its own place along the gradient when colors follow lineage depth. */
+  jobColor: (job: ViewNode) => string
   clusterColor: (kind: ViewCluster['cluster']['kind']) => string
   focused: string | null
   /** With the timeline open: racks light up with the work on them at the playhead. */
@@ -99,11 +100,11 @@ export function NodeParts(p: Props) {
       const high = node.id === hovered || node.id === p.focused
       const face = rgb(p.runState(node.id) === 'active' ? '#ffffff' : high ? '#2a3344' : '#141925')
       L.face.style(k, face.r, face.g, face.b, op)
-      const c = rgb(p.pipelineColor(node.pipelineId!))
+      const c = rgb(p.jobColor(node))
       L.rim.style(k, c.r, c.g, c.b, op)
     })
     L.triggered.forEach(({ node }, k) => {
-      const c = rgb(p.pipelineColor(node.pipelineId!))
+      const c = rgb(p.jobColor(node))
       L.ring.style(k, c.r, c.g, c.b, 0.8 * p.nodeOpacity(node.id))
     })
     const ev = rgb(EVENT)

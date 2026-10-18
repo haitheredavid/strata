@@ -12,9 +12,9 @@ import type { ViewInputs } from './view/deriveView'
 import { timeClock } from './scene/timeClock'
 import { daySeconds } from './sim/schedule'
 import type { Schedule } from './sim/schedule'
-import { isScheme } from './theme/schemes'
+import { isColorBy, isScheme } from './theme/schemes'
 import { record, span } from './dev/perf'
-import type { SchemeId } from './theme/schemes'
+import type { ColorBy, SchemeId } from './theme/schemes'
 import { mergeLayout, normaliseLayout } from './data/dataset'
 import type { Dataset } from './data/dataset'
 import { escapeStep } from './view/escape'
@@ -59,6 +59,8 @@ interface State {
   lensPipeline: string | null
   time: TimeState
   colorScheme: SchemeId
+  /** What colors mean: identity (domain, pipeline) or lineage depth. Kept across datasets, like the scheme. */
+  colorBy: ColorBy
 
   /** Install a dataset: its saved layout (or a new one), with the per-dataset view state reset. */
   load: (dataset: Dataset) => void
@@ -107,6 +109,7 @@ interface State {
   /** Esc: clear the innermost of path, focus, lens, timeline span, "only this". */
   escape: () => void
   setColorScheme: (scheme: SchemeId) => void
+  setColorBy: (colorBy: ColorBy) => void
 }
 
 /**
@@ -173,6 +176,7 @@ const EMPTY_GRAPH: Graph = { tables: [], refs: [], layers: [], workflows: EMPTY_
 
 const storageKey = (layoutKey: string) => `strata:layout:${layoutKey}`
 const SCHEME_KEY = 'strata:scheme'
+const COLOR_BY_KEY = 'strata:colorBy'
 
 function storage(op: (ls: Storage) => string | null | void) {
   try {
@@ -185,6 +189,11 @@ function storage(op: (ls: Storage) => string | null | void) {
 function savedScheme(): SchemeId {
   const v = storage((ls) => ls.getItem(SCHEME_KEY))
   return isScheme(v) ? v : 'default'
+}
+
+function savedColorBy(): ColorBy {
+  const v = storage((ls) => ls.getItem(COLOR_BY_KEY))
+  return isColorBy(v) ? v : 'identity'
 }
 
 /** The layout saved under `layoutKey`, whatever graph it was for. */
@@ -267,6 +276,7 @@ export const useStore = create<State>((set, get) => ({
   lensPipeline: null,
   time: CLOSED,
   colorScheme: savedScheme(),
+  colorBy: savedColorBy(),
 
   load: (d) => {
     flushSave()
@@ -455,6 +465,10 @@ export const useStore = create<State>((set, get) => ({
   setColorScheme: (colorScheme) => {
     storage((ls) => ls.setItem(SCHEME_KEY, colorScheme))
     set({ colorScheme })
+  },
+  setColorBy: (colorBy) => {
+    storage((ls) => ls.setItem(COLOR_BY_KEY, colorBy))
+    set({ colorBy })
   },
 }))
 

@@ -4,7 +4,7 @@ import { Scene } from './scene/Scene'
 import { Toolbar } from './ui/Toolbar'
 import { Navigator } from './ui/Navigator'
 import { Inspector } from './ui/Inspector'
-import { CameraCorner, LitByTrail } from './ui/CanvasOverlay'
+import { CameraCorner, DepthLegend, LitByTrail } from './ui/CanvasOverlay'
 import { useGlobalKeys } from './ui/keys'
 import { boot, openFiles } from './ui/files'
 import { DayDock } from './ui/Timeline'
@@ -65,6 +65,7 @@ export default function App() {
           <LitByTrail />
           <Notices />
           <CameraCorner />
+          <DepthLegend />
         </div>
         <Profiled id="Timeline">
           <DayDock />

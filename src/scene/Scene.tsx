@@ -25,7 +25,7 @@ import { Lanes } from './Lanes'
 import { Pulses } from './Pulses'
 import { TimeDriver } from './TimeDriver'
 import { ComputeLinks } from './ComputeLinks'
-import type { ComputeLink, ViewCluster } from '../view/deriveView'
+import type { ComputeLink, ViewCluster, ViewNode } from '../view/deriveView'
 import { TriggerLinks } from './TriggerLinks'
 import { flowVolumes, formatBytes, pulseShape } from '../sim/volume'
 import { usePalette } from '../theme/palette'
@@ -89,6 +89,7 @@ function Diagram({ model }: { model: SceneModel }) {
   const pipelines = useStore((s) => s.graph.workflows.pipelines)
   const palette = usePalette()
   const colorOf = palette.pipeline
+  const jobColor = useCallback((n: ViewNode) => palette.node(n.id) ?? palette.pipeline(n.pipelineId!), [palette])
 
   const nodeById = useMemo(() => new Map(view.nodes.map((n) => [n.id, n])), [view])
   const shownPipelines = useMemo(
@@ -229,7 +230,7 @@ function Diagram({ model }: { model: SceneModel }) {
     world.nodes.ids.forEach((id, i) => {
       const node = nodeById.get(id)
       if (!node || node.kind === 'job') return
-      rgb(palette.layer(node.layerId)).toArray(color, 4 * i)
+      rgb(palette.node(id) ?? palette.layer(node.layerId)).toArray(color, 4 * i)
       color[4 * i + 3] = nodeOpacity(id)
       if (node.medallion) rgb(palette.medallion(node.medallion)).toArray(medal, 4 * i)
       medal[4 * i + 3] = (node.medallion ? 1 : 0) + (id === focused || time?.reached.has(id) ? 2 : 0)
@@ -259,12 +260,13 @@ function Diagram({ model }: { model: SceneModel }) {
       else if (time) opacity = time.active.has(job) ? 1 : time.done.has(job) ? 0.55 : scope?.flows.has(f.id) ? 0.15 : 0.03
       else if (scope) opacity = scope.flows.has(f.id) ? 1 : 0.05
       const strong = opacity === 1 && (!!probe || !!scope || !!time)
-      style.color[k] = colorOf(f.pipelineId)
+      // A wire takes the color of its downstream end when colors follow depth, so the flow shades along.
+      style.color[k] = palette.node(f.to) ?? colorOf(f.pipelineId)
       style.opacity[k] = opacity
       style.width[k] = strong ? 3 : 2
     })
     return style
-  }, [flowWires, time, probe, scope, colorOf])
+  }, [flowWires, time, probe, scope, colorOf, palette])
 
   return (
     <>
@@ -279,7 +281,7 @@ function Diagram({ model }: { model: SceneModel }) {
           nodeOpacity={nodeOpacity}
           clusterOpacity={clusterOpacity}
           runState={runState}
-          pipelineColor={colorOf}
+          jobColor={jobColor}
           clusterColor={palette.cluster}
           focused={focused}
           schedule={time ? schedule : null}
@@ -298,7 +300,7 @@ function Diagram({ model }: { model: SceneModel }) {
           clusterOpacity={clusterOpacity}
           plateOpacity={front ? 0.4 : 1}
           layerColor={palette.layer}
-          pipelineColor={colorOf}
+          jobColor={jobColor}
           clusterColor={palette.cluster}
           focused={focused}
           lit={front?.nodes ?? null}

@@ -4,7 +4,8 @@ import { parseDbml } from '../parse/dbml'
 import { synthGraph } from '../dev/synth'
 import { SOURCES } from '../view/deriveView'
 import { paletteFor, PIPELINE_PALETTE } from './palette'
-import { accentOf, sample, spread } from './schemes'
+import { accentOf, along, sample, scatter, spread } from './schemes'
+import { lineageDepth } from '../view/lineageDepth'
 
 const read = (f: string) => readFileSync(new URL(`../../public/${f}`, import.meta.url), 'utf8')
 const lakehouse = parseDbml(read('lakehouse.dbml'), read('lakehouse.workflows.yaml'))
@@ -54,10 +55,24 @@ describe('paletteFor', () => {
     expect(p.accent).toBe('#4f9dff')
   })
 
-  it('recolors everything from the gradient, ignoring overrides', () => {
+  it('recolors everything from the gradient, ignoring overrides, with list neighbours far apart', () => {
     const p = paletteFor(colored, 'magma')
     expect(p.pipeline('p')).not.toBe('#123456')
-    expect(spread('magma', 2)).toEqual([p.pipeline('p'), p.pipeline('q')])
+    expect(scatter('magma', 2)).toEqual([p.pipeline('p'), p.pipeline('q')])
+    // List neighbours land far apart (golden-ratio steps), and sixteen stay distinct.
+    expect(new Set(scatter('magma', 16)).size).toBe(16)
+  })
+
+  it('colors by lineage depth: sources at the dark end, the most downstream at the bright end', () => {
+    const p = paletteFor(lakehouse, 'magma', 'depth')
+    const depth = lineageDepth(lakehouse)
+    const deepest = [...depth].reduce((a, b) => (b[1] > a[1] ? b : a))[0]
+    const source = lakehouse.workflows.sources[0].id
+    expect(p.depth).toBe('magma')
+    expect(p.node(source)).toBe(along('magma', 0))
+    expect(p.node(deepest)).toBe(along('magma', 1))
+    expect(paletteFor(lakehouse, 'default', 'depth').depth).toBe('viridis')
+    expect(paletteFor(lakehouse, 'magma').node(deepest)).toBeNull()
   })
 
   it('gives every layer and pipeline its own color', () => {

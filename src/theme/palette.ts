@@ -4,20 +4,25 @@ import type { ClusterKind } from '../model/workflow'
 import type { StageOp } from '../sim/spark'
 import { CLUSTER_COLOR, OP_COLOR } from '../scene/clusterStyle'
 import { PIPELINE_COLORS } from '../parse/workflows'
-import { MEDALLION_LAYERS, SOURCES_LAYER, UNASSIGNED } from '../view/deriveView'
+import { jobNodeId, MEDALLION_LAYERS, SOURCES_LAYER, UNASSIGNED } from '../view/deriveView'
+import { lineageDepth } from '../view/lineageDepth'
 import { useStore } from '../store'
-import { accentOf, spread } from './schemes'
-import type { SchemeId } from './schemes'
+import { accentOf, along, depthGradient, scatter, spread } from './schemes'
+import type { ColorBy, GradientId, SchemeId } from './schemes'
 
-/** Every data color the app draws, resolved for one graph and color scheme. */
+/** Every data color the app draws, resolved for one graph, color scheme and color meaning. */
 export interface Palette {
   /** Domain / group layers, medallion layers and the sources layer. */
   layer(id: string): string
   pipeline(id: string): string
+  /** A table's, source's or job's own color when colors follow lineage depth; null when they follow identity. */
+  node(id: string): string | null
   medallion(id: string): string
   cluster(kind: ClusterKind): string
   op(op: StageOp): string
   accent: string
+  /** The gradient depth is drawn with, for the legend; null when colors follow identity. */
+  depth: GradientId | null
 }
 
 const FALLBACK = '#ffffff'
@@ -68,49 +73,72 @@ function defaultPipelineColors(graph: Graph): Map<string, string> {
   return new Map(pipelines.map((p, i) => [p.id, many && PIPELINE_COLORS.includes(p.color) ? pipelineColor(i) : p.color]))
 }
 
-function build(graph: Graph, scheme: SchemeId): Palette {
+const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0.5)
+
+/**
+ * Lineage depth on the gradient: each table, source and job at its own depth, a domain at the mean
+ * depth of its tables, a pipeline at the mean depth of its jobs. Grouped by medallion layer (or with
+ * domains ordered by dependency) the diagram reads as one sweep from the dark end to the bright end.
+ */
+function depthColors(graph: Graph, g: GradientId) {
+  const depth = lineageDepth(graph)
+  const at = (id: string) => depth.get(id) ?? 0.5
+  const members = new Map<string, number[]>()
+  for (const t of graph.tables) members.set(t.layerId, [...(members.get(t.layerId) ?? []), at(t.id)])
+  return {
+    nodes: new Map([...depth].map(([id, d]) => [id, along(g, d)])),
+    layers: new Map(graph.layers.map((l) => [l.id, along(g, mean(members.get(l.id) ?? []))])),
+    pipelines: new Map(graph.workflows.pipelines.map((p) => [p.id, along(g, mean(p.tasks.map((t) => at(jobNodeId(t.id)))))])),
+  }
+}
+
+function build(graph: Graph, scheme: SchemeId, colorBy: ColorBy): Palette {
   const pipelineIds = graph.workflows.pipelines.map((p) => p.id)
   const layerIds = graph.layers.map((l) => l.id)
-  // Default keeps the parsed colors, including `color:` from the workflow file.
-  const [layers, pipelines, medallions, clusters, ops, accent] =
-    scheme === 'default'
-      ? [
-          new Map(graph.layers.map((l) => [l.id, l.color])),
-          defaultPipelineColors(graph),
-          new Map(MEDALLION_LAYERS.map((l) => [l.id, l.color])),
-          new Map(Object.entries(CLUSTER_COLOR)),
-          new Map(Object.entries(OP_COLOR)),
-          DEFAULT_ACCENT,
-        ]
-      : [
-          zip(layerIds, spread(scheme, layerIds.length)),
-          zip(pipelineIds, spread(scheme, pipelineIds.length)),
-          zip(MEDALLIONS, spread(scheme, MEDALLIONS.length)),
-          zip(CLUSTER_KINDS, spread(scheme, CLUSTER_KINDS.length)),
-          zip(OPS, spread(scheme, OPS.length)),
-          accentOf(scheme),
-        ]
-  const medallion = (id: string) => medallions.get(id) ?? NEUTRAL.get(id) ?? FALLBACK
+  const byDepth = colorBy === 'depth' ? depthGradient(scheme) : null
+  // Ordered things (medallion layers, cluster kinds, stage ops) run along the gradient in order;
+  // the categorical default keeps the parsed colors, including `color:` from the workflow file.
+  const g: GradientId | null = scheme === 'default' ? byDepth : scheme
+  const fixed = g
+    ? {
+        medallions: zip(MEDALLIONS, spread(g, MEDALLIONS.length)),
+        clusters: zip(CLUSTER_KINDS, spread(g, CLUSTER_KINDS.length)),
+        ops: zip(OPS, spread(g, OPS.length)),
+      }
+    : {
+        medallions: new Map(MEDALLION_LAYERS.map((l) => [l.id, l.color])),
+        clusters: new Map(Object.entries(CLUSTER_COLOR)),
+        ops: new Map(Object.entries(OP_COLOR)),
+      }
+  const { layers, pipelines, nodes }: { layers: Map<string, string>; pipelines: Map<string, string>; nodes: Map<string, string> | null } = byDepth
+    ? depthColors(graph, byDepth)
+    : scheme === 'default'
+      ? { layers: new Map(graph.layers.map((l) => [l.id, l.color])), pipelines: defaultPipelineColors(graph), nodes: null }
+      : { layers: zip(layerIds, scatter(scheme, layerIds.length)), pipelines: zip(pipelineIds, scatter(scheme, pipelineIds.length)), nodes: null }
+  const medallion = (id: string) => fixed.medallions.get(id) ?? NEUTRAL.get(id) ?? FALLBACK
   const layer = (id: string) => layers.get(id) ?? (NEUTRAL.has(id) ? NEUTRAL.get(id)! : medallion(id))
   return {
     layer,
     pipeline: (id) => pipelines.get(id) ?? FALLBACK,
+    node: nodes ? (id) => nodes.get(id) ?? null : () => null,
     medallion,
-    cluster: (kind) => clusters.get(kind) ?? FALLBACK,
-    op: (op) => ops.get(op) ?? FALLBACK,
-    accent,
+    cluster: (kind) => fixed.clusters.get(kind) ?? FALLBACK,
+    op: (op) => fixed.ops.get(op) ?? FALLBACK,
+    accent: scheme === 'default' ? DEFAULT_ACCENT : accentOf(scheme),
+    depth: byDepth,
   }
 }
 
-const cache = new WeakMap<Graph, Map<SchemeId, Palette>>()
+const cache = new WeakMap<Graph, Map<string, Palette>>()
 
-/** The palette for a graph and scheme; the same object for the same pair, so it's safe in memo deps. */
-export function paletteFor(graph: Graph, scheme: SchemeId): Palette {
-  let byScheme = cache.get(graph)
-  if (!byScheme) cache.set(graph, (byScheme = new Map()))
-  let p = byScheme.get(scheme)
-  if (!p) byScheme.set(scheme, (p = build(graph, scheme)))
+/** The palette for a graph, scheme and color meaning; the same object for the same inputs, so it's safe in memo deps. */
+export function paletteFor(graph: Graph, scheme: SchemeId, colorBy: ColorBy = 'identity'): Palette {
+  let byKey = cache.get(graph)
+  if (!byKey) cache.set(graph, (byKey = new Map()))
+  const key = `${scheme}:${colorBy}`
+  let p = byKey.get(key)
+  if (!p) byKey.set(key, (p = build(graph, scheme, colorBy)))
   return p
 }
 
-export const usePalette = () => useStore((s) => paletteFor(s.graph, s.colorScheme))
+export const usePalette = () => useStore((s) => paletteFor(s.graph, s.colorScheme, s.colorBy))

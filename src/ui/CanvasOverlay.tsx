@@ -4,6 +4,8 @@ import type { LitBy } from '../view/highlight'
 import { nodeName } from '../view/nodes'
 import { modeOf, useStore } from '../store'
 import { MODES } from '../layout/modes'
+import { usePalette } from '../theme/palette'
+import { gradientCss } from '../theme/schemes'
 
 /** What's lit, outermost first ("Timeline › orders_daily › orders"); ✕ clears one layer. */
 export function LitByTrail() {
@@ -54,6 +56,19 @@ export function CameraCorner() {
       <button title="Straight down" onClick={() => camera({ kind: 'preset', preset: 'top' })}>Top</button>
       <button title={mode === 'flow' ? 'Facing the slabs' : 'From the side'} onClick={() => camera({ kind: 'preset', preset: 'side' })}>{mode === 'flow' ? 'Front' : 'Side'}</button>
       <button title="Frame everything" onClick={() => camera({ kind: 'preset', preset: MODES[mode].defaultPreset })}>Fit</button>
+    </div>
+  )
+}
+
+/** While colors follow lineage depth: what dark and bright mean. */
+export function DepthLegend() {
+  const g = usePalette().depth
+  if (!g) return null
+  return (
+    <div className="depth-legend" title="Colours follow lineage depth: how far downstream a table, job or pipeline sits">
+      <span>upstream</span>
+      <span className="strip" style={{ background: gradientCss(g) }} />
+      <span>downstream</span>
     </div>
   )
 }
