@@ -141,12 +141,15 @@ function ViewMenu() {
   const setLayerGap = useStore((s) => s.setLayerGap)
   const toggleCompute = useStore((s) => s.toggleCompute)
   const resetLayout = useStore((s) => s.resetLayout)
+  const buildUpOn = useStore((s) => s.buildUpOn)
+  const setBuildUpOn = useStore((s) => s.setBuildUpOn)
+  const playBuildUp = useStore((s) => s.playBuildUp)
   const mode = modeOf(layout)
   const lineage = (layout.edgeLayer ?? 'both') !== 'fk'
 
   return (
     <Menu label="View ▾" title="Grouping, edges, card detail and spacing" className="view-menu">
-      {() => (
+      {(close) => (
         <div className="view-pop">
           <div className="row">Group by <Segmented options={GROUPS} value={layout.groupBy ?? 'domain'} onChange={setGroupBy} /></div>
           <div className="row">
@@ -172,6 +175,13 @@ function ViewMenu() {
           <div className="row">
             <span>Arrangement</span>
             <button onClick={resetLayout} disabled={mode === 'orbit'} title="Re-run the automatic layout, dropping dragged positions and domain order">Auto layout</button>
+          </div>
+          <div className="row">
+            <span title="Opening a dataset fades its nodes in one by one, upstream first. A click or key skips to the end.">Build-up on open</span>
+            <span className="build-up">
+              <button title="Play the build-up now" onClick={() => (close(), playBuildUp(true))}>Replay</button>
+              <Segmented options={[['on', 'On'], ['off', 'Off']]} value={buildUpOn ? 'on' : 'off'} onChange={(v) => setBuildUpOn(v === 'on')} />
+            </span>
           </div>
           {labsOn() && (
             <div className="row">

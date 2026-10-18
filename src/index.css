@@ -119,6 +119,8 @@ button.chip-warn { flex: none; padding: 4px 8px; color: #f5b942; }
 .view-pop { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; }
 .view-pop .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); }
 .view-pop .segmented button { padding: 2px 10px; font-size: 12px; }
+.view-pop .build-up { display: inline-flex; gap: 6px; }
+.view-pop .build-up > button { padding: 2px 10px; font-size: 12px; }
 .view-pop .gap { flex-wrap: wrap; }
 .view-pop .gap input { width: 100%; }
 .view-head { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }

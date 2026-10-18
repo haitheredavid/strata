@@ -138,3 +138,12 @@ Goal: tables are the main thing in the picture. Job, trigger, event, pulse and c
 - **Pulses** are thinner, and their size range is narrower (0.12–0.30 across instead of 0.15–0.53).
 - **Racks** are 1.8 wide instead of 2.4, and their workers sit faint while the Day timeline is closed.
 - Pick areas shrink to match.
+
+## Phase 8: Build-up on open — done
+
+Goal: opening a workspace reads as the data arriving, rather than a finished hairball appearing all at once. Modelled on Obsidian's graph time-lapse, where the graph starts empty and fills in note by note. A snapshot has no creation dates, so strata orders by lineage instead.
+
+- **Order** (`view/buildUp.ts`): lineage depth (upstream first), then the domain's place in the view, then the node's position, top to bottom. A cluster follows the last of its jobs.
+- **Timing**: 2.5 s plus 12 ms per node, capped at 8 s. Each node fades in over 0.5 s.
+- **Drawing**: each node's opacity is multiplied by how far it has faded in, so the lens, timeline and filters still apply during a run. Wires and FK edges take the later of their two ends. Pulses start once a wire is fully in. Plates appear first; lanes and trigger links appear last. The scene restyles about 30 times a second only while a run is in progress.
+- **Control**: on by default, and off when the OS asks for reduced motion. A click or key press skips to the end. **View ▾** has the on/off setting (kept across datasets) and **Replay**.

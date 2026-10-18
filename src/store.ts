@@ -64,10 +64,17 @@ interface State {
   colorScheme: SchemeId
   /** What colors mean: identity (domain, pipeline) or lineage depth. Kept across datasets, like the scheme. */
   colorBy: ColorBy
+  /** Whether opening a dataset builds the picture up node by node. Kept across datasets. */
+  buildUpOn: boolean
+  /** A build-up run in progress (its request time, so a replay restarts it), or null. */
+  buildUp: number | null
 
   /** Install a dataset: its saved layout (or a new one), with the per-dataset view state reset. */
   load: (dataset: Dataset) => void
   notify: (level: Notice['level'], text: string) => void
+  setBuildUpOn: (on: boolean) => void
+  /** Play the build-up again, or (false) end it, showing everything. */
+  playBuildUp: (play: boolean) => void
   dismiss: (id: number) => void
   setStatus: (status: string | null) => void
   /** Bring back the dataset's warnings notice, expanded. */
@@ -184,6 +191,9 @@ const EMPTY_GRAPH: Graph = { tables: [], refs: [], layers: [], workflows: EMPTY_
 const storageKey = (layoutKey: string) => `strata:layout:${layoutKey}`
 const SCHEME_KEY = 'strata:scheme'
 const COLOR_BY_KEY = 'strata:colorBy'
+const BUILD_UP_KEY = 'strata:buildUp'
+
+const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 function storage(op: (ls: Storage) => string | null | void) {
   try {
@@ -284,6 +294,8 @@ export const useStore = create<State>((set, get) => ({
   time: CLOSED,
   colorScheme: savedScheme(),
   colorBy: savedColorBy(),
+  buildUpOn: storage((ls) => ls.getItem(BUILD_UP_KEY)) !== 'off',
+  buildUp: null,
 
   load: (d) => {
     flushSave()
@@ -318,6 +330,8 @@ export const useStore = create<State>((set, get) => ({
             hoveredId: null,
             focusedId: null,
             cameraCommand: { kind: 'preset', preset: MODES[modeOf(layout)].defaultPreset, nonce: Date.now() },
+            // A new picture builds up node by node, unless motion is turned down.
+            buildUp: s.buildUpOn && !reducedMotion() ? Date.now() : null,
           }),
     })
   },
@@ -488,6 +502,11 @@ export const useStore = create<State>((set, get) => ({
     storage((ls) => ls.setItem(COLOR_BY_KEY, colorBy))
     set({ colorBy })
   },
+  setBuildUpOn: (buildUpOn) => {
+    storage((ls) => ls.setItem(BUILD_UP_KEY, buildUpOn ? 'on' : 'off'))
+    set({ buildUpOn })
+  },
+  playBuildUp: (play) => set({ buildUp: play ? Date.now() : null }),
 }))
 
 const toggle = (xs: string[], x: string) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x])

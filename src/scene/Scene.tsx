@@ -38,6 +38,7 @@ import { NodeParts } from './parts/NodeParts'
 import { PlateBodies } from './parts/PlateBodies'
 import { AnchorDriver } from './text/AnchorDriver'
 import { useSceneAnchors } from './text/anchors'
+import { useBuildUp } from './useBuildUp'
 import { runBench } from '../dev/bench'
 import type { BenchOptions } from '../dev/bench'
 import { allSpans, lastSpans, span } from '../dev/perf'
@@ -90,6 +91,12 @@ function Diagram({ model }: { model: SceneModel }) {
   const palette = usePalette()
   const colorOf = palette.pipeline
   const jobColor = useCallback((n: ViewNode) => palette.node(n.id) ?? palette.pipeline(n.pipelineId!), [palette])
+  // After a dataset opens, nodes fade in one after another; wires follow once both ends are in.
+  const { reveal, progress } = useBuildUp(view, placement, graph)
+  const wireReveal = useCallback((a: string, b: string) => Math.min(reveal(a), reveal(b)), [reveal])
+  // Domain outlines come in first as a scaffold; lanes and trigger links settle in at the end.
+  const scaffold = progress === null ? 1 : Math.min(1, progress * 5)
+  const settle = progress === null ? 1 : Math.max(0, (progress - 0.85) / 0.15)
 
   const nodeById = useMemo(() => new Map(view.nodes.map((n) => [n.id, n])), [view])
   const shownPipelines = useMemo(
@@ -115,17 +122,18 @@ function Diagram({ model }: { model: SceneModel }) {
   const faded = useMemo(() => new Set(fadedKey ? fadedKey.split('\n') : []), [fadedKey])
   const nodeOpacity = useCallback(
     (id: string) => {
-      if (probe) return probe.nodes.has(id) ? 1 : scope?.nodes.has(id) ? 0.35 : DIM
+      const r = reveal(id)
+      if (probe) return r * (probe.nodes.has(id) ? 1 : scope?.nodes.has(id) ? 0.35 : DIM)
       if (time) {
-        if (time.active.has(id)) return 1
-        if (time.done.has(id)) return 0.8
-        if (time.reached.has(id)) return 1
-        return scope?.nodes.has(id) ? 0.35 : DIM
+        if (time.active.has(id)) return r
+        if (time.done.has(id)) return r * 0.8
+        if (time.reached.has(id)) return r
+        return r * (scope?.nodes.has(id) ? 0.35 : DIM)
       }
-      if (scope) return scope.nodes.has(id) ? 1 : DIM
-      return faded.has(id) ? FADED : 1
+      if (scope) return r * (scope.nodes.has(id) ? 1 : DIM)
+      return r * (faded.has(id) ? FADED : 1)
     },
-    [probe, scope, time, faded],
+    [probe, scope, time, faded, reveal],
   )
   const runState = useCallback(
     (id: string): RunState => (!time ? null : time.active.has(id) ? 'active' : time.done.has(id) ? 'done' : 'pending'),
@@ -154,27 +162,32 @@ function Diagram({ model }: { model: SceneModel }) {
     }
   }, [view, volumes, schedule])
   const pulseShapes = useMemo(() => pulseShape(view.flows, volumes), [view, volumes])
-  const pulseFlows = useMemo(() => view.flows.filter((f) => !front || front.flows.has(f.id)), [view, front])
+  const pulseFlows = useMemo(
+    () => view.flows.filter((f) => (!front || front.flows.has(f.id)) && wireReveal(f.from, f.to) >= 1),
+    [view, front, wireReveal],
+  )
 
   // Clusters follow their jobs: lit when a job they run is lit / running.
   const clusterById = useMemo(() => new Map(view.clusters.map((c) => [c.id, c])), [view])
   const clusterOpacity = useCallback(
     (c: ViewCluster) => {
-      if (probe) return probe.nodes.has(c.id) ? 1 : DIM
-      if (time) return c.jobs.some((j) => time.active.has(j)) ? 1 : c.jobs.some((j) => time.done.has(j)) ? 0.75 : 0.25
-      if (scope) return c.jobs.some((j) => scope.nodes.has(j)) ? 1 : DIM
-      return 0.9
+      const r = reveal(c.id)
+      if (probe) return r * (probe.nodes.has(c.id) ? 1 : DIM)
+      if (time) return r * (c.jobs.some((j) => time.active.has(j)) ? 1 : c.jobs.some((j) => time.done.has(j)) ? 0.75 : 0.25)
+      if (scope) return r * (c.jobs.some((j) => scope.nodes.has(j)) ? 1 : DIM)
+      return r * 0.9
     },
-    [probe, time, scope],
+    [probe, time, scope, reveal],
   )
   const linkOpacity = useCallback(
     (l: ComputeLink) => {
-      if (probe) return probe.nodes.has(l.job) && probe.nodes.has(l.cluster) ? 0.9 : 0.04
-      if (time) return time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04
-      if (scope) return scope.nodes.has(l.job) ? 0.6 : 0.04
-      return 0.22 // hover brightens it in ComputeLinks
+      const r = wireReveal(l.job, l.cluster)
+      if (probe) return r * (probe.nodes.has(l.job) && probe.nodes.has(l.cluster) ? 0.9 : 0.04)
+      if (time) return r * (time.active.has(l.job) ? 0.9 : time.done.has(l.job) ? 0.3 : 0.04)
+      if (scope) return r * (scope.nodes.has(l.job) ? 0.6 : 0.04)
+      return r * 0.22 // hover brightens it in ComputeLinks
     },
-    [probe, time, scope],
+    [probe, time, scope, wireReveal],
   )
   const linkColor = useCallback((id: string) => palette.cluster(clusterById.get(id)?.cluster.kind ?? 'job'), [palette, clusterById])
 
@@ -211,11 +224,11 @@ function Diagram({ model }: { model: SceneModel }) {
         // Step FK refs back when lineage is on so data flow reads first. Hover is applied on top.
         opacity = pa.faded || pb.faded ? 0.25 : lineageActive ? 0.3 : 0.65
       }
-      style[2 * k] = opacity
+      style[2 * k] = opacity * wireReveal(e.from, e.to)
       style[2 * k + 1] = active ? 3 : 1.5
     })
     return { color: fkColors, style, hoverable: !probe && !scoped }
-  }, [fkEdges, fkColors, placement, probe, scoped, lineageActive])
+  }, [fkEdges, fkColors, placement, probe, scoped, lineageActive, wireReveal])
 
   const lodCards = useMemo(() => view.nodes.filter((n) => n.kind !== 'job').map((n) => n.id), [view])
   const fkOpacity = useCallback((k: number) => fkStyle.style[2 * k], [fkStyle])
@@ -238,7 +251,7 @@ function Diagram({ model }: { model: SceneModel }) {
     return { color, medal }
     // nodeOpacity reads the same inputs listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world, nodeById, palette, focused, time, highlight, placement])
+  }, [world, nodeById, palette, focused, time, highlight, placement, reveal])
 
   // Which flows are drawn (changes with the view and placement) apart from how (lens, timeline).
   const flowWires = useMemo<FlowWireSpec[]>(() => {
@@ -262,11 +275,11 @@ function Diagram({ model }: { model: SceneModel }) {
       const strong = opacity === 1 && (!!probe || !!scope || !!time)
       // A wire takes the color of its downstream end when colors follow depth, so the flow shades along.
       style.color[k] = palette.node(f.to) ?? colorOf(f.pipelineId)
-      style.opacity[k] = opacity
+      style.opacity[k] = opacity * wireReveal(f.from, f.to)
       style.width[k] = strong ? 3 : 2
     })
     return style
-  }, [flowWires, time, probe, scope, colorOf, palette])
+  }, [flowWires, time, probe, scope, colorOf, palette, wireReveal])
 
   return (
     <>
@@ -298,7 +311,7 @@ function Diagram({ model }: { model: SceneModel }) {
           clusterById={clusterById}
           nodeOpacity={nodeOpacity}
           clusterOpacity={clusterOpacity}
-          plateOpacity={front ? 0.4 : 1}
+          plateOpacity={(front ? 0.4 : 1) * scaffold}
           layerColor={palette.layer}
           jobColor={jobColor}
           clusterColor={palette.cluster}
@@ -306,9 +319,9 @@ function Diagram({ model }: { model: SceneModel }) {
           lit={front?.nodes ?? null}
           jobVolume={jobVolume}
       />
-      <PlateBodies plates={placement.plates} anchors={anchors} colorOf={palette.layer} opacity={front ? 0.4 : 1} />
+      <PlateBodies plates={placement.plates} anchors={anchors} colorOf={palette.layer} opacity={(front ? 0.4 : 1) * scaffold} />
 
-      <PlateOutlines plates={placement.plates} colorOf={palette.layer} opacity={front ? 0.4 : 1} />
+      <PlateOutlines plates={placement.plates} colorOf={palette.layer} opacity={(front ? 0.4 : 1) * scaffold} />
       {placement.rings && <RingLines rings={placement.rings} />}
 
       {showFk && <FkEdges world={world} curves={curves} fkStyle={fkStyle} />}
@@ -330,7 +343,7 @@ function Diagram({ model }: { model: SceneModel }) {
             schedule={time ? schedule : null}
             lens={time ? time.active : null}
           />
-          <TriggerLinks view={view} pipelines={shownPipelines} colorOf={colorOf} opacity={front || time ? 0.3 : 1} />
+          <TriggerLinks view={view} pipelines={shownPipelines} colorOf={colorOf} opacity={(front || time ? 0.3 : 1) * settle} />
           {(mode.id === 'flow' || mode.id === 'diagram') && (
             <Lanes
               view={view}
@@ -338,7 +351,7 @@ function Diagram({ model }: { model: SceneModel }) {
               pipelines={shownPipelines}
               colorOf={colorOf}
               spread={mode.id === 'diagram' ? 'z' : 'y'}
-              opacityOf={laneOpacity}
+              opacityOf={settle < 1 ? (id) => laneOpacity(id) * settle : laneOpacity}
             />
           )}
         </>
