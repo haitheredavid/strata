@@ -26,6 +26,9 @@ export type CameraCommand =
   | { kind: 'preset'; preset: CameraPreset }
   | { kind: 'frame'; ids: string[] }
 
+/** The kinds of narrowing the scope bar lists, each cleared on its own. */
+export type ScopePart = 'layers' | 'folded' | 'pipelines' | 'tablesOnly'
+
 /** Something the user should know: a failed load, storage trouble, a dataset's warnings. */
 export interface Notice {
   id: number
@@ -76,6 +79,10 @@ interface State {
   toggleLayer: (layerId: string) => void
   /** Show only this layer; again to show them all. */
   onlyLayer: (layerId: string) => void
+  /** Hidden layers, clearing "only this". */
+  setHiddenLayers: (layerIds: string[]) => void
+  /** Undo one kind of narrowing (or all of them): hidden / only domains, folds, hidden / only pipelines, tables-only. */
+  clearScope: (part: ScopePart | 'all') => void
   hover: (id: string | null) => void
   focus: (id: string | null) => void
   setDragging: (v: boolean) => void
@@ -350,6 +357,17 @@ export const useStore = create<State>((set, get) => ({
       return { layout: { ...s.layout, [flow ? 'flowOrder' : 'layerOrder']: order } }
     }),
   toggleLayer: (layerId) => set((s) => ({ layout: { ...s.layout, hiddenLayers: toggle(s.layout.hiddenLayers ?? [], layerId) } })),
+  setHiddenLayers: (hiddenLayers) => set((s) => ({ layout: { ...s.layout, hiddenLayers, onlyLayer: undefined } })),
+  clearScope: (part) =>
+    set((s) => {
+      const l = { ...s.layout }
+      const all = part === 'all'
+      if (all || part === 'layers') Object.assign(l, { hiddenLayers: undefined, onlyLayer: undefined })
+      if (all || part === 'folded') l.collapsedLayers = undefined
+      if (all || part === 'pipelines') Object.assign(l, { hiddenPipelines: undefined, onlyPipeline: undefined })
+      if (all || part === 'tablesOnly') l.pipelineTablesOnly = false
+      return part === 'folded' ? { layout: l } : reframed(l, true)
+    }),
   onlyLayer: (layerId) =>
     set((s) => ({ layout: { ...s.layout, onlyLayer: s.layout.onlyLayer === layerId ? undefined : layerId } })),
   hover: (hoveredId) => set({ hoveredId }),

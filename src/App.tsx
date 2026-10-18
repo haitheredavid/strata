@@ -4,7 +4,7 @@ import { Scene } from './scene/Scene'
 import { Toolbar } from './ui/Toolbar'
 import { Navigator } from './ui/Navigator'
 import { Inspector } from './ui/Inspector'
-import { CameraCorner, DepthLegend, LitByTrail } from './ui/CanvasOverlay'
+import { CameraCorner, CanvasTop, DepthLegend } from './ui/CanvasOverlay'
 import { useGlobalKeys } from './ui/keys'
 import { boot, openFiles } from './ui/files'
 import { DayDock } from './ui/Timeline'
@@ -16,7 +16,7 @@ const carriesFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 
 /**
  * The shell: toolbar over three columns (Navigator · canvas · Inspector), with the Day dock under the
- * Navigator and canvas. Nothing floats over the canvas but the Lit-by trail, notices and camera presets.
+ * Navigator and canvas. Nothing floats over the canvas but the scope bar and Lit-by trail, notices and camera presets.
  */
 export default function App() {
   const [dropping, setDropping] = useState(false)
@@ -62,7 +62,7 @@ export default function App() {
           <Profiled id="Scene">
             <Scene />
           </Profiled>
-          <LitByTrail />
+          <CanvasTop />
           <Notices />
           <CameraCorner />
           <DepthLegend />

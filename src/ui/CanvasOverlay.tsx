@@ -2,13 +2,47 @@ import { useShallow } from 'zustand/react/shallow'
 import { litBy } from '../view/highlight'
 import type { LitBy } from '../view/highlight'
 import { nodeName } from '../view/nodes'
-import { modeOf, useStore } from '../store'
+import { scopeChips } from '../view/scope'
+import { modeOf, useStore, viewInputs } from '../store'
 import { MODES } from '../layout/modes'
 import { usePalette } from '../theme/palette'
 import { gradientCss } from '../theme/schemes'
 
+/** The top of the canvas: what the picture leaves out, then what's lit. */
+export function CanvasTop() {
+  return (
+    <div className="canvas-top">
+      <ScopeBar />
+      <LitByTrail />
+    </div>
+  )
+}
+
+/** "Showing 3 of 11 domains ✕ · Tables in shown pipelines ✕": each narrowing, cleared on its own or all at once. */
+function ScopeBar() {
+  const chips = scopeChips(useStore(useShallow(viewInputs)))
+  const clearScope = useStore((s) => s.clearScope)
+  if (!chips.length) return null
+  return (
+    <div className="scope-bar">
+      <span className="lit-by-label">Showing</span>
+      {chips.map((c) => (
+        <span key={c.part} className="scope-chip" title={c.title}>
+          <span className="crumb-name">{c.label}</span>
+          <button title={`Undo: ${c.title.toLowerCase()}`} onClick={() => clearScope(c.part)}>✕</button>
+        </span>
+      ))}
+      {chips.length > 1 && (
+        <button className="reset" title="Show everything" onClick={() => clearScope('all')}>
+          Reset
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** What's lit, outermost first ("Timeline › orders_daily › orders"); ✕ clears one layer. */
-export function LitByTrail() {
+function LitByTrail() {
   const graph = useStore((s) => s.graph)
   const by = litBy(useStore(useShallow((s) => ({ time: s.time, lensPipeline: s.lensPipeline, focusedId: s.focusedId, pathOpen: s.pathOpen, pathEnds: s.pathEnds }))))
   const closeTimeline = useStore((s) => s.closeTimeline)

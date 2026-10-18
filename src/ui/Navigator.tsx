@@ -1,19 +1,25 @@
 import { Fragment, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { Graph } from '../model/types'
 import type { Pipeline, Trigger } from '../model/workflow'
 import { flowOrder } from '../layout/modes/flow'
 import { SOURCES, hiddenPipelinesOf, layerView } from '../view/deriveView'
+import { listLabels } from '../view/labels'
 import { pipelineDomains } from '../view/pipelineDomain'
-import { TRIGGER_LABEL } from '../scene/timeClock'
-import { modeOf, useStore } from '../store'
+import { useView } from '../scene/usePlacement'
+import { modeOf, scheduleOf, useStore } from '../store'
 import { usePalette } from '../theme/palette'
 import { Menu } from './Menu'
+import { RunStrip } from './runs'
+import { runsOf, worstState } from '../view/runs'
 import { selectPipeline } from './select'
+import { useShowMore } from './ShowMore'
 
-/** Lists longer than this get a filter box. */
-const FILTER_AT = 8
 const NAV_KEY = 'strata:nav'
+/** Rows a section lists before "Show N more". */
+const DOMAIN_CAP = 8
+const PIPELINE_CAP = 10
+
 const remembered = () => {
   try {
     return localStorage.getItem(NAV_KEY)
@@ -29,12 +35,23 @@ const remember = (v: string) => {
   }
 }
 
+/** Every whitespace-separated word of the query occurs in the name, ignoring case. */
+const matcher = (query: string) => {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  return (name: string) => {
+    const n = name.toLowerCase()
+    return words.every((w) => n.includes(w))
+  }
+}
+
 /**
- * The left column: what's in the picture. Domains (or medallion layers) and pipelines, each with a
- * checkbox to show it, a ⋯ menu for "only this" and the rest, and a click to select or frame it.
+ * The left column, a facet panel for what's in the picture: one filter over everything, then domains
+ * (or medallion layers) and pipelines. The swatch shows or hides a row, its name selects or frames it,
+ * ⋯ holds "only this" and the rest. Long lists show their first rows and "Show N more".
  */
 export function Navigator() {
   const [open, setOpen] = useState(() => remembered() !== 'closed')
+  const [query, setQuery] = useState('')
   const toggle = () => {
     remember(open ? 'closed' : 'open')
     setOpen(!open)
@@ -48,35 +65,66 @@ export function Navigator() {
     )
   return (
     <nav className="navigator">
-      <button className="nav-toggle" title="Hide the navigator" onClick={toggle}>‹</button>
-      <Layers />
-      {hasPipelines && <Pipelines />}
+      <div className="nav-top">
+        <input
+          className="filter"
+          placeholder={hasPipelines ? 'Filter domains and pipelines…' : 'Filter domains…'}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Escape' && (query ? setQuery('') : e.currentTarget.blur())}
+        />
+        <button className="nav-toggle" title="Hide the navigator" onClick={toggle}>‹</button>
+      </div>
+      <Layers query={query} />
+      {hasPipelines && <Pipelines query={query} />}
     </nav>
   )
 }
 
-/** A navigator row: checkbox, swatch, name (click selects or frames), count, state badges and a ⋯ menu. */
+/** A section heading: the facet's name, how much of it is shown, and its ⋯ menu. */
+function Head({ title, shown, total, menu }: { title: string; shown: number; total: number; menu: (close: () => void) => ReactNode }) {
+  return (
+    <div className="nav-head">
+      <h3>{title}</h3>
+      <span className="nav-tally" title={`${shown} of ${total} shown`}>{shown === total ? total : `${shown} / ${total}`}</span>
+      <span className="spacer" />
+      <Menu label="⋯" title={`${title}: show, hide, group`} className="row-menu">
+        {menu}
+      </Menu>
+    </div>
+  )
+}
+
+/** A navigator row: the swatch toggles it, the name selects or frames it, then an aside and a ⋯ menu. */
 function Row(props: {
   shown: boolean
   onShown: (shown: boolean) => void
   color: string
   name: string
+  rest?: string
   title?: string
   selected?: boolean
   onClick: () => void
-  tag?: string
-  count: number
-  badges?: string[]
+  badge?: string
+  aside?: ReactNode
   menu: (close: () => void) => ReactNode
 }) {
   return (
     <li className={`nav-row${props.shown ? '' : ' off'}${props.selected ? ' selected' : ''}`}>
-      <input type="checkbox" checked={props.shown} title={props.shown ? 'Shown: uncheck to hide' : 'Hidden: check to show'} onChange={(e) => props.onShown(e.target.checked)} />
-      <span className="swatch" style={{ background: props.color }} />
-      <button className="name" title={props.title ?? props.name} onClick={props.onClick}>{props.name}</button>
-      {props.badges?.map((b) => <span key={b} className="badge">{b}</span>)}
-      {props.tag && <span className="trig">{props.tag}</span>}
-      <span className="count">{props.count}</span>
+      <button
+        className={`vis${props.shown ? ' on' : ''}`}
+        style={{ '--c': props.color } as CSSProperties}
+        aria-pressed={props.shown}
+        aria-label={`${props.shown ? 'Hide' : 'Show'} ${props.name}`}
+        title={props.shown ? 'Shown: click to hide' : 'Hidden: click to show'}
+        onClick={() => props.onShown(!props.shown)}
+      />
+      <button className="name" title={props.title ?? props.name} onClick={props.onClick}>
+        {props.name}
+        {props.rest && <span className="rest"> {props.rest}</span>}
+      </button>
+      {props.badge && <span className="badge">{props.badge}</span>}
+      {props.aside}
       <Menu label="⋯" title="More" className="row-menu">
         {props.menu}
       </Menu>
@@ -84,24 +132,37 @@ function Row(props: {
   )
 }
 
-function Item({ onClick, close, children, disabled }: { onClick: () => void; close: () => void; children: ReactNode; disabled?: boolean }) {
+function Item({ onClick, close, children, disabled, current }: { onClick: () => void; close: () => void; children: ReactNode; disabled?: boolean; current?: boolean }) {
   return (
-    <button role="menuitem" className="menu-item" disabled={disabled} onClick={() => (close(), onClick())}>
+    <button role="menuitem" className={`menu-item${current ? ' current' : ''}`} disabled={disabled} onClick={() => (close(), onClick())}>
       {children}
     </button>
   )
 }
 
-function Layers() {
+/** A count with a bar for its share of the largest, so sizes compare at a glance. */
+function Magnitude({ n, max, unit }: { n: number; max: number; unit: string }) {
+  return (
+    <span className="mag" title={`${n} ${unit}`}>
+      <span className="track">
+        <i style={{ width: `${max ? Math.max(4, (n / max) * 100) : 0}%` }} />
+      </span>
+      <span>{n}</span>
+    </span>
+  )
+}
+
+function Layers({ query }: { query: string }) {
   const graph = useStore((s) => s.graph)
   const layout = useStore((s) => s.layout)
   const toggleLayer = useStore((s) => s.toggleLayer)
   const onlyLayer = useStore((s) => s.onlyLayer)
+  const setHiddenLayers = useStore((s) => s.setHiddenLayers)
+  const clearScope = useStore((s) => s.clearScope)
   const toggleCollapse = useStore((s) => s.toggleCollapse)
   const moveLayer = useStore((s) => s.moveLayer)
   const camera = useStore((s) => s.camera)
   const palette = usePalette()
-  const [query, setQuery] = useState('')
 
   const modeId = modeOf(layout)
   const groupBy = layout.groupBy ?? 'domain'
@@ -143,41 +204,51 @@ function Layers() {
   // Flow lists left to right, so "earlier" is a lower index; the stack lists top first.
   const [back, fwd] = leftToRight ? (['left', 'right'] as const) : (['up', 'down'] as const)
   const step = leftToRight ? -1 : 1
-  const q = query.trim().toLowerCase()
-  const listed = q ? ordered.filter((id) => layerById.get(id)?.name.toLowerCase().includes(q)) : ordered
+  const match = matcher(query)
+  const listed = ordered.filter((id) => match(layerById.get(id)!.name))
   const only = layout.onlyLayer
+  const isShown = (id: string) => !hiddenSet.has(id) && (!only || only === id)
+  const max = Math.max(0, ...ordered.map((id) => members.get(id)?.length ?? 0))
+  const [limit, more] = useShowMore(listed.length, DOMAIN_CAP)
+  const noun = fixed ? 'Medallion layers' : 'Domains'
 
   const setShown = (id: string, shown: boolean) => {
-    if (only) onlyLayer(only) // any checkbox ends "only this"
+    if (only) onlyLayer(only) // any toggle ends "only this"
     if (hiddenSet.has(id) === shown) toggleLayer(id)
   }
 
+  if (query && !listed.length) return null
   return (
     <section>
-      <h3>{fixed ? 'Medallion layers' : 'Domains'}</h3>
-      {ordered.length > FILTER_AT && (
-        <input className="filter" placeholder={`Filter ${ordered.length} ${fixed ? 'layers' : 'domains'}…`} value={query} onChange={(e) => setQuery(e.target.value)} />
-      )}
-      {only && layerById.get(only) && (
-        <p className="only-note">
-          Only {layerById.get(only)!.name} <button className="link" onClick={() => onlyLayer(only)}>Show all</button>
-        </p>
-      )}
+      <Head
+        title={noun}
+        shown={ordered.filter(isShown).length}
+        total={ordered.length}
+        menu={(close) => (
+          <>
+            <Item close={close} onClick={() => clearScope('layers')}>Show all</Item>
+            <Item close={close} onClick={() => setHiddenLayers(ordered)}>Hide all</Item>
+            <Item close={close} disabled={!collapsedSet.size} onClick={() => clearScope('folded')}>Unfold all</Item>
+          </>
+        )}
+      />
       <ul className="nav-list">
-        {listed.map((id) => {
+        {listed.slice(0, limit).map((id) => {
           const l = layerById.get(id)!
           const i = movableIndex.get(id) ?? -1
           const collapsed = collapsedSet.has(id)
+          const n = members.get(id)?.length ?? 0
           return (
             <Row
               key={id}
-              shown={!hiddenSet.has(id) && (!only || only === id)}
+              shown={isShown(id)}
               onShown={(v) => setShown(id, v)}
               color={palette.layer(id)}
               name={l.name}
+              title={`${l.name}: click to frame`}
               onClick={() => camera({ kind: 'frame', ids: members.get(id) ?? [] })}
-              count={members.get(id)?.length ?? 0}
-              badges={[...(only === id ? ['only'] : []), ...(collapsed ? ['folded'] : [])]}
+              badge={collapsed ? 'folded' : undefined}
+              aside={<Magnitude n={n} max={max} unit={id === SOURCES ? 'sources' : 'tables'} />}
               menu={(close) => (
                 <>
                   <Item close={close} onClick={() => onlyLayer(id)}>{only === id ? 'Show all again' : 'Show only this'}</Item>
@@ -196,12 +267,13 @@ function Layers() {
           )
         })}
       </ul>
+      {more}
     </section>
   )
 }
 
 type Grouping = 'none' | 'trigger' | 'domain'
-const GROUPINGS: [Grouping, string][] = [['none', 'None'], ['trigger', 'Trigger'], ['domain', 'Domain']]
+const GROUPINGS: [Grouping, string][] = [['none', 'No grouping'], ['trigger', 'Group by trigger'], ['domain', 'Group by domain']]
 
 const TRIGGER_GROUP: Record<Trigger['kind'], string> = {
   schedule: 'Scheduled',
@@ -229,95 +301,159 @@ function groupPipelines(pipelines: Pipeline[], by: Grouping, graph: Graph): [str
   return [...groups].sort((a, b) => a[0].localeCompare(b[0]))
 }
 
-function Pipelines() {
+/** How a pipeline's day went, for the status facet. */
+type Status = 'failed' | 'ran' | 'none'
+const STATUS_LABEL: Record<Status, string> = { failed: 'Failed', ran: 'Ran', none: 'No runs' }
+
+function Pipelines({ query }: { query: string }) {
   const graph = useStore((s) => s.graph)
   const pipelines = graph.workflows.pipelines
-  const hidden = useStore((s) => s.layout.hiddenPipelines) ?? []
+  const hidden = useStore((s) => s.layout.hiddenPipelines)
   const only = useStore((s) => s.layout.onlyPipeline)
   const lineage = useStore((s) => (s.layout.edgeLayer ?? 'both') !== 'fk')
   const selected = useStore((s) => s.lensPipeline)
+  const schedule = useStore(scheduleOf)
   const togglePipeline = useStore((s) => s.togglePipeline)
   const onlyPipeline = useStore((s) => s.onlyPipeline)
   const setHidden = useStore((s) => s.setHiddenPipelines)
+  const clearScope = useStore((s) => s.clearScope)
   const setLens = useStore((s) => s.setLens)
+  const setEdgeLayer = useStore((s) => s.setEdgeLayer)
   const openTimeline = useStore((s) => s.openTimeline)
   const tablesOnly = useStore((s) => s.layout.pipelineTablesOnly ?? false)
   const toggleTablesOnly = useStore((s) => s.togglePipelineTablesOnly)
+  const view = useView()
   const palette = usePalette()
-  const [query, setQuery] = useState('')
-  const [grouping, setGrouping] = useState<Grouping>('trigger')
-  const q = query.trim().toLowerCase()
-  const listed = q ? pipelines.filter((p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)) : pipelines
+  const [grouping, setGrouping] = useState<Grouping>('none')
+  const [picked, setStatus] = useState<Status | null>(null)
+
+  const labels = useMemo(() => listLabels(pipelines.map((p) => p.name)), [pipelines])
+  const { byPipeline } = runsOf(schedule)
+  const hasRuns = schedule.runs.length > 0
+  const statusOf = useMemo(() => {
+    const m = new Map<string, Status>()
+    for (const p of pipelines) {
+      const w = worstState(byPipeline.get(p.id) ?? [])
+      m.set(p.id, w === 'none' ? 'none' : w === 'failed' ? 'failed' : 'ran')
+    }
+    return m
+  }, [pipelines, byPipeline])
+  const statusCounts = (['failed', 'ran', 'none'] as Status[]).map((st) => [st, pipelines.filter((p) => statusOf.get(p.id) === st).length] as const)
+  const showStatus = hasRuns && statusCounts.filter(([, n]) => n > 0).length > 1
+  // A status picked on another dataset (or one nothing has any more) doesn't narrow the list.
+  const status = showStatus && statusCounts.some(([st, n]) => st === picked && n > 0) ? picked : null
+
   const shownOff = new Set(hiddenPipelinesOf({ graph, hiddenPipelines: hidden, onlyPipeline: only }))
-  const many = pipelines.length > FILTER_AT
-  const groups = useMemo(() => groupPipelines(listed, many ? grouping : 'none', graph), [listed, many, grouping, graph])
+  const isShown = (p: Pipeline) => !shownOff.has(p.id)
+  // Pipelines shown but with no job in the picture: every table they touch is in a hidden domain, or none.
+  const drawn = useMemo(() => new Set(view.nodes.flatMap((n) => (n.kind === 'job' && n.pipelineId ? [n.pipelineId] : []))), [view])
+  const match = matcher(query)
+  const listed = pipelines.filter((p) => match(p.name) && (!status || statusOf.get(p.id) === status))
+  const main = lineage ? listed.filter((p) => !isShown(p) || drawn.has(p.id)) : listed
+  const tail = lineage ? listed.filter((p) => isShown(p) && !drawn.has(p.id)) : []
+  const [limit, more] = useShowMore(main.length, PIPELINE_CAP)
+  // The list is narrowed by the filter or a status, and the picture doesn't already show exactly it.
+  const listedSet = new Set(listed)
+  const narrowed =
+    (query.trim() !== '' || status !== null) && listed.length > 0 && listed.length < pipelines.length && pipelines.some((p) => isShown(p) !== listedSet.has(p))
 
   const setShown = (id: string, shown: boolean) => {
-    if (only) onlyPipeline(only) // any checkbox ends "only this"
-    if (hidden.includes(id) === shown) togglePipeline(id)
+    if (only) onlyPipeline(only) // any toggle ends "only this"
+    if ((hidden ?? []).includes(id) === shown) togglePipeline(id)
   }
 
+  const row = (p: Pipeline) => {
+    const l = labels.get(p.name)!
+    return (
+      <Row
+        key={p.id}
+        shown={isShown(p) && lineage}
+        onShown={(v) => setShown(p.id, v)}
+        color={palette.pipeline(p.id)}
+        name={l.short}
+        rest={l.rest}
+        title={`${p.name}\n${p.tasks.length} task${p.tasks.length > 1 ? 's' : ''}: ${p.tasks.map((t) => t.name).join(' → ')}`}
+        selected={selected === p.id}
+        onClick={() => (selected === p.id ? setLens(null) : selectPipeline(p.id))}
+        aside={hasRuns && <RunStrip runs={byPipeline.get(p.id) ?? []} label={p.name} />}
+        menu={(close) => (
+          <>
+            <Item close={close} onClick={() => onlyPipeline(p.id)}>{only === p.id ? 'Show all again' : 'Show only this'}</Item>
+            <Item close={close} disabled={!hasRuns} onClick={() => openTimeline(p.id)}>Play its day</Item>
+          </>
+        )}
+      />
+    )
+  }
+
+  // Rows up to the limit, cut across groups; the selected pipeline stays listed past the cut.
+  const grouped = groupPipelines(main, grouping, graph)
+  const firstIndex = grouped.map((_, gi) => grouped.slice(0, gi).reduce((n, [, ps]) => n + ps.length, 0))
+  const groups = grouped.flatMap(([g, ps], gi): [string, Pipeline[]][] => {
+    const keep = ps.filter((p, i) => firstIndex[gi] + i < limit || p.id === selected)
+    return keep.length ? [[g, keep]] : []
+  })
+
+  if (query && !listed.length) return null
   return (
     <section>
-      <h3>Pipelines</h3>
-      {many && (
-        <>
-          <div className="row">
-            <input className="filter" placeholder={`Filter ${pipelines.length} pipelines…`} value={query} onChange={(e) => setQuery(e.target.value)} />
-            <button title="Show these" onClick={() => setHidden(hidden.filter((id) => !listed.some((p) => p.id === id)))}>All</button>
-            <button title="Hide these" onClick={() => setHidden([...new Set([...hidden, ...listed.map((p) => p.id)])])}>None</button>
-          </div>
-          <div className="row">
-            Group
-            <span className="segmented">
-              {GROUPINGS.map(([g, label]) => (
-                <button key={g} className={grouping === g ? 'on' : ''} onClick={() => setGrouping(g)}>{label}</button>
-              ))}
-            </span>
-          </div>
-        </>
-      )}
-      <div className="row">
-        <span title="Leave out tables that no shown pipeline reads or writes">Tables</span>
-        <span className="segmented">
-          <button className={tablesOnly ? '' : 'on'} disabled={!lineage} onClick={() => tablesOnly && toggleTablesOnly()}>All</button>
-          <button className={tablesOnly ? 'on' : ''} disabled={!lineage} onClick={() => !tablesOnly && toggleTablesOnly()}>In shown pipelines</button>
-        </span>
-      </div>
-      {only && (
-        <p className="only-note">
-          Only {pipelines.find((p) => p.id === only)?.name ?? only} <button className="link" onClick={() => onlyPipeline(only)}>Show all</button>
+      <Head
+        title="Pipelines"
+        shown={lineage ? pipelines.filter(isShown).length : 0}
+        total={pipelines.length}
+        menu={(close) => (
+          <>
+            <Item close={close} onClick={() => clearScope('pipelines')}>Show all</Item>
+            <Item close={close} onClick={() => setHidden(pipelines.map((p) => p.id))}>Hide all</Item>
+            <div className="menu-head">List</div>
+            {GROUPINGS.map(([g, label]) => (
+              <Item key={g} close={close} current={grouping === g} onClick={() => setGrouping(g)}>{label}</Item>
+            ))}
+            <div className="menu-head">Tables</div>
+            <Item close={close} current={tablesOnly} disabled={!lineage} onClick={toggleTablesOnly}>
+              Only tables shown pipelines touch
+            </Item>
+          </>
+        )}
+      />
+      {!lineage && (
+        <p className="nav-note">
+          Lineage edges are off, so no pipeline is drawn. <button className="link" onClick={() => setEdgeLayer('both')}>Turn them on</button>
         </p>
+      )}
+      {showStatus && (
+        <div className="nav-chips" role="group" aria-label="Filter by today's runs">
+          {statusCounts.map(([st, n]) =>
+            n ? (
+              <button key={st} className={`facet ${st}${status === st ? ' on' : ''}`} aria-pressed={status === st} onClick={() => setStatus(status === st ? null : st)}>
+                {STATUS_LABEL[st]} <span className="n">{n}</span>
+              </button>
+            ) : null,
+          )}
+        </div>
+      )}
+      {narrowed && (
+        <button className="link nav-apply" title="Hide every pipeline not in this list" onClick={() => setHidden(pipelines.filter((p) => !listed.includes(p)).map((p) => p.id))}>
+          Show only these {listed.length}
+        </button>
       )}
       <ul className="nav-list">
         {groups.map(([group, ps]) => (
           <Fragment key={group}>
-            {group && <li className="group">{group} <span className="group-count">{ps.length}</span></li>}
-            {ps.map((p) => (
-              <Row
-                key={p.id}
-                shown={!shownOff.has(p.id) && lineage}
-                onShown={(v) => setShown(p.id, v)}
-                color={palette.pipeline(p.id)}
-                name={p.name}
-                title={`${p.name}\n${p.tasks.map((t) => t.name).join(' → ')}`}
-                selected={selected === p.id}
-                onClick={() => (selected === p.id ? setLens(null) : selectPipeline(p.id))}
-                // Grouped by trigger, the group heading already says it.
-                tag={p.trigger && !(many && grouping === 'trigger') ? TRIGGER_LABEL[p.trigger.kind] : undefined}
-                count={p.tasks.length}
-                badges={only === p.id ? ['only'] : []}
-                menu={(close) => (
-                  <>
-                    <Item close={close} onClick={() => onlyPipeline(p.id)}>{only === p.id ? 'Show all again' : 'Show only this'}</Item>
-                    <Item close={close} onClick={() => openTimeline(p.id)}>Play its day</Item>
-                  </>
-                )}
-              />
-            ))}
+            {group && <li className="group">{group}</li>}
+            {ps.map(row)}
           </Fragment>
         ))}
       </ul>
+      {more}
+      {tail.length > 0 && (
+        <details className="nav-tail">
+          <summary title="Shown, but every table they read or write is in a hidden domain (or they touch none)">
+            {tail.length} not in the picture
+          </summary>
+          <ul className="nav-list">{tail.map(row)}</ul>
+        </details>
+      )}
     </section>
   )
 }

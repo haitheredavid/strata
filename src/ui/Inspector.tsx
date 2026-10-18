@@ -1,21 +1,27 @@
-import { useMemo } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Graph, Table } from '../model/types'
 import { clusterNodeId } from '../model/workflow'
 import type { Cluster, Pipeline, Task } from '../model/workflow'
 import { clockOf } from '../sim/schedule'
-import type { PipelineRun, RunState, Schedule, TaskRun } from '../sim/schedule'
 import { clusterSpec, KIND_LABEL } from '../scene/clusterStyle'
 import { usePaths, useView } from '../scene/usePlacement'
 import { scheduleOf, useStore } from '../store'
 import { usePalette } from '../theme/palette'
 import { domainNodeId, jobNodeId } from '../view/deriveView'
 import type { ViewGraph } from '../view/deriveView'
+import { filterGroups, groupItems, takeItems } from '../view/groups'
+import type { Group } from '../view/groups'
+import { listLabels } from '../view/labels'
 import { nodeName, nodeRefs, splitName } from '../view/nodes'
 import type { Path } from '../view/paths'
 import { ComputeSection } from './ComputeSection'
 import { triggerLine } from './describe'
+import type { RunLike } from '../view/runs'
+import { runsOf, runText } from '../view/runs'
+import { RunStrip } from './runs'
 import { goTo, selectPipeline } from './select'
+import { useShowMore } from './ShowMore'
 import { TablePicker } from './TablePicker'
 
 /** Lookups the Inspector needs, built once per graph. */
@@ -62,47 +68,31 @@ function indexOf(graph: Graph): Index {
   return ix
 }
 
-/** The day's runs by task and by pipeline. */
-const runIndexes = new WeakMap<Schedule, { byTask: Map<string, TaskRun[]>; byPipeline: Map<string, PipelineRun[]> }>()
-function runsOf(s: Schedule) {
-  let ix = runIndexes.get(s)
-  if (ix) return ix
-  ix = { byTask: new Map(), byPipeline: new Map() }
-  for (const r of s.taskRuns) push(ix.byTask, r.taskId, r)
-  for (const r of s.runs) push(ix.byPipeline, r.pipelineId, r)
-  runIndexes.set(s, ix)
-  return ix
-}
-
-const STATE_MARK: Record<RunState, string> = { success: '✓', failed: '✕', canceled: '–', skipped: '–', running: '…' }
-
-/** `3 runs · 1 failed · last 14:32 ✓`, or `no runs today`. */
-function RunSummary({ runs }: { runs: { start: number; end: number; state?: RunState; continuous?: boolean }[] }) {
+/** Today's runs in one line: the strip, then `3 runs · 1 failed · last 14:32 ✓`. */
+function RunSummary({ runs }: { runs: RunLike[] }) {
   const schedule = useStore(scheduleOf)
   const clock = useMemo(() => clockOf(schedule), [schedule])
-  if (!runs.length) return <span className="muted">no runs today</span>
-  if (runs.some((r) => r.continuous)) return <span>streaming all day</span>
-  const failed = runs.filter((r) => r.state === 'failed').length
-  const last = runs.reduce((a, b) => (b.end > a.end ? b : a))
-  const state = last.state ?? 'success'
   return (
-    <span>
-      {runs.length} run{runs.length > 1 ? 's' : ''}
-      {failed > 0 && <span className="failed"> · {failed} failed</span>}
-      {' · last '}
-      {clock(last.end)} <span className={`state ${state}`} title={state}>{STATE_MARK[state]}</span>
-    </span>
+    <>
+      <RunStrip runs={runs} />
+      <span className={runs.some((r) => r.state === 'failed') ? 'failed' : runs.length ? '' : 'muted'}>{runText(runs, clock)}</span>
+    </>
   )
 }
 
-/** A name that selects its node (or pipeline) and flies to it. */
-function NodeLink({ id }: { id: string }) {
+/** A name that selects its node (or pipeline) and flies to it; by default the short name with its schema muted. */
+function NodeLink({ id, children }: { id: string; children?: ReactNode }) {
   const graph = useStore((s) => s.graph)
-  const { short, prefix: rest } = splitName(nodeName(graph, id))
+  const name = nodeName(graph, id)
+  const { short, prefix: rest } = splitName(name)
   return (
-    <button className="link node-link" title={nodeName(graph, id)} onClick={() => goTo(id)}>
-      {short}
-      {rest && <span className="muted"> {rest}</span>}
+    <button className="link node-link" title={name} onClick={() => goTo(id)}>
+      {children ?? (
+        <>
+          {short}
+          {rest && <span className="muted"> {rest}</span>}
+        </>
+      )}
     </button>
   )
 }
@@ -117,48 +107,173 @@ function PipelineLink({ p }: { p: Pipeline }) {
   )
 }
 
-/** Lists longer than this start folded, so the sections after them stay in view. */
-const LONG_LIST = 12
+/** Rows a list shows before "Show N more". */
+const LIST_CAP = 8
+/** Lists longer than this get a filter box. */
+const FILTER_FROM = 12
+/** Swatch colour for groups that aren't a domain (sources, other names). */
+const NEUTRAL = 'var(--muted)'
 
-function Section({ title, count, children, open }: { title: string; count?: number; children: ReactNode; open?: boolean }) {
+function Section({ title, count, note, bar, children }: { title: string; count?: number; note?: string; bar?: ReactNode; children: ReactNode }) {
   return (
-    <details className="insp-section" open={open ?? (count === undefined || count <= LONG_LIST)}>
+    <details className="insp-section" open>
       <summary>
         {title}
         {count !== undefined && <span className="muted"> {count}</span>}
+        {note && <span className="note" title={note}>{note}</span>}
+        {bar}
       </summary>
       {children}
     </details>
   )
 }
 
-/** Jobs as links with their pipeline colour and today's runs. */
-function JobList({ tasks }: { tasks: Task[] }) {
-  const schedule = useStore(scheduleOf)
-  const palette = usePalette()
-  const { byTask } = runsOf(schedule)
-  return (
-    <ul className="insp-list">
-      {tasks.map((t) => (
-        <li key={t.id}>
-          <span className="swatch" style={{ background: palette.pipeline(t.pipelineId) }} />
-          <NodeLink id={jobNodeId(t.id)} />
-          <RunSummary runs={byTask.get(t.id) ?? []} />
-        </li>
+/** One row of a grouped list: its full name (what the filter matches) and how it renders. */
+interface Row {
+  id: string
+  name: string
+  node: ReactNode
+}
+
+/** A group's header: its name, swatch colour, and the header row's content. */
+interface Head {
+  label: string
+  color: string
+  node: ReactNode
+}
+
+/**
+ * A list section: rows in groups with a header each (a single group's name moves into the summary
+ * instead), a composition bar of the groups, a filter box for long lists, and "Show N more".
+ * Without `heads` the rows show as one plain list.
+ */
+function ListSection({ title, groups, heads }: { title: string; groups: Group<Row>[]; heads?: Map<string, Head> }) {
+  const [query, setQuery] = useState('')
+  const total = groups.reduce((n, g) => n + g.items.length, 0)
+  const q = query.trim().toLowerCase()
+  const shown = q ? filterGroups(groups, (r) => r.name.toLowerCase().includes(q)) : groups
+  const [limit, more] = useShowMore(
+    shown.reduce((n, g) => n + g.items.length, 0),
+    LIST_CAP,
+  )
+  const grouped = heads !== undefined && groups.length > 1
+  const bar = grouped && (
+    <span className="insp-bar" title={groups.map((g) => `${heads.get(g.key)!.label} ${g.items.length}`).join(' · ')}>
+      {groups.map((g) => (
+        <i key={g.key} style={{ flexGrow: g.items.length, background: heads.get(g.key)!.color }} />
       ))}
-    </ul>
+    </span>
+  )
+  const sizes = new Map(shown.map((g) => [g.key, g.items.length]))
+  return (
+    <Section title={title} count={total} note={!grouped && heads ? heads.get(groups[0].key)?.label : undefined} bar={bar}>
+      {total > FILTER_FROM && (
+        <input className="filter insp-filter" placeholder={`Filter ${total}…`} value={query} onChange={(e) => setQuery(e.target.value)} />
+      )}
+      <ul className={`insp-list${grouped ? ' grouped' : ''}`}>
+        {takeItems(shown, limit).map((g) => (
+          <Fragment key={g.key}>
+            {grouped && (
+              <li className="insp-group">
+                {heads.get(g.key)!.node}
+                <span>{sizes.get(g.key)}</span>
+              </li>
+            )}
+            {g.items.map((r) => (
+              <li key={r.id}>{r.node}</li>
+            ))}
+          </Fragment>
+        ))}
+      </ul>
+      {q && !shown.length && <p className="hint">Nothing matches.</p>}
+      {more}
+    </Section>
   )
 }
 
-function NodeList({ ids }: { ids: string[] }) {
+/** Jobs with their pipeline colour and a strip of today's runs; grouped under their pipelines when they span several, unless `flat`. */
+function JobSection({ title, tasks, ix, flat }: { title: string; tasks: Task[]; ix: Index; flat?: boolean }) {
+  const schedule = useStore(scheduleOf)
+  const palette = usePalette()
+  const { byTask } = runsOf(schedule)
+  const labels = listLabels(tasks.map((t) => t.name))
+  const rows: (Row & { pipelineId: string })[] = tasks.map((t) => {
+    const l = labels.get(t.name)!
+    return {
+      id: t.id,
+      name: t.name,
+      pipelineId: t.pipelineId,
+      node: (
+        <>
+          <span className="swatch" style={{ background: palette.pipeline(t.pipelineId) }} />
+          <NodeLink id={jobNodeId(t.id)}>
+            {l.short}
+            {l.rest && <span className="rest"> {l.rest}</span>}
+          </NodeLink>
+          <RunStrip runs={byTask.get(t.id) ?? []} />
+        </>
+      ),
+    }
+  })
+  const groups = groupItems(rows, (r) => r.pipelineId)
+  // One job per pipeline: headers would double the rows, and each row's swatch already names its pipeline.
+  if (flat || (groups.length > 1 && groups.length === rows.length)) return <ListSection title={title} groups={[{ key: '', items: rows }]} />
+  const heads = new Map<string, Head>()
+  for (const { key } of groups) {
+    const p = ix.pipelines.get(key)
+    heads.set(key, { label: p?.name ?? key, color: palette.pipeline(key), node: p ? <PipelineLink p={p} /> : <span>{key}</span> })
+  }
+  return <ListSection title={title} groups={groups} heads={heads} />
+}
+
+/** Tables (and sources) grouped by schema, each by its short name; the schema heads its group. */
+function NodeSection({ title, ids, ix }: { title: string; ids: string[]; ix: Index }) {
+  const graph = useStore((s) => s.graph)
+  const palette = usePalette()
+  const rows: (Row & { schema: string })[] = [...new Set(ids)]
+    .map((id) => {
+      const name = nodeName(graph, id)
+      // Paths and URLs (volumes, APIs) aren't dotted names: they keep their whole name.
+      const { short, prefix } = ix.tables.has(id) || !name.includes('/') ? splitName(name) : { short: name, prefix: '' }
+      return { id, name, schema: prefix, node: <NodeLink id={id}>{short}</NodeLink>, short }
+    })
+    .sort((a, b) => a.short.localeCompare(b.short))
+  const groups = groupItems(rows, (r) => r.schema)
+  const heads = new Map<string, Head>()
+  for (const g of groups) {
+    const table = g.items.map((r) => ix.tables.get(r.id)).find((t) => t)
+    const label = g.key || 'other'
+    const color = table ? palette.layer(table.layerId) : NEUTRAL
+    heads.set(g.key, {
+      label,
+      color,
+      node: (
+        <span className="insp-group-name" title={label}>
+          <span className="swatch" style={{ background: color }} />
+          {label}
+        </span>
+      ),
+    })
+  }
+  return <ListSection title={title} groups={groups} heads={heads} />
+}
+
+function Columns({ table }: { table: Table }) {
+  const [limit, more] = useShowMore(table.columns.length, LIST_CAP)
   return (
-    <ul className="insp-list">
-      {[...new Set(ids)].map((id) => (
-        <li key={id}>
-          <NodeLink id={id} />
-        </li>
-      ))}
-    </ul>
+    <Section title="Columns" count={table.columns.length}>
+      <ul className="insp-cols">
+        {table.columns.slice(0, limit).map((c) => (
+          <li key={c.name}>
+            <span>{c.name}</span>
+            {c.pk && <span className="key">PK</span>}
+            {c.fk && <span className="key">FK</span>}
+            <span className="muted">{c.type}</span>
+          </li>
+        ))}
+      </ul>
+      {more}
+    </Section>
   )
 }
 
@@ -186,7 +301,7 @@ export function Inspector() {
   if (!focused && !pipeline && !pathOpen) return null
   return (
     <aside className="inspector">
-      {pipeline ? <PipelineInspector id={pipeline} /> : focused ? <NodeInspector id={focused} /> : null}
+      {pipeline ? <PipelineInspector key={pipeline} id={pipeline} /> : focused ? <NodeInspector key={focused} id={focused} /> : null}
       {pathOpen && <PathSection />}
     </aside>
   )
@@ -260,16 +375,8 @@ function ReadWrite({ ix, id }: { ix: Index; id: string }) {
   const readers = ix.readers.get(id) ?? []
   return (
     <>
-      {writers.length > 0 && (
-        <Section title="Written by" count={writers.length}>
-          <JobList tasks={writers} />
-        </Section>
-      )}
-      {readers.length > 0 && (
-        <Section title="Read by" count={readers.length}>
-          <JobList tasks={readers} />
-        </Section>
-      )}
+      {writers.length > 0 && <JobSection title="Written by" tasks={writers} ix={ix} />}
+      {readers.length > 0 && <JobSection title="Read by" tasks={readers} ix={ix} />}
     </>
   )
 }
@@ -314,28 +421,9 @@ function TableInspector({ table, ix, onClose }: { table: Table; ix: Index; onClo
         <span className="muted">down</span>
       </div>
       <ReadWrite ix={ix} id={table.id} />
-      {out.length > 0 && (
-        <Section title="References" count={new Set(out).size}>
-          <NodeList ids={out} />
-        </Section>
-      )}
-      {into.length > 0 && (
-        <Section title="Referenced by" count={new Set(into).size}>
-          <NodeList ids={into} />
-        </Section>
-      )}
-      <Section title="Columns" count={table.columns.length}>
-        <ul className="insp-cols">
-          {table.columns.map((c) => (
-            <li key={c.name}>
-              <span>{c.name}</span>
-              {c.pk && <span className="key">PK</span>}
-              {c.fk && <span className="key">FK</span>}
-              <span className="muted">{c.type}</span>
-            </li>
-          ))}
-        </ul>
-      </Section>
+      {out.length > 0 && <NodeSection title="References" ids={out} ix={ix} />}
+      {into.length > 0 && <NodeSection title="Referenced by" ids={into} ix={ix} />}
+      <Columns table={table} />
       <div className="insp-actions">
         <TablePicker
           placeholder="Find join path to…"
@@ -375,16 +463,8 @@ function JobInspector({ task, ix, onClose }: { task: Task; ix: Index; onClose: (
         <span className="muted">Today</span>
         <RunSummary runs={runs} />
       </div>
-      {task.reads.length > 0 && (
-        <Section title="Reads" count={task.reads.length}>
-          <NodeList ids={task.reads} />
-        </Section>
-      )}
-      {task.writes.length > 0 && (
-        <Section title="Writes" count={task.writes.length}>
-          <NodeList ids={task.writes} />
-        </Section>
-      )}
+      {task.reads.length > 0 && <NodeSection title="Reads" ids={task.reads} ix={ix} />}
+      {task.writes.length > 0 && <NodeSection title="Writes" ids={task.writes} ix={ix} />}
       {cluster && (
         <div className="insp-row">
           <span className="muted">Runs on</span>
@@ -411,9 +491,7 @@ function ClusterInspector({ cluster, ix, onClose }: { cluster: Cluster; ix: Inde
         <span>{clusterSpec(cluster)}</span>
         {cluster.sparkVersion && <span className="muted">DBR {cluster.sparkVersion.split('.x')[0]}</span>}
       </div>
-      <Section title="Runs jobs" count={jobs.length}>
-        <JobList tasks={jobs} />
-      </Section>
+      <JobSection title="Runs jobs" tasks={jobs} ix={ix} />
       <Section title="Compute">
         <ComputeSection id={clusterNodeId(cluster.id)} />
       </Section>
@@ -429,7 +507,8 @@ function PipelineInspector({ id }: { id: string }) {
   const openTimeline = useStore((s) => s.openTimeline)
   const setLens = useStore((s) => s.setLens)
   const palette = usePalette()
-  const p = indexOf(graph).pipelines.get(id)
+  const ix = indexOf(graph)
+  const p = ix.pipelines.get(id)
   if (!p) return null
   const tables = new Set(p.tasks.flatMap((t) => [...t.reads, ...t.writes]))
   return (
@@ -450,9 +529,7 @@ function PipelineInspector({ id }: { id: string }) {
         <button className={only === p.id ? 'on' : ''} onClick={() => onlyPipeline(p.id)}>{only === p.id ? 'Show all' : 'Show only this'}</button>
         <button disabled={!schedule.taskRuns.length} onClick={() => openTimeline(p.id)}>Play its day</button>
       </div>
-      <Section title="Tasks" count={p.tasks.length}>
-        <JobList tasks={p.tasks} />
-      </Section>
+      <JobSection title="Tasks" tasks={p.tasks} ix={ix} flat />
     </>
   )
 }

@@ -97,3 +97,32 @@ Goal: narrow the prototype to one loop (search → select → inspect → trace 
 5. **Two views.** **Lineage**: Diagram from above by default, with *Lift to 3D* for Flow's slabs. **Day**: the timeline full height, with the lineage view as a small view kept in sync. Stack and Orbit go behind a labs flag. If Orbit stays, it uses lineage hops, since Unity Catalog snapshots have no FKs and every table lands in its out-of-range disk.
 6. **Day dock.** Clicking a bar selects the job and moves the camera to it. Speed reads `×1800`, not `30m/s`. The header fits on one line at 1280 px. Snapshot warnings stay behind the ⚠ chip instead of opening expanded over the scene, and use user-facing wording.
 7. **Readability at 600+ tables.** Short labels (`prime_contracts`, with `gold.procore` as secondary text). Labels that appear with zoom in Diagram. Bundled edges for hub jobs (one job writing 40 tables draws a star). Pipeline colours that stay distinct past 12. The toolbar fits on one row at 1280 px.
+
+## Phase 6: Lists and filtering — done
+
+Goal: less on screen at once, and an obvious place to start. Lists summarize first, show the rest on request, and use small charts where they used to repeat text.
+
+*Started 2026-10-17 from feedback that the Navigator, Inspector and Day lists were too dense to know where to begin.* Patterns borrowed:
+- overview first, then zoom and filter, then details on demand (Shneiderman 1996);
+- facet panels with counts and a search over the facets (Datadog Log Explorer, Kibana Discover);
+- active filters as chips with ✕ and one clear-all (Stripe, Linear);
+- results grouped by kind, and lineage expanded a level at a time (dbt Catalog, Databricks Catalog Explorer, DataHub).
+
+1. **Navigator as a facet panel.**
+   - One filter at the top, matching every word.
+   - Headings say how much is shown (`2 / 16`), and section actions move into ⋯.
+   - The swatch is the visibility toggle, replacing a column of checkboxes.
+   - Domains get magnitude bars, and pipelines get a day strip with one tick per run.
+   - Affixes the list shares are hidden until you hover.
+   - Failed / Ran / No runs chips, and *Show only these N* to apply a narrowed list to the picture.
+   - Lists are capped at 8 / 10 rows with *Show N more*. Pipelines with nothing in the picture move to a tail.
+2. **Showing bar** on the canvas: one chip per narrowing in force (domains, folds, pipelines, tables-only), each with ✕, plus *Reset*. A large workspace's tables-only default is now visible instead of silent.
+3. **Inspector lists.**
+   - Tables are grouped by schema and jobs by pipeline, with a composition bar in the heading.
+   - Lists show 8 rows then *Show N more*, with a filter past 12.
+   - Run strips replace per-row run text.
+   - Lists no longer start folded.
+4. **Day rows.** Rows are ordered by first run. Pipelines with no runs fold into one row. Lanes are capped at 3.
+5. **Search.** Results are grouped by kind with counts, and every word must match. Ranking goes exact, then starts-with, then word-start, then contains, so `project` puts the pipeline first instead of 40 tables.
+
+Not done: a smaller default scope for very large workspaces (for example, opening on one domain). At 93 pipelines the full picture is still dense. The Showing bar and the filters make narrowing one or two clicks, but nothing narrows on its own.
